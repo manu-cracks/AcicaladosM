@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
 import { HeroParticleTitle } from './HeroParticleTitle';
+
+// Carga diferida (lazy loading) del Visor 3D para optimizar WebGL y emular dynamic import
+const ModelViewer = lazy(() => import('./ModelViewer'));
 import {
   Scissors,
   Sparkles,
@@ -62,20 +65,28 @@ export const PublicLanding: React.FC = () => {
         {/* Subtle Background Glow */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] bg-[#C8A45C]/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto text-center relative z-10 space-y-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#181611] border border-[#C8A45C]/35 text-xs text-[#E6C875] font-medium shadow-sm">
+        {/* Capa del Modelo 3D Interactivo: Cobertura total absoluta para eliminar cualquier recorte (clipping) */}
+        <div className="absolute inset-0 w-full h-full z-10 pointer-events-auto">
+          <Suspense fallback={null}>
+            <ModelViewer className="w-full h-full" />
+          </Suspense>
+        </div>
+
+        {/* Contenedor del texto Hero: z-20 por encima del 3D con pointer-events-none para permitir interacción a través de las letras */}
+        <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto text-center relative z-20 pointer-events-none space-y-6">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#181611]/80 backdrop-blur-sm border border-[#C8A45C]/35 text-xs text-[#E6C875] font-medium shadow-sm pointer-events-auto">
             <Sparkles className="w-3.5 h-3.5 text-[#C8A45C]" />
             <span>Experiencia de Cuidado Personal & Estilo en Pichari</span>
           </div>
 
           <HeroParticleTitle />
 
-          <p className="max-w-2xl mx-auto text-sm sm:text-base text-neutral-400 font-normal leading-relaxed">
+          <p className="max-w-2xl mx-auto text-sm sm:text-base text-neutral-300 font-normal leading-relaxed drop-shadow-md">
             Un santuario exclusivo donde se fusionan las técnicas clásicas del afeitado a navaja,
             la maestría en cortes masculinos modernos y terapias de relajación profunda de spa.
           </p>
 
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3.5">
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3.5 pointer-events-auto">
             <button
               id="hero-reservar-cta"
               onClick={() => setActiveView('/reservar')}
@@ -88,14 +99,14 @@ export const PublicLanding: React.FC = () => {
 
             <button
               onClick={() => setActiveView('/servicios')}
-              className="w-full sm:w-auto px-7 py-3.5 rounded-xl font-medium text-sm bg-[#161616] hover:bg-[#1E1E1E] text-neutral-200 border border-[#C8A45C]/30 transition flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-7 py-3.5 rounded-xl font-medium text-sm bg-[#161616]/90 hover:bg-[#1E1E1E] text-neutral-200 border border-[#C8A45C]/30 transition flex items-center justify-center gap-2 backdrop-blur-sm"
             >
               <span>Explorar Carta de Servicios</span>
             </button>
           </div>
 
           {/* Quick Metrics */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-10 border-t border-neutral-800/80 max-w-3xl mx-auto text-left">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-10 border-t border-neutral-800/80 max-w-3xl mx-auto text-left pointer-events-auto">
             <div className="p-3 bg-[#121212] rounded-xl border border-neutral-800">
               <span className="block font-serif-luxury text-xl font-bold text-[#E6C875]">4.9 / 5</span>
               <span className="text-[11px] text-neutral-400">Calificación Google</span>
