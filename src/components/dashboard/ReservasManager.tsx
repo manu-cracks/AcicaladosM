@@ -22,6 +22,8 @@ import {
   Shield,
   Trash2,
   Pencil,
+  History,
+  Info,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -277,6 +279,7 @@ export const ReservasManager: React.FC = () => {
     employeeBlocks,
     paymentLogs,
     currentRole,
+    currentUser,
     paymentSettings,
     updatePaymentSettings,
     registerBookingPayment,
@@ -288,6 +291,9 @@ export const ReservasManager: React.FC = () => {
     addBooking,
     openTicketModal,
   } = useApp();
+
+  // Permisos: Administrador estricto vs Recepcionista
+  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
 
   // Filters
   const [dateFilter, setDateFilter] = useState<'hoy' | 'manana' | 'todas' | 'custom'>('hoy');
@@ -420,8 +426,12 @@ export const ReservasManager: React.FC = () => {
     setVoidReason('');
   };
 
-  // Handle Edit Reservation (Admin)
+  // Handle Edit Reservation (Admin only)
   const handleOpenEditModal = (b: Booking) => {
+    if (!isAdmin) {
+      alert('Acceso denegado: Solo el Administrador puede editar reservas.');
+      return;
+    }
     setSelectedBookingForEdit(b);
     setEditClientName(b.client_name);
     setEditClientPhone(b.client_phone);
@@ -433,6 +443,11 @@ export const ReservasManager: React.FC = () => {
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBookingForEdit) return;
+
+    if (!isAdmin) {
+      alert('Acceso no autorizado: Se requieren privilegios de Administrador para editar reservas.');
+      return;
+    }
 
     if (!isValidPhone(editClientPhone.trim())) {
       alert(PHONE_ERROR_MESSAGE);
@@ -452,7 +467,7 @@ export const ReservasManager: React.FC = () => {
 
   // Handle Delete Reservation (Admin only)
   const handleOpenDeleteModal = (b: Booking) => {
-    if (currentRole !== 'admin') {
+    if (!isAdmin) {
       alert('Acceso denegado: Solo el Administrador puede eliminar reservas permanentemente.');
       return;
     }
@@ -463,7 +478,7 @@ export const ReservasManager: React.FC = () => {
   const handleConfirmDelete = async () => {
     if (!bookingToDelete) return;
 
-    if (currentRole !== 'admin') {
+    if (!isAdmin) {
       alert('Acceso no autorizado: Se requieren privilegios de Administrador para eliminar reservas.');
       setIsDeleteModalOpen(false);
       setBookingToDelete(null);
@@ -511,11 +526,11 @@ export const ReservasManager: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {currentRole === 'admin' && (
+          {isAdmin && (
             <button
               type="button"
               onClick={() => setIsSettingsModalOpen(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-medium text-neutral-300 hover:text-white bg-[#181818] hover:bg-[#202020] border border-neutral-800 flex items-center gap-1.5 transition"
+              className="px-3.5 py-2 rounded-xl text-xs font-medium text-neutral-300 hover:text-white bg-[#181818] hover:bg-[#202020] border border-neutral-800 flex items-center gap-1.5 transition cursor-pointer"
             >
               <Settings className="w-3.5 h-3.5 text-[#C8A45C]" />
               <span>Configurar Pagos Yape</span>
@@ -600,6 +615,76 @@ export const ReservasManager: React.FC = () => {
         </div>
       </div>
 
+      {/* Action Buttons Legend (Responsivo y Adaptable) */}
+      <div className="bg-[#141414] border border-neutral-800/80 rounded-2xl p-3 sm:px-4 sm:py-3 shadow-md">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-neutral-400 shrink-0">
+            <div className="p-1 rounded-md bg-[#C8A45C]/15 border border-[#C8A45C]/30 text-[#C8A45C]">
+              <Info className="w-3.5 h-3.5" />
+            </div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-200">
+              Leyenda de Acciones:
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:flex xl:flex-wrap xl:items-center gap-2.5 sm:gap-3.5 text-[11px]">
+            {/* 1. Cobrar */}
+            <div className="flex items-center gap-1.5" title="Registrar cobro en caja">
+              <span className="px-2 py-0.5 rounded bg-[#C8A45C] text-black font-bold text-[10px] shadow-sm shrink-0">
+                💳 Cobrar
+              </span>
+              <span className="text-neutral-400">Cobro en caja</span>
+            </div>
+
+            {/* 2. Historial de Pagos & Auditoría */}
+            <div className="flex items-center gap-1.5" title="Historial de pagos y auditoría">
+              <span className="p-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700/50 shrink-0 flex items-center justify-center">
+                <History className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-neutral-400">Historial / Auditoría</span>
+            </div>
+
+            {/* 3. Ticket Térmico */}
+            <div className="flex items-center gap-1.5" title="Imprimir ticket térmico">
+              <span className="p-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700/50 shrink-0 flex items-center justify-center">
+                <Printer className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-neutral-400">Ticket térmico</span>
+            </div>
+
+            {/* 4. WhatsApp */}
+            <div className="flex items-center gap-1.5" title="Enviar recordatorio WhatsApp">
+              <span className="p-1 rounded bg-neutral-800 text-emerald-400 border border-emerald-900/50 shrink-0 flex items-center justify-center">
+                <MessageSquare className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-neutral-400">WhatsApp</span>
+            </div>
+
+            {/* 5. Editar Reserva (Solo Admin) */}
+            <div className="flex items-center gap-1.5" title="Editar reserva (Solo Administrador)">
+              <span className="p-1 rounded bg-neutral-800 text-amber-300 border border-amber-900/50 shrink-0 flex items-center justify-center">
+                <Pencil className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-neutral-400">Editar</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-800/40 shrink-0">
+                Solo Admin
+              </span>
+            </div>
+
+            {/* 6. Eliminar Reserva (Solo Admin) */}
+            <div className="flex items-center gap-1.5" title="Eliminar reserva permanentemente (Solo Administrador)">
+              <span className="p-1 rounded bg-neutral-800 text-red-400 border border-red-900/50 shrink-0 flex items-center justify-center">
+                <Trash2 className="w-3.5 h-3.5" />
+              </span>
+              <span className="text-neutral-400">Eliminar</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-800/40 shrink-0">
+                Solo Admin
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Table */}
       <div className="bg-[#141414] border border-neutral-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
@@ -614,7 +699,7 @@ export const ReservasManager: React.FC = () => {
                 <th className="py-3.5 px-4 text-right">Cobrado</th>
                 <th className="py-3.5 px-4 text-right">Saldo</th>
                 <th className="py-3.5 px-4 text-center whitespace-nowrap min-w-[140px]">Estado Pago</th>
-                <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[180px]">Acciones</th>
+                <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[190px]">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60">
@@ -707,7 +792,7 @@ export const ReservasManager: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleOpenPaymentModal(b)}
-                              className="px-2.5 py-1 rounded bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-semibold text-[11px] transition shadow"
+                              className="px-2.5 py-1 rounded bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-semibold text-[11px] transition shadow cursor-pointer"
                               title="Registrar cobro"
                             >
                               💳 Cobrar
@@ -720,17 +805,17 @@ export const ReservasManager: React.FC = () => {
                                 setSelectedBookingForHistory(b);
                                 setIsHistoryModalOpen(true);
                               }}
-                              className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition"
+                              className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition cursor-pointer border border-neutral-700/50"
                               title="Historial de pagos y auditoría"
                             >
-                              📜
+                              <History className="w-3.5 h-3.5" />
                             </button>
 
                             {/* Print Ticket */}
                             <button
                               type="button"
                               onClick={() => openTicketModal('booking', b)}
-                              className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition"
+                              className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition cursor-pointer border border-neutral-700/50"
                               title="Imprimir ticket térmico"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -743,14 +828,14 @@ export const ReservasManager: React.FC = () => {
                               )}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="p-1.5 rounded bg-neutral-800 hover:bg-emerald-900/50 text-emerald-400 transition"
+                              className="p-1.5 rounded bg-neutral-800 hover:bg-emerald-900/50 text-emerald-400 transition border border-emerald-900/40"
                               title="Enviar recordatorio WhatsApp"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
                             </a>
 
-                            {/* Botón Editar Reserva (Administrador) */}
-                            {currentRole === 'admin' && (
+                            {/* Botón Editar Reserva (Exclusivo Administrador - Oculto para Recepcionista) */}
+                            {isAdmin && (
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditModal(b)}
@@ -762,7 +847,7 @@ export const ReservasManager: React.FC = () => {
                             )}
 
                             {/* Botón Eliminar Reserva (Exclusivo Administrador - Oculto para Recepcionista) */}
-                            {currentRole === 'admin' && (
+                            {isAdmin && (
                               <button
                                 type="button"
                                 onClick={() => handleOpenDeleteModal(b)}
@@ -1037,7 +1122,7 @@ export const ReservasManager: React.FC = () => {
                       )}
                     </div>
 
-                    {!p.voided && currentRole === 'admin' && (
+                    {!p.voided && isAdmin && (
                       <button
                         type="button"
                         onClick={() => setVoidingPaymentId(p.id)}
@@ -1089,7 +1174,7 @@ export const ReservasManager: React.FC = () => {
       )}
 
       {/* MODAL 3: Configurar Pagos Yape (Admin Only) */}
-      {isSettingsModalOpen && currentRole === 'admin' && (
+      {isSettingsModalOpen && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-[#141414] border border-[#C8A45C]/40 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
             <div className="flex justify-between items-center border-b border-neutral-800 pb-3">
