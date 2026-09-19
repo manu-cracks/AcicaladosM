@@ -24,6 +24,7 @@ import {
   Pencil,
   History,
   Info,
+  Check,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -271,6 +272,147 @@ const ServiceSpecialistSelector: React.FC<ServiceSpecialistSelectorProps> = ({
   );
 };
 
+interface ServicePriceEditorProps {
+  bookingId: string;
+  serviceIndex: number;
+  priceCents: number;
+  isAdmin: boolean;
+  onUpdatePrice: (bookingId: string, serviceIndex: number, newPriceCents: number) => Promise<void>;
+}
+
+const ServicePriceEditor: React.FC<ServicePriceEditorProps> = ({
+  bookingId,
+  serviceIndex,
+  priceCents,
+  isAdmin,
+  onUpdatePrice,
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [priceInput, setPriceInput] = useState((priceCents / 100).toFixed(2));
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  // Sincronizar precio si cambia externamente mientras no se edita
+  React.useEffect(() => {
+    if (!isEditing) {
+      setPriceInput((priceCents / 100).toFixed(2));
+    }
+  }, [priceCents, isEditing]);
+
+  // Si no es administrador, mostrar texto estático
+  if (!isAdmin) {
+    return (
+      <span className="font-bold text-[#E6C875]">
+        {formatSoles(priceCents)}
+      </span>
+    );
+  }
+
+  const handleStartEdit = () => {
+    setPriceInput((priceCents / 100).toFixed(2));
+    setIsEditing(true);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 50);
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setPriceInput((priceCents / 100).toFixed(2));
+  };
+
+  const handleSave = async () => {
+    const rawVal = priceInput.replace(',', '.').trim();
+    const num = parseFloat(rawVal);
+    if (isNaN(num) || num < 0) {
+      alert('Por favor ingrese un precio numérico válido mayor o igual a 0.');
+      return;
+    }
+
+    const newCents = Math.round(num * 100);
+    if (newCents === priceCents) {
+      setIsEditing(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await onUpdatePrice(bookingId, serviceIndex, newCents);
+      setIsEditing(false);
+    } catch (err: any) {
+      alert(`No se pudo actualizar el precio: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="inline-flex items-center gap-1 bg-[#121212] border border-[#C8A45C]/60 rounded-lg px-2 py-1 shadow-inner">
+        <span className="text-[11px] font-bold text-[#C8A45C] select-none">S/</span>
+        <input
+          ref={inputRef}
+          type="number"
+          step="0.50"
+          min="0"
+          disabled={isSaving}
+          value={priceInput}
+          onChange={(e) => setPriceInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSave();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              handleCancel();
+            }
+          }}
+          className="w-16 bg-transparent text-xs font-bold text-white text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          autoFocus
+        />
+        <button
+          type="button"
+          disabled={isSaving}
+          onClick={handleSave}
+          className="p-1 rounded hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-300 transition cursor-pointer disabled:opacity-50"
+          title="Guardar nuevo precio (Enter)"
+        >
+          <Check className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={isSaving}
+          onClick={handleCancel}
+          className="p-1 rounded hover:bg-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer disabled:opacity-50"
+          title="Cancelar (Esc)"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+        {isSaving && (
+          <span className="text-[10px] text-[#C8A45C] animate-pulse font-medium">...</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1.5 group">
+      <span className="font-bold text-[#E6C875]">
+        {formatSoles(priceCents)}
+      </span>
+      <button
+        type="button"
+        onClick={handleStartEdit}
+        className="p-1 rounded text-neutral-400 hover:text-[#C8A45C] hover:bg-neutral-800/80 transition cursor-pointer border border-transparent hover:border-[#C8A45C]/30"
+        title="Modificar precio del servicio (Solo Administrador)"
+      >
+        <Pencil className="w-3 h-3" />
+      </button>
+    </div>
+  );
+};
+
 export const ReservasManager: React.FC = () => {
   const {
     bookings,
@@ -286,6 +428,7 @@ export const ReservasManager: React.FC = () => {
     voidPayment,
     liberateServiceEarly,
     reassignBookingService,
+    updateBookingServicePrice,
     deleteBooking,
     editBooking,
     addBooking,
@@ -893,9 +1036,13 @@ export const ReservasManager: React.FC = () => {
                                     />
 
                                     <div className="flex items-center gap-3">
-                                      <span className="font-bold text-[#E6C875]">
-                                        {formatSoles(srv.price_cents)}
-                                      </span>
+                                      <ServicePriceEditor
+                                        bookingId={b.id}
+                                        serviceIndex={sIdx}
+                                        priceCents={srv.price_cents}
+                                        isAdmin={isAdmin}
+                                        onUpdatePrice={updateBookingServicePrice}
+                                      />
 
                                       {srv.liberado_at ? (
                                         <span className="px-2.5 py-1 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 text-[10px] font-semibold flex items-center gap-1.5 shadow-sm">

@@ -17,6 +17,7 @@ import {
   CartItem,
   WardrobeStatus,
   LightboxData,
+  PaymentStatus,
   getBookingCollectedAmountCents,
 } from '../types';
 import {
@@ -112,6 +113,7 @@ interface AppContextType {
   voidPayment: (paymentId: string, reason: string) => void;
   liberateServiceEarly: (bookingId: string, serviceIndex: number) => void;
   reassignBookingService: (bookingId: string, serviceIndex: number, newEmployeeId: string, newEmployeeName: string) => Promise<void>;
+  updateBookingServicePrice: (bookingId: string, serviceIndex: number, newPriceCents: number) => Promise<void>;
   deleteBooking: (bookingId: string) => Promise<boolean>;
   editBooking: (bookingId: string, updates: Partial<Booking>) => Promise<boolean>;
 
@@ -1329,6 +1331,111 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     },
     [bookings, pulseRealtime]
+  );
+
+  const updateBookingServicePrice = useCallback(
+    async (bookingId: string, serviceIndex: number, newPriceCents: number) => {
+      // 1. Verificación de rol: solo Administrador
+      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+      if (!isEffectiveAdmin) {
+        throw new Error('Permiso denegado: Solo el Administrador puede modificar los precios de servicios individuales.');
+      }
+
+      if (newPriceCents < 0 || isNaN(newPriceCents)) {
+        throw new Error('El precio debe ser un número válido mayor o igual a 0.');
+      }
+
+      let updatedTotalPriceCents = 0;
+      let updatedBalanceCents = 0;
+      let updatedPaymentStatus: PaymentStatus = 'sin_pago';
+
+      // 2. Actualización optimista inmediata en estado local de React
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            const updatedServices = [...(b.services || [])];
+            if (updatedServices[serviceIndex]) {
+              updatedServices[serviceIndex] = {
+                ...updatedServices[serviceIndex],
+                price_cents: newPriceCents,
+              };
+            }
+            const newTotal = updatedServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+            const advance = b.advance_amount_cents || 0;
+            const newBalance = Math.max(0, newTotal - advance);
+            const newStatus: PaymentStatus =
+              advance >= newTotal && newTotal > 0
+                ? 'total'
+                : advance > 0
+                ? 'parcial'
+                : 'sin_pago';
+
+            updatedTotalPriceCents = newTotal;
+            updatedBalanceCents = newBalance;
+            updatedPaymentStatus = newStatus;
+
+            return {
+              ...b,
+              services: updatedServices,
+              total_price_cents: newTotal,
+              payment_status: newStatus,
+            };
+          }
+          return b;
+        })
+      );
+      pulseRealtime();
+
+      // 3. Persistencia en Supabase
+      if (bookingId.includes('-') && bookingId.length === 36) {
+        try {
+          const currentBooking = bookings.find((b) => b.id === bookingId);
+          const serviceRow = currentBooking?.services?.[serviceIndex];
+          const serviceRowId = serviceRow?.id;
+
+          if (serviceRowId && serviceRowId.includes('-') && serviceRowId.length === 36) {
+            const { error: srvErr } = await supabase
+              .from('booking_services')
+              .update({ service_price_cents: newPriceCents })
+              .eq('id', serviceRowId);
+            if (srvErr) throw srvErr;
+          } else {
+            const { data: dbServices, error: fetchErr } = await supabase
+              .from('booking_services')
+              .select('id')
+              .eq('booking_id', bookingId)
+              .order('created_at', { ascending: true });
+            if (fetchErr) throw fetchErr;
+
+            if (dbServices && dbServices[serviceIndex]) {
+              const { error: updateErr } = await supabase
+                .from('booking_services')
+                .update({ service_price_cents: newPriceCents })
+                .eq('id', dbServices[serviceIndex].id);
+              if (updateErr) throw updateErr;
+            }
+          }
+
+          // Actualizar adicionalmente la cabecera en bookings desde frontend
+          if (updatedTotalPriceCents >= 0) {
+            await supabase
+              .from('bookings')
+              .update({
+                total_price_cents: updatedTotalPriceCents,
+                balance_cents: updatedBalanceCents,
+                payment_status: updatedPaymentStatus,
+              })
+              .eq('id', bookingId);
+          }
+
+          pulseRealtime();
+        } catch (err: any) {
+          console.error('Error al actualizar precio de servicio en Supabase:', err);
+          throw new Error(err?.message || 'Error al persistir el nuevo precio.');
+        }
+      }
+    },
+    [bookings, currentRole, currentUser, pulseRealtime]
   );
 
   const deleteBooking = useCallback(async (bookingId: string): Promise<boolean> => {
@@ -2643,6 +2750,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         voidPayment,
         liberateServiceEarly,
         reassignBookingService,
+        updateBookingServicePrice,
         deleteBooking,
         editBooking,
         registerVentaMostrador,
