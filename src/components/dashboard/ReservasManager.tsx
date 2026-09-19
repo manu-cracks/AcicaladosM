@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
@@ -444,6 +444,14 @@ export const ReservasManager: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Bloqueo estricto de fechas: Recepcionista solo tiene acceso a las citas de "Hoy"
+  useEffect(() => {
+    if (!isAdmin && (dateFilter !== 'hoy' || customDate !== '')) {
+      setDateFilter('hoy');
+      setCustomDate('');
+    }
+  }, [isAdmin, dateFilter, customDate]);
+
   // Expandable Row State
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
 
@@ -487,16 +495,17 @@ export const ReservasManager: React.FC = () => {
 
   // Filter Bookings
   const filteredBookings = useMemo(() => {
+    const effectiveDateFilter = isAdmin ? dateFilter : 'hoy';
     return bookings.filter((b) => {
-      // Date filter
-      if (dateFilter === 'hoy' && b.date !== todayStr) return false;
-      if (dateFilter === 'manana') {
+      // Date filter (Recepcionista forzada estrictamente al día de "Hoy")
+      if (effectiveDateFilter === 'hoy' && b.date !== todayStr) return false;
+      if (isAdmin && effectiveDateFilter === 'manana') {
         const t = new Date();
         t.setDate(t.getDate() + 1);
         const mananaStr = t.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
         if (b.date !== mananaStr) return false;
       }
-      if (dateFilter === 'custom' && customDate && b.date !== customDate) return false;
+      if (isAdmin && effectiveDateFilter === 'custom' && customDate && b.date !== customDate) return false;
 
       // Category filter
       if (categoryFilter !== 'all' && b.type !== categoryFilter) return false;
@@ -513,7 +522,7 @@ export const ReservasManager: React.FC = () => {
 
       return true;
     });
-  }, [bookings, categoryFilter, customDate, dateFilter, searchQuery, todayStr]);
+  }, [bookings, categoryFilter, customDate, dateFilter, isAdmin, searchQuery, todayStr]);
 
   // Open Payment Modal
   const handleOpenPaymentModal = (b: Booking) => {
@@ -696,38 +705,58 @@ export const ReservasManager: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Fast Date Filters */}
           <div className="flex items-center gap-1.5">
-            {(['hoy', 'manana', 'todas'] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => {
-                  setDateFilter(d);
-                  setCustomDate('');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
-                  dateFilter === d
-                    ? 'bg-[#C8A45C] text-black font-semibold'
-                    : 'bg-[#1A1A1A] text-neutral-400 hover:text-white'
-                }`}
-              >
-                {d === 'todas' ? 'Todas' : d === 'hoy' ? 'Hoy' : 'Mañana'}
-              </button>
-            ))}
-
-            <input
-              type="date"
-              value={customDate}
-              onChange={(e) => {
-                const val = e.target.value;
-                setCustomDate(val);
-                if (val) {
-                  setDateFilter('custom');
-                } else {
-                  setDateFilter('hoy');
-                }
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilter('hoy');
+                setCustomDate('');
               }}
-              className="bg-[#1A1A1A] border border-neutral-800 text-xs text-white px-2.5 py-1.5 rounded-lg outline-none"
-            />
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
+                dateFilter === 'hoy'
+                  ? 'bg-[#C8A45C] text-black font-semibold shadow-sm'
+                  : 'bg-[#1A1A1A] text-neutral-400 hover:text-white'
+              }`}
+            >
+              Hoy
+            </button>
+
+            {isAdmin && (
+              <>
+                {(['manana', 'todas'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setDateFilter(d);
+                      setCustomDate('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
+                      dateFilter === d
+                        ? 'bg-[#C8A45C] text-black font-semibold shadow-sm'
+                        : 'bg-[#1A1A1A] text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {d === 'todas' ? 'Todas' : 'Mañana'}
+                  </button>
+                ))}
+
+                <input
+                  type="date"
+                  value={customDate}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomDate(val);
+                    if (val) {
+                      setDateFilter('custom');
+                    } else {
+                      setDateFilter('hoy');
+                    }
+                  }}
+                  className="bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] text-xs text-white px-2.5 py-1.5 rounded-lg outline-none transition"
+                  title="Seleccionar fecha específica"
+                />
+              </>
+            )}
           </div>
 
           {/* Category Dropdown */}

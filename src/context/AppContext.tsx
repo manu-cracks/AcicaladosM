@@ -442,6 +442,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const { data: sessionData } = await supabase.auth.getSession();
       const currentAuthUser = sessionData?.session?.user;
 
+      const cachedRole = getCachedRole();
+      let effectiveRole: string = currentRole || cachedRole;
+
       if (currentAuthUser) {
         const { data: userProfile } = await supabase
           .from('profiles')
@@ -449,6 +452,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .eq('id', currentAuthUser.id)
           .maybeSingle();
         const role = userProfile?.role || 'cliente';
+        effectiveRole = role;
         if (role === 'cliente') {
           if (currentAuthUser.email) {
             bookingsQuery = bookingsQuery.or(`user_id.eq.${currentAuthUser.id},client_email.eq.${currentAuthUser.email}`);
@@ -457,11 +461,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
       } else {
-        const cachedRole = getCachedRole();
-        if (cachedRole !== 'admin' && cachedRole !== 'recepcionista') {
+        if (effectiveRole !== 'admin' && effectiveRole !== 'recepcionista') {
           // Usuario no autenticado que no es personal: no exponer reservas ajenas
           bookingsQuery = bookingsQuery.eq('user_id', '00000000-0000-0000-0000-000000000000');
         }
+      }
+
+      // Restricción estricta de seguridad para Recepcionista: Solo consultar reservas del día de Hoy
+      if (effectiveRole === 'recepcionista') {
+        const todayStr = getTodayDateString();
+        bookingsQuery = bookingsQuery.eq('booking_date', todayStr);
       }
 
       const { data: dbBookings, error: bookingsError } = await bookingsQuery;
@@ -666,7 +675,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (err) {
       console.warn('Conexión en línea con Supabase completada con fallbacks:', err);
     }
-  }, []);
+  }, [currentRole]);
 
   const pulseRealtime = useCallback(() => {
     setLastSyncTimestamp(new Date());
