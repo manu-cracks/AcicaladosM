@@ -457,8 +457,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         }
       } else {
-        // Usuario no autenticado: no exponer reservas ajenas
-        bookingsQuery = bookingsQuery.eq('user_id', '00000000-0000-0000-0000-000000000000');
+        const cachedRole = getCachedRole();
+        if (cachedRole !== 'admin' && cachedRole !== 'recepcionista') {
+          // Usuario no autenticado que no es personal: no exponer reservas ajenas
+          bookingsQuery = bookingsQuery.eq('user_id', '00000000-0000-0000-0000-000000000000');
+        }
       }
 
       const { data: dbBookings, error: bookingsError } = await bookingsQuery;
@@ -501,6 +504,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }) : [],
             total_price_cents: b.total_price_cents,
             advance_amount_cents: b.advance_amount_cents || 0,
+            balance_cents: b.balance_cents != null ? b.balance_cents : Math.max(0, (b.total_price_cents || 0) - (b.advance_amount_cents || 0)),
             payment_status: b.payment_status as any,
             created_at: b.created_at,
             confirmed_at: b.confirmed_at || undefined,
@@ -1096,83 +1100,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newBooking;
   }, [paymentSettings.advance_percentage, pulseRealtime, employees, services]);
 
-  const registerBookingPayment = useCallback((
-    bookingId: string,
-    amountCents: number,
-    method: 'yape' | 'efectivo' | 'transferencia' | 'mixto' | string,
-    cashCents = 0,
-    yapeCents = 0,
-    voucherUrl?: string,
-    notes?: string
-  ) => {
-    const today = getTodayDateString();
-    setBookings((prev) => {
-      return prev.map((b) => {
-        if (b.id === bookingId) {
-          const newAdvance = b.advance_amount_cents + amountCents;
+  const registerBookingPayment = useCallback(
+    async (
+      bookingId: string,
+      amountCents: number,
+      method: 'yape' | 'efectivo' | 'transferencia' | 'mixto' | string,
+      cashCents = 0,
+      yapeCents = 0,
+      voucherUrl?: string,
+      notes?: string
+    ) => {
+      const today = getTodayDateString();
+      const targetBooking = bookings.find((b) => b.id === bookingId);
+      const prevAdvance = targetBooking?.advance_amount_cents || 0;
+      const totalPrice = targetBooking?.total_price_cents || 0;
+      const newAdvance = prevAdvance + amountCents;
+      const newBalance = Math.max(0, totalPrice - newAdvance);
 
-          let paymentStatus: Booking['payment_status'] = 'sin_pago';
-          if (newAdvance >= b.total_price_cents) {
-            paymentStatus = 'total';
-          } else if (newAdvance > 0) {
-            paymentStatus = 'parcial';
+      let payStatus: Booking['payment_status'] = 'sin_pago';
+      if (newAdvance >= totalPrice && totalPrice > 0) {
+        payStatus = 'total';
+      } else if (newAdvance > 0) {
+        payStatus = 'parcial';
+      }
+
+      setBookings((prev) => {
+        return prev.map((b) => {
+          if (b.id === bookingId) {
+            return {
+              ...b,
+              advance_amount_cents: newAdvance,
+              balance_cents: newBalance,
+              payment_status: payStatus,
+              confirmed_at: b.confirmed_at || (newAdvance > 0 ? `${today}T12:00:00Z` : undefined),
+            };
           }
-
-          return {
-            ...b,
-            advance_amount_cents: newAdvance,
-            payment_status: paymentStatus,
-            confirmed_at: b.confirmed_at || (newAdvance > 0 ? `${today}T12:00:00Z` : undefined),
-          };
-        }
-        return b;
+          return b;
+        });
       });
-    });
 
-    const targetBooking = bookings.find((b) => b.id === bookingId);
-    const newLog: PaymentLog = {
-      id: `pay-${Date.now()}`,
-      booking_id: bookingId,
-      booking_code: targetBooking?.code || 'AC-0000',
-      amount_cents: amountCents,
-      payment_method: method,
-      cash_cents: cashCents,
-      yape_cents: yapeCents,
-      voucher_url: voucherUrl,
-      notes: notes,
-      created_at: `${today}T12:00:00Z`,
-      voided: false,
-    };
-    setPaymentLogs((prev) => [newLog, ...prev]);
-    pulseRealtime();
-
-    // Guardar log en Supabase y actualizar reserva
-    if (bookingId.includes('-') && bookingId.length === 36) {
-      supabase.from('payment_logs').insert({
+      const newLog: PaymentLog = {
+        id: `pay-${Date.now()}`,
         booking_id: bookingId,
+        booking_code: targetBooking?.code || 'AC-0000',
         amount_cents: amountCents,
         payment_method: method,
-        cash_amount_cents: cashCents,
-        yape_amount_cents: yapeCents,
-        proof_url: voucherUrl || null,
-        notes: notes || null,
-        status: 'verified',
-      }).then();
+        cash_cents: cashCents,
+        yape_cents: yapeCents,
+        voucher_url: voucherUrl,
+        notes: notes,
+        created_at: `${today}T12:00:00Z`,
+        voided: false,
+      };
+      setPaymentLogs((prev) => [newLog, ...prev]);
+      pulseRealtime();
 
-      const newAdvance = (targetBooking?.advance_amount_cents || 0) + amountCents;
-      const totalPrice = targetBooking?.total_price_cents || 0;
-      const payStatus = newAdvance >= totalPrice ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago';
+      // Guardar log en Supabase y actualizar reserva
+      if (bookingId.includes('-') && bookingId.length === 36) {
+        try {
+          await supabase.from('payment_logs').insert({
+            booking_id: bookingId,
+            amount_cents: amountCents,
+            payment_method: method,
+            cash_amount_cents: cashCents,
+            yape_amount_cents: yapeCents,
+            proof_url: voucherUrl || null,
+            notes: notes || null,
+            status: 'verified',
+          });
 
-      supabase.from('bookings').update({
-        advance_amount_cents: newAdvance,
-        balance_cents: Math.max(0, totalPrice - newAdvance),
-        payment_status: payStatus,
-        confirmed_at: newAdvance > 0 ? (targetBooking?.confirmed_at || new Date().toISOString()) : null,
-      }).eq('id', bookingId).then(() => {
-        pulseRealtime();
-      });
-    }
-  }, [bookings, pulseRealtime]);
+          await supabase.from('bookings').update({
+            advance_amount_cents: newAdvance,
+            balance_cents: newBalance,
+            payment_status: payStatus,
+            confirmed_at: newAdvance > 0 ? (targetBooking?.confirmed_at || new Date().toISOString()) : null,
+          }).eq('id', bookingId);
+
+          pulseRealtime();
+        } catch (err) {
+          console.error('Error al registrar pago en Supabase:', err);
+        }
+      }
+    },
+    [bookings, pulseRealtime]
+  );
 
   const voidPayment = useCallback((paymentId: string, reason: string) => {
     const payment = paymentLogs.find((p) => p.id === paymentId);
@@ -1191,7 +1202,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (b.id === payment.booking_id) {
           const newAdvance = Math.max(0, b.advance_amount_cents - payment.amount_cents);
           let newPayStatus: Booking['payment_status'] = 'sin_pago';
-          if (newAdvance >= b.total_price_cents) {
+          if (newAdvance >= b.total_price_cents && b.total_price_cents > 0) {
             newPayStatus = 'total';
           } else if (newAdvance > 0) {
             newPayStatus = 'parcial';
@@ -1199,6 +1210,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...b,
             advance_amount_cents: newAdvance,
+            balance_cents: Math.max(0, b.total_price_cents - newAdvance),
             payment_status: newPayStatus,
           };
         }
@@ -1345,39 +1357,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error('El precio debe ser un número válido mayor o igual a 0.');
       }
 
-      let updatedTotalPriceCents = 0;
-      let updatedBalanceCents = 0;
-      let updatedPaymentStatus: PaymentStatus = 'sin_pago';
+      const targetBooking = bookings.find((b) => b.id === bookingId);
+      if (!targetBooking) {
+        throw new Error('Reserva no encontrada');
+      }
+
+      const updatedServices = [...(targetBooking.services || [])];
+      if (updatedServices[serviceIndex]) {
+        updatedServices[serviceIndex] = {
+          ...updatedServices[serviceIndex],
+          price_cents: newPriceCents,
+        };
+      }
+      const newTotal = updatedServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+      const advance = targetBooking.advance_amount_cents || 0;
+      const newBalance = Math.max(0, newTotal - advance);
+      const newStatus: PaymentStatus =
+        advance >= newTotal && newTotal > 0
+          ? 'total'
+          : advance > 0
+          ? 'parcial'
+          : 'sin_pago';
 
       // 2. Actualización optimista inmediata en estado local de React
       setBookings((prev) =>
         prev.map((b) => {
           if (b.id === bookingId) {
-            const updatedServices = [...(b.services || [])];
-            if (updatedServices[serviceIndex]) {
-              updatedServices[serviceIndex] = {
-                ...updatedServices[serviceIndex],
-                price_cents: newPriceCents,
-              };
-            }
-            const newTotal = updatedServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
-            const advance = b.advance_amount_cents || 0;
-            const newBalance = Math.max(0, newTotal - advance);
-            const newStatus: PaymentStatus =
-              advance >= newTotal && newTotal > 0
-                ? 'total'
-                : advance > 0
-                ? 'parcial'
-                : 'sin_pago';
-
-            updatedTotalPriceCents = newTotal;
-            updatedBalanceCents = newBalance;
-            updatedPaymentStatus = newStatus;
-
             return {
               ...b,
               services: updatedServices,
               total_price_cents: newTotal,
+              balance_cents: newBalance,
               payment_status: newStatus,
             };
           }
@@ -1389,8 +1399,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 3. Persistencia en Supabase
       if (bookingId.includes('-') && bookingId.length === 36) {
         try {
-          const currentBooking = bookings.find((b) => b.id === bookingId);
-          const serviceRow = currentBooking?.services?.[serviceIndex];
+          const serviceRow = targetBooking.services?.[serviceIndex];
           const serviceRowId = serviceRow?.id;
 
           if (serviceRowId && serviceRowId.includes('-') && serviceRowId.length === 36) {
@@ -1416,17 +1425,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           }
 
-          // Actualizar adicionalmente la cabecera en bookings desde frontend
-          if (updatedTotalPriceCents >= 0) {
-            await supabase
-              .from('bookings')
-              .update({
-                total_price_cents: updatedTotalPriceCents,
-                balance_cents: updatedBalanceCents,
-                payment_status: updatedPaymentStatus,
-              })
-              .eq('id', bookingId);
-          }
+          // Actualizar la cabecera en bookings con los montos recalculados
+          const { error: bookingErr } = await supabase
+            .from('bookings')
+            .update({
+              total_price_cents: newTotal,
+              balance_cents: newBalance,
+              payment_status: newStatus,
+            })
+            .eq('id', bookingId);
+          if (bookingErr) throw bookingErr;
 
           pulseRealtime();
         } catch (err: any) {

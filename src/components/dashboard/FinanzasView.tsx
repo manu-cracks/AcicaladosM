@@ -20,10 +20,14 @@ export const FinanzasView: React.FC = () => {
     if (!concept.trim() || amountCents <= 0) return;
 
     addExpense({
+      description: concept.trim(),
       concept: concept.trim(),
       amount_cents: amountCents,
       category,
+      payment_method: 'efectivo',
+      beneficiary: responsible,
       responsible,
+      date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }),
     });
 
     setConcept('');

@@ -5,7 +5,7 @@
  * Zona Horaria: America/Lima (UTC-5)
  */
 
-export type UserRole = 'admin' | 'recepcionista' | 'empleado' | 'cliente' | 'anon';
+export type UserRole = 'admin' | 'recepcionista' | 'empleado' | 'cliente' | 'anon' | 'anonimo';
 
 export type BusinessCategory = 'barberia' | 'spa' | 'mixto';
 
@@ -154,6 +154,7 @@ export interface EmployeeAppointmentItem {
   start_time: string; // HH:mm
   end_time: string;   // HH:mm (strictly start_time + duration_minutes)
   payment_status?: PaymentStatus | string;
+  status?: string;
 }
 
 export type PaymentStatus = 'sin_pago' | 'parcial' | 'total';
@@ -172,7 +173,9 @@ export interface Booking {
   services: BookingServiceItem[];
   total_price_cents: number;
   advance_amount_cents: number; // Verificado cobrado
+  balance_cents?: number;
   payment_status: PaymentStatus;
+  status?: string;
   created_at: string;
   confirmed_at?: string;
   notes?: string;
@@ -231,6 +234,10 @@ export interface VentaMostrador {
 
 export type ExpenseCategory =
   | 'insumos'
+  | 'insumos_barberia'
+  | 'insumos_spa'
+  | 'servicios'
+  | 'refrigerios'
   | 'productos'
   | 'servicios_basicos'
   | 'mantenimiento'
@@ -241,12 +248,15 @@ export type ExpenseCategory =
 export interface Expense {
   id: string;
   description: string;
+  concept?: string;
   category: ExpenseCategory;
   amount_cents: number;
   payment_method: 'efectivo' | 'yape' | 'transferencia';
   beneficiary?: string;
+  responsible?: string;
   voucher_url?: string;
   date: string; // YYYY-MM-DD
+  status?: string;
   voided: boolean;
   voided_reason?: string;
   voided_by?: string;
@@ -330,9 +340,14 @@ export function getBookingCollectedAmountCents(b: Booking): number {
   const totalPrice = b.total_price_cents || 0;
   const advance = b.advance_amount_cents || 0;
 
+  // Si tiene adelanto registrado pero es menor que el precio total, suma ÚNICAMENTE lo efectivamente cobrado
+  if (advance > 0 && totalPrice > 0 && advance < totalPrice) {
+    return advance;
+  }
+
   // Cita con cobro total concluido / 100% pagada
   const isPaidTotal =
-    b.payment_status === 'total' ||
+    (b.payment_status === 'total' && (advance >= totalPrice || advance === 0)) ||
     (advance > 0 && totalPrice > 0 && advance >= totalPrice);
 
   if (isPaidTotal) {
@@ -356,7 +371,22 @@ export function getBookingServicesWithCollectedCents(
   b: Booking
 ): Array<BookingServiceItem & { collected_cents: number }> {
   const collectedTotal = getBookingCollectedAmountCents(b);
-  if (!b.services || b.services.length === 0) return [];
+  if (!b.services || b.services.length === 0) {
+    if (collectedTotal > 0) {
+      return [
+        {
+          service_id: 'default',
+          service_name: b.type === 'spa' ? 'Servicio Spa' : 'Servicio Barbería',
+          employee_id: '',
+          employee_name: 'Especialista',
+          price_cents: b.total_price_cents || collectedTotal,
+          duration_minutes: 30,
+          collected_cents: collectedTotal,
+        },
+      ];
+    }
+    return [];
+  }
 
   if (collectedTotal <= 0) {
     return b.services.map((s) => ({ ...s, collected_cents: 0 }));
@@ -375,7 +405,15 @@ export function getBookingServicesWithCollectedCents(
   }
 
   if (collectedTotal >= totalPrice) {
-    return b.services.map((s) => ({ ...s, collected_cents: s.price_cents || 0 }));
+    let accumulated = 0;
+    return b.services.map((s, idx) => {
+      if (idx === b.services.length - 1) {
+        return { ...s, collected_cents: Math.max(0, collectedTotal - accumulated) };
+      }
+      const sPrice = s.price_cents || 0;
+      accumulated += sPrice;
+      return { ...s, collected_cents: sPrice };
+    });
   }
 
   // Prorrateo proporcional con ajuste en el último ítem
