@@ -31,6 +31,7 @@ export interface Product {
   stock: number;
   image_url: string;
   description: string;
+  active?: boolean;
 }
 
 export type WardrobeStatus = 'disponible' | 'reservado' | 'en_uso' | 'mantenimiento';

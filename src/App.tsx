@@ -31,6 +31,7 @@ import { ColaboradoresView } from './components/dashboard/ColaboradoresView';
 import { VestuarioManager } from './components/dashboard/VestuarioManager';
 import { ReportesView } from './components/dashboard/ReportesView';
 import { ServiciosManager } from './components/dashboard/ServiciosManager';
+import { ProductosManager } from './components/dashboard/ProductosManager';
 
 import { MapPin, Phone, ShieldCheck, Scissors, Loader2 } from 'lucide-react';
 
@@ -127,7 +128,7 @@ const AppContent: React.FC = () => {
                 {activeView === '/dashboard/asistencia' && <AsistenciaView />}
                 {activeView === '/dashboard/servicios' && <ServiciosManager />}
                 {activeView === '/dashboard/vestuario' && <VestuarioManager />}
-                {activeView === '/dashboard/productos' && <PublicShop />}
+                {activeView === '/dashboard/productos' && <ProductosManager />}
               </>
             )}
           </main>

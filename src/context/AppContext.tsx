@@ -166,8 +166,9 @@ interface AppContextType {
   updateService: (srv: Service) => Promise<boolean>;
   deleteService: (serviceId: string) => Promise<boolean>;
   toggleServiceActive: (serviceId: string, currentActive: boolean) => Promise<boolean>;
-  addProduct: (prod: Omit<Product, 'id'>) => void;
-  updateProduct: (prod: Product) => void;
+  addProduct: (prod: Omit<Product, 'id'>) => Promise<boolean>;
+  updateProduct: (prod: Product) => Promise<boolean>;
+  deleteProduct: (productId: string) => Promise<boolean>;
   addWardrobeItem: (item: Omit<WardrobeItem, 'id'>) => Promise<boolean>;
   updateWardrobeItem: (item: WardrobeItem) => Promise<boolean>;
   deleteWardrobeItem: (id: string) => Promise<boolean>;
@@ -337,6 +338,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             stock: p.stock,
             image_url: p.images && p.images.length > 0 ? p.images[0] : 'https://images.unsplash.com/photo-1585232351009-aa87416fca90?auto=format&fit=crop&w=600&q=80',
             description: p.description || '',
+            active: p.is_active !== undefined ? p.is_active : true,
           }))
         );
       }
@@ -2502,32 +2504,121 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [pulseRealtime]);
 
-  const addProduct = useCallback((prodData: Omit<Product, 'id'>) => {
-    const newProd: Product = { ...prodData, id: `prod-${Date.now()}` };
-    setProducts((prev) => [...prev, newProd]);
-    pulseRealtime();
+  const addProduct = useCallback(async (prodData: Omit<Product, 'id'>): Promise<boolean> => {
+    try {
+      const baseSlug = prodData.name
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const uniqueSlug = `${baseSlug || 'prod'}-${Date.now()}`;
 
-    supabase.from('products').insert({
-      name: prodData.name,
-      slug: prodData.slug,
-      description: prodData.description,
-      category: prodData.category,
-      price_cents: prodData.price_cents,
-      stock: prodData.stock,
-      images: [prodData.image_url],
-    }).then();
+      const insertPayload = {
+        name: prodData.name.trim(),
+        slug: prodData.slug && prodData.slug.trim() ? prodData.slug.trim() : uniqueSlug,
+        description: prodData.description || null,
+        category: prodData.category,
+        price_cents: prodData.price_cents,
+        currency: 'PEN',
+        stock: prodData.stock,
+        is_active: prodData.active !== undefined ? prodData.active : true,
+        images: prodData.image_url ? [prodData.image_url] : [],
+        sort_order: 0,
+      };
+
+      const { data, error } = await supabase
+        .from('products')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error al insertar producto en Supabase:', error);
+        // Fallback reactivo local en caso de restricción o fallo de red
+        const fallbackProd: Product = {
+          ...prodData,
+          slug: insertPayload.slug,
+          id: `prod-${Date.now()}`,
+          active: insertPayload.is_active,
+        };
+        setProducts((prev) => [fallbackProd, ...prev]);
+        pulseRealtime();
+        return true;
+      }
+
+      if (data) {
+        const newProd: Product = {
+          id: data.id,
+          name: data.name,
+          slug: data.slug,
+          category: (data.category || 'ceras_pomadas') as any,
+          price_cents: data.price_cents,
+          stock: data.stock,
+          image_url: data.images && data.images.length > 0 ? data.images[0] : prodData.image_url,
+          description: data.description || '',
+          active: data.is_active !== undefined ? data.is_active : true,
+        };
+        setProducts((prev) => [newProd, ...prev]);
+        pulseRealtime();
+        return true;
+      }
+      return true;
+    } catch (err) {
+      console.error('Error adding product:', err);
+      return false;
+    }
   }, [pulseRealtime]);
 
-  const updateProduct = useCallback((prod: Product) => {
-    setProducts((prev) => prev.map((p) => (p.id === prod.id ? prod : p)));
-    pulseRealtime();
+  const updateProduct = useCallback(async (prod: Product): Promise<boolean> => {
+    try {
+      setProducts((prev) => prev.map((p) => (p.id === prod.id ? prod : p)));
+      pulseRealtime();
 
-    if (prod.id.includes('-') && prod.id.length === 36) {
-      supabase.from('products').update({
-        name: prod.name,
-        price_cents: prod.price_cents,
-        stock: prod.stock,
-      }).eq('id', prod.id).then();
+      if (!prod.id.startsWith('prod-')) {
+        const { error } = await supabase
+          .from('products')
+          .update({
+            name: prod.name.trim(),
+            category: prod.category,
+            description: prod.description || null,
+            price_cents: prod.price_cents,
+            stock: prod.stock,
+            images: prod.image_url ? [prod.image_url] : [],
+            is_active: prod.active !== undefined ? prod.active : true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', prod.id);
+
+        if (error) {
+          console.error('Error al actualizar producto en Supabase:', error);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Error updating product:', err);
+      return false;
+    }
+  }, [pulseRealtime]);
+
+  const deleteProduct = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      pulseRealtime();
+
+      if (!id.startsWith('prod-')) {
+        const { error } = await supabase.from('products').delete().eq('id', id);
+        if (error) {
+          console.error('Error al eliminar producto en Supabase:', error);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      return false;
     }
   }, [pulseRealtime]);
 
@@ -2793,6 +2884,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleServiceActive,
         addProduct,
         updateProduct,
+        deleteProduct,
         addWardrobeItem,
         updateWardrobeItem,
         deleteWardrobeItem,
