@@ -1328,6 +1328,24 @@ export type Database = {
           payment_status: string
         }[]
       }
+      get_financial_balances: {
+        Args: {
+          p_date?: string | null
+          p_start_date?: string | null
+          p_end_date?: string | null
+        }
+        Returns: {
+          ingresos_servicios_cents: number
+          ventas_mostrador_cents: number
+          total_ingresos_cents: number
+          total_egresos_cents: number
+          balance_neto_cents: number
+          citas_count: number
+          citas_confirmadas_count: number
+          query_date: string | null
+          timezone: string
+        }
+      }
     }
     Enums: {
       [_ in never]: never

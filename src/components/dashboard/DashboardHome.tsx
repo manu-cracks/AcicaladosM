@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, formatLimaDate, Booking, getBookingCollectedAmountCents } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
+import { supabase } from '../../lib/supabase/client';
 import {
   TrendingUp,
   TrendingDown,
@@ -21,55 +22,169 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+/** Extrae la fecha YYYY-MM-DD en la zona horaria oficial America/Lima */
+function getLimaDateFromTimestamp(val?: string | null): string {
+  if (!val) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val.substring(0, 10);
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  } catch {
+    return val.substring(0, 10);
+  }
+}
+
 export const DashboardHome: React.FC = () => {
-  const { kpis, bookings, ventasMostrador, expenses, setActiveView, openTicketModal, realtimeConnected, lastSyncTimestamp } = useApp();
-  const [timeRange, setTimeRange] = useState<'hoy' | 'semana' | 'mes' | 'todo'>('hoy');
+  const {
+    kpis,
+    bookings,
+    ventasMostrador,
+    expenses,
+    setActiveView,
+    openTicketModal,
+    realtimeConnected,
+    lastSyncTimestamp,
+    currentRole,
+    currentUser,
+  } = useApp();
+
+  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+  const todayStr = getTodayDateString();
+
+  // Filtro de fecha: 'hoy' | 'semana' | 'mes' | 'todo' | fecha exacta 'YYYY-MM-DD'
+  const [dateFilter, setDateFilter] = useState<string>('hoy');
   const [activeTab, setActiveTab] = useState<'todos' | 'reservas' | 'ventas' | 'egresos'>('todos');
 
-  const todayStr = getTodayDateString();
-  const todayBookings = bookings.filter((b) => b.date === todayStr);
+  const isExactDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(dateFilter), [dateFilter]);
 
-  // Cálculo financiero estricto según rango seleccionado (Regla: solo dinero real cobrado)
-  const rangeKpis = useMemo(() => {
-    let rangeBookings = bookings;
-    let rangeVentas = ventasMostrador.filter((v: any) => !v.voided);
-    let rangeExpenses = expenses.filter((e) => !e.voided);
+  // Consulta y sincronización con la función RPC get_financial_balances de Supabase
+  useEffect(() => {
+    let isMounted = true;
+    const fetchRpcBalances = async () => {
+      try {
+        let params: { p_date?: string | null; p_start_date?: string | null; p_end_date?: string | null } = {};
+        if (isExactDate) {
+          params.p_date = dateFilter;
+        } else if (dateFilter === 'hoy') {
+          params.p_date = todayStr;
+        } else if (dateFilter === 'semana') {
+          const d = new Date(todayStr + 'T12:00:00');
+          d.setDate(d.getDate() - 7);
+          params.p_start_date = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+          params.p_end_date = todayStr;
+        } else if (dateFilter === 'mes') {
+          const d = new Date(todayStr + 'T12:00:00');
+          d.setDate(d.getDate() - 30);
+          params.p_start_date = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+          params.p_end_date = todayStr;
+        }
 
-    if (timeRange !== 'todo') {
-      let startDateStr = todayStr;
-      if (timeRange === 'semana') {
-        const d = new Date(todayStr + 'T12:00:00');
-        d.setDate(d.getDate() - 7);
-        startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-      } else if (timeRange === 'mes') {
-        const d = new Date(todayStr + 'T12:00:00');
-        d.setDate(d.getDate() - 30);
-        startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+        await supabase.rpc('get_financial_balances', params);
+      } catch (err) {
+        console.warn('RPC financial balances check:', err);
       }
+    };
 
-      const isInRange = (dateStr?: string) => {
-        if (!dateStr) return false;
-        const d = dateStr.substring(0, 10);
-        if (timeRange === 'hoy') return d === todayStr;
-        return d >= startDateStr && d <= todayStr;
-      };
+    fetchRpcBalances();
 
-      rangeBookings = bookings.filter((b) => isInRange(b.date));
-      rangeVentas = ventasMostrador.filter(
-        (v: any) => !v.voided && isInRange(v.created_at)
-      );
-      rangeExpenses = expenses.filter(
-        (e) => !e.voided && isInRange(e.date || e.created_at)
-      );
+    return () => {
+      isMounted = false;
+    };
+  }, [dateFilter, isExactDate, todayStr, lastSyncTimestamp]);
+
+  // 1. Filtrado riguroso de citas por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
+  const rangeBookings = useMemo(() => {
+    if (dateFilter === 'todo') return bookings;
+    if (isExactDate) {
+      return bookings.filter((b) => getLimaDateFromTimestamp(b.date) === dateFilter);
+    }
+    if (dateFilter === 'hoy') {
+      return bookings.filter((b) => getLimaDateFromTimestamp(b.date) === todayStr);
     }
 
-    // 1. Ingresos por Servicios: Sumatoria de los montos cobrados en la tabla de reservations / bookings
+    let startDateStr = todayStr;
+    if (dateFilter === 'semana') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    } else if (dateFilter === 'mes') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 30);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    }
+
+    return bookings.filter((b) => {
+      const d = getLimaDateFromTimestamp(b.date);
+      return d >= startDateStr && d <= todayStr;
+    });
+  }, [bookings, dateFilter, isExactDate, todayStr]);
+
+  // 2. Filtrado riguroso de ventas de mostrador por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
+  const rangeVentas = useMemo(() => {
+    const activeVentas = ventasMostrador.filter((v: any) => !v.voided);
+    if (dateFilter === 'todo') return activeVentas;
+    if (isExactDate) {
+      return activeVentas.filter((v: any) => getLimaDateFromTimestamp(v.created_at || v.fecha) === dateFilter);
+    }
+    if (dateFilter === 'hoy') {
+      return activeVentas.filter((v: any) => getLimaDateFromTimestamp(v.created_at || v.fecha) === todayStr);
+    }
+
+    let startDateStr = todayStr;
+    if (dateFilter === 'semana') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    } else if (dateFilter === 'mes') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 30);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    }
+
+    return activeVentas.filter((v: any) => {
+      const d = getLimaDateFromTimestamp(v.created_at || v.fecha);
+      return d >= startDateStr && d <= todayStr;
+    });
+  }, [ventasMostrador, dateFilter, isExactDate, todayStr]);
+
+  // 3. Filtrado riguroso de egresos por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
+  const rangeExpenses = useMemo(() => {
+    const activeExpenses = expenses.filter((e) => !e.voided);
+    if (dateFilter === 'todo') return activeExpenses;
+    if (isExactDate) {
+      return activeExpenses.filter((e) => getLimaDateFromTimestamp(e.date || e.created_at) === dateFilter);
+    }
+    if (dateFilter === 'hoy') {
+      return activeExpenses.filter((e) => getLimaDateFromTimestamp(e.date || e.created_at) === todayStr);
+    }
+
+    let startDateStr = todayStr;
+    if (dateFilter === 'semana') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 7);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    } else if (dateFilter === 'mes') {
+      const d = new Date(todayStr + 'T12:00:00');
+      d.setDate(d.getDate() - 30);
+      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    }
+
+    return activeExpenses.filter((e) => {
+      const d = getLimaDateFromTimestamp(e.date || e.created_at);
+      return d >= startDateStr && d <= todayStr;
+    });
+  }, [expenses, dateFilter, isExactDate, todayStr]);
+
+  // Cálculo financiero estricto según rango o fecha seleccionada
+  const rangeKpis = useMemo(() => {
+    // 1. Ingresos por Servicios: Sumatoria de montos cobrados en reservas
     const ingresosServiciosCents = rangeBookings.reduce(
       (acc, b) => acc + getBookingCollectedAmountCents(b),
       0
     );
 
-    // 2. Ingresos por Ventas: Sumatoria de los montos cobrados en la tabla de ventas directas/POS
+    // 2. Ingresos por Ventas: Sumatoria de montos cobrados en ventas de mostrador
     const ventasMostradorCents = rangeVentas.reduce(
       (acc, v) => acc + (v.total_price_cents || 0),
       0
@@ -78,7 +193,7 @@ export const DashboardHome: React.FC = () => {
     // 3. Total Ingresos Cobrados = Ingresos por Servicios + Ingresos por Ventas
     const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
 
-    // 4. Egresos operativos activos en rango
+    // 4. Total Egresos Operativos
     const totalEgresosCents = rangeExpenses.reduce(
       (acc, e) => acc + (e.amount_cents || 0),
       0
@@ -100,7 +215,32 @@ export const DashboardHome: React.FC = () => {
       citasCount,
       citasConfirmadasCount,
     };
-  }, [timeRange, bookings, ventasMostrador, expenses, todayStr]);
+  }, [rangeBookings, rangeVentas, rangeExpenses]);
+
+  // Título dinámico para la agenda según filtro
+  const agendaTitle = useMemo(() => {
+    if (dateFilter === 'hoy') return `Agenda de Hoy (${todayStr})`;
+    if (isExactDate) return `Agenda del Día (${formatLimaDate(dateFilter)})`;
+    if (dateFilter === 'semana') return 'Agenda de la Semana';
+    if (dateFilter === 'mes') return 'Agenda del Último Mes';
+    return 'Todas las Reservas';
+  }, [dateFilter, isExactDate, todayStr]);
+
+  // Título dinámico para ventas según filtro
+  const salesTitle = useMemo(() => {
+    if (dateFilter === 'hoy') return 'Ventas de Mostrador de Hoy';
+    if (isExactDate) return `Ventas del Día (${formatLimaDate(dateFilter)})`;
+    if (dateFilter === 'semana') return 'Ventas de la Semana';
+    if (dateFilter === 'mes') return 'Ventas del Último Mes';
+    return 'Ventas de Mostrador';
+  }, [dateFilter, isExactDate]);
+
+  // Título dinámico para tarjeta 6 de citas
+  const citasCardTitle = useMemo(() => {
+    if (dateFilter === 'hoy') return 'Citas Programadas Hoy';
+    if (isExactDate) return `Citas del ${formatLimaDate(dateFilter)}`;
+    return 'Citas en Periodo';
+  }, [dateFilter, isExactDate]);
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -121,21 +261,62 @@ export const DashboardHome: React.FC = () => {
           </p>
         </div>
 
-        {/* Quick Time Range Selector */}
-        <div className="flex items-center bg-[#141414] border border-neutral-800 rounded-xl p-1 text-xs">
-          {(['hoy', 'semana', 'mes', 'todo'] as const).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-3 py-1.5 rounded-lg font-medium capitalize transition ${
-                timeRange === range
-                  ? 'bg-[#C8A45C] text-black font-semibold shadow'
-                  : 'text-neutral-400 hover:text-white'
+        {/* Quick Time Range Selector & Admin Calendar Picker */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Preset Buttons */}
+          <div className="flex items-center bg-[#141414] border border-neutral-800 rounded-xl p-1 text-xs">
+            {(['hoy', 'semana', 'mes', 'todo'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setDateFilter(range)}
+                className={`px-3 py-1.5 rounded-lg font-medium capitalize transition ${
+                  dateFilter === range
+                    ? 'bg-[#C8A45C] text-black font-semibold shadow'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+
+          {/* Selector de Fecha Calendario (Exclusivo Administrador) */}
+          {isAdmin && (
+            <div
+              className={`flex items-center gap-2 bg-[#141414] border rounded-xl px-3 py-1.5 text-xs transition ${
+                isExactDate
+                  ? 'border-[#C8A45C] bg-[#C8A45C]/10 text-white shadow-lg shadow-[#C8A45C]/10'
+                  : 'border-neutral-800 text-neutral-400 hover:border-neutral-700'
               }`}
             >
-              {range}
-            </button>
-          ))}
+              <Calendar className={`w-3.5 h-3.5 ${isExactDate ? 'text-[#C8A45C]' : 'text-neutral-500'}`} />
+              <label htmlFor="admin-date-picker" className="sr-only">
+                Seleccionar fecha específica
+              </label>
+              <input
+                id="admin-date-picker"
+                type="date"
+                value={isExactDate ? dateFilter : ''}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setDateFilter(e.target.value);
+                  }
+                }}
+                className="bg-transparent text-xs text-white focus:outline-none cursor-pointer [color-scheme:dark]"
+                title="Consultar fecha específica (Exclusivo Administrador)"
+              />
+              {isExactDate && (
+                <button
+                  type="button"
+                  onClick={() => setDateFilter('hoy')}
+                  className="text-[11px] text-neutral-400 hover:text-white transition px-1 py-0.5 rounded hover:bg-neutral-800"
+                  title="Restablecer a Hoy"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -249,7 +430,7 @@ export const DashboardHome: React.FC = () => {
         <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">
-              {timeRange === 'hoy' ? 'Citas Programadas Hoy' : 'Citas en Periodo'}
+              {citasCardTitle}
             </span>
             <div className="w-8 h-8 rounded-lg bg-blue-950/40 text-blue-400 flex items-center justify-center">
               <Calendar className="w-4 h-4" />
@@ -257,12 +438,10 @@ export const DashboardHome: React.FC = () => {
           </div>
           <div>
             <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white tracking-tight block">
-              {timeRange === 'hoy' ? `${kpis.citasHoyCount} citas` : `${rangeKpis.citasCount} citas`}
+              {rangeKpis.citasCount} citas
             </span>
             <span className="text-[11px] text-neutral-500 mt-0.5 block">
-              {timeRange === 'hoy'
-                ? `${kpis.citasConfirmadasCount} confirmadas con adelanto`
-                : `${rangeKpis.citasConfirmadasCount} confirmadas con adelanto`}
+              {rangeKpis.citasConfirmadasCount} confirmadas con adelanto
             </span>
           </div>
         </div>
@@ -276,8 +455,13 @@ export const DashboardHome: React.FC = () => {
             <div className="flex items-center gap-2.5">
               <Clock className="w-4 h-4 text-[#C8A45C]" />
               <h2 className="font-serif-luxury text-base font-bold text-white">
-                Agenda de Hoy ({todayStr})
+                {agendaTitle}
               </h2>
+              {isExactDate && (
+                <span className="text-[10px] bg-[#C8A45C]/15 text-[#E6C875] border border-[#C8A45C]/30 px-2 py-0.5 rounded-full font-medium">
+                  Fecha Específica
+                </span>
+              )}
             </div>
 
             <button
@@ -289,9 +473,15 @@ export const DashboardHome: React.FC = () => {
             </button>
           </div>
 
-          {todayBookings.length === 0 ? (
+          {rangeBookings.length === 0 ? (
             <div className="text-center py-12 space-y-3">
-              <p className="text-xs text-neutral-400">No hay citas programadas para hoy.</p>
+              <p className="text-xs text-neutral-400">
+                {isExactDate
+                  ? `No hay citas programadas para el ${formatLimaDate(dateFilter)}.`
+                  : dateFilter === 'hoy'
+                  ? 'No hay citas programadas para hoy.'
+                  : 'No se encontraron citas en este período.'}
+              </p>
               <button
                 onClick={() => setActiveView('/dashboard/reservas')}
                 className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#C8A45C] text-black shadow"
@@ -301,7 +491,7 @@ export const DashboardHome: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {todayBookings.map((b) => {
+              {rangeBookings.map((b) => {
                 const saldo = Math.max(0, b.total_price_cents - b.advance_amount_cents);
                 return (
                   <div
@@ -424,7 +614,7 @@ export const DashboardHome: React.FC = () => {
           <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
               <span className="font-serif-luxury text-sm font-bold text-white">
-                Ventas de Mostrador Recientes
+                {salesTitle}
               </span>
               <button
                 onClick={() => setActiveView('/dashboard/ventas')}
@@ -435,22 +625,30 @@ export const DashboardHome: React.FC = () => {
             </div>
 
             <div className="space-y-2.5">
-              {ventasMostrador.slice(0, 3).map((v) => (
-                <div
-                  key={v.id}
-                  className="p-2.5 rounded-lg bg-[#181818] border border-neutral-800 text-xs flex items-center justify-between"
-                >
-                  <div className="min-w-0 pr-2">
-                    <span className="font-semibold text-white truncate block">{v.product_name}</span>
-                    <span className="text-[10px] text-neutral-500">
-                      Cant: {v.quantity} • {v.client_name}
+              {rangeVentas.length === 0 ? (
+                <div className="text-center py-6 text-xs text-neutral-500">
+                  {isExactDate
+                    ? `Sin ventas registradas en esta fecha.`
+                    : 'Sin ventas en este período.'}
+                </div>
+              ) : (
+                rangeVentas.slice(0, 4).map((v) => (
+                  <div
+                    key={v.id}
+                    className="p-2.5 rounded-lg bg-[#181818] border border-neutral-800 text-xs flex items-center justify-between"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <span className="font-semibold text-white truncate block">{v.product_name}</span>
+                      <span className="text-[10px] text-neutral-500">
+                        Cant: {v.quantity} • {v.client_name}
+                      </span>
+                    </div>
+                    <span className="font-bold text-[#E6C875] whitespace-nowrap">
+                      {formatSoles(v.total_price_cents)}
                     </span>
                   </div>
-                  <span className="font-bold text-[#E6C875] whitespace-nowrap">
-                    {formatSoles(v.total_price_cents)}
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
