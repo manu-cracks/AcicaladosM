@@ -84,8 +84,8 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-      <div className="bg-[#141414] border border-[#C8A45C]/50 rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-5 shadow-2xl relative my-6 text-neutral-200 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto overscroll-contain">
+      <div className="bg-[#141414] border border-[#C8A45C]/50 rounded-2xl sm:rounded-3xl max-w-md w-full min-h-0 p-4 sm:p-6 space-y-5 shadow-2xl relative my-4 sm:my-auto text-neutral-200 animate-in fade-in zoom-in-95 duration-200">
         {/* Encabezado */}
         <div className="flex items-center justify-between border-b border-neutral-800 pb-3.5">
           <div className="space-y-0.5">

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X,
   Search,
@@ -35,6 +35,34 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   const { wardrobe, dressRentals, addDressRental, currentRole } = useApp();
   const isAdmin = currentRole === 'admin';
   const isRecepcionista = currentRole === 'recepcionista';
+
+  // Referencias para controlar el desplazamiento (scroll)
+  const modalOverlayRef = useRef<HTMLDivElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
+
+  // Forzar inicio estricto en la parte superior cada vez que se abre el modal
+  useEffect(() => {
+    if (isOpen) {
+      const resetScrollPosition = () => {
+        if (modalOverlayRef.current) {
+          modalOverlayRef.current.scrollTop = 0;
+        }
+        if (modalContentRef.current) {
+          modalContentRef.current.scrollTop = 0;
+        }
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      };
+
+      resetScrollPosition();
+      const raf = requestAnimationFrame(resetScrollPosition);
+      const timer = setTimeout(resetScrollPosition, 40);
+
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(timer);
+      };
+    }
+  }, [isOpen]);
 
   // Paso 1: Datos del Cliente
   const [clientFirstName, setClientFirstName] = useState('');
@@ -203,8 +231,15 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
-      <div className="bg-[#121212] border border-[#C8A45C]/50 rounded-3xl max-w-4xl w-full p-5 sm:p-7 space-y-6 shadow-2xl relative my-6 animate-in fade-in zoom-in-95 duration-200 text-neutral-200">
+    <div
+      ref={modalOverlayRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-start justify-center p-3 sm:p-5 md:p-6 lg:p-8 bg-black/85 backdrop-blur-md overflow-y-auto overscroll-contain"
+    >
+      <div
+        ref={modalContentRef}
+        className="bg-[#121212] border border-[#C8A45C]/50 rounded-2xl sm:rounded-3xl max-w-4xl w-full min-h-0 p-4 sm:p-6 md:p-8 space-y-6 shadow-2xl relative my-4 sm:my-8 animate-in fade-in zoom-in-95 duration-200 text-neutral-200"
+      >
         {/* Encabezado del Modal */}
         <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
           <div className="space-y-1">

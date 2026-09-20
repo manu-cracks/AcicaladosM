@@ -64,8 +64,8 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({ 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in print:p-0 print:bg-white">
-      <div className="bg-[#121212] border border-[#C8A45C]/40 rounded-3xl w-full max-w-md max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto print:max-w-none print:w-full print:border-none print:shadow-none print:bg-white print:text-black">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md overflow-y-auto animate-fade-in print:p-0 print:bg-white overscroll-contain">
+      <div className="bg-[#121212] border border-[#C8A45C]/40 rounded-2xl sm:rounded-3xl w-full max-w-md max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-4 sm:my-auto print:max-w-none print:w-full print:border-none print:shadow-none print:bg-white print:text-black">
         {/* Header Modal - Hide on print */}
         <div className="p-4 sm:p-5 border-b border-neutral-800 flex items-center justify-between bg-gradient-to-r from-[#181818] to-[#121212] print:hidden">
           <div className="flex items-center gap-2.5">
