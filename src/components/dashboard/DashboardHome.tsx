@@ -31,61 +31,60 @@ export const DashboardHome: React.FC = () => {
 
   // Cálculo financiero estricto según rango seleccionado (Regla: solo dinero real cobrado)
   const rangeKpis = useMemo(() => {
-    if (timeRange === 'todo') {
-      return {
-        totalIngresosCents: kpis.totalIngresosCents,
-        totalEgresosCents: kpis.totalEgresosCents,
-        balanceNetoCents: kpis.balanceNetoCents,
-        citasCount: bookings.length,
-        citasConfirmadasCount: bookings.filter((b) => b.payment_status === 'total' || b.payment_status === 'parcial').length,
+    let rangeBookings = bookings;
+    let rangeVentas = ventasMostrador.filter((v: any) => !v.voided);
+    let rangeExpenses = expenses.filter((e) => !e.voided);
+
+    if (timeRange !== 'todo') {
+      let startDateStr = todayStr;
+      if (timeRange === 'semana') {
+        const d = new Date(todayStr + 'T12:00:00');
+        d.setDate(d.getDate() - 7);
+        startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+      } else if (timeRange === 'mes') {
+        const d = new Date(todayStr + 'T12:00:00');
+        d.setDate(d.getDate() - 30);
+        startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+      }
+
+      const isInRange = (dateStr?: string) => {
+        if (!dateStr) return false;
+        const d = dateStr.substring(0, 10);
+        if (timeRange === 'hoy') return d === todayStr;
+        return d >= startDateStr && d <= todayStr;
       };
+
+      rangeBookings = bookings.filter((b) => isInRange(b.date));
+      rangeVentas = ventasMostrador.filter(
+        (v: any) => !v.voided && isInRange(v.created_at)
+      );
+      rangeExpenses = expenses.filter(
+        (e) => !e.voided && isInRange(e.date || e.created_at)
+      );
     }
 
-    let startDateStr = todayStr;
-    if (timeRange === 'semana') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 7);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    } else if (timeRange === 'mes') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 30);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    }
-
-    const isInRange = (dateStr?: string) => {
-      if (!dateStr) return false;
-      const d = dateStr.substring(0, 10);
-      if (timeRange === 'hoy') return d === todayStr;
-      return d >= startDateStr && d <= todayStr;
-    };
-
-    // 1. Citas activas en rango (sólo 100% de pagadas y adelantos de activas)
-    const rangeBookings = bookings.filter((b) => isInRange(b.date));
+    // 1. Ingresos por Servicios: Sumatoria de los montos cobrados en la tabla de reservations / bookings
     const ingresosServiciosCents = rangeBookings.reduce(
       (acc, b) => acc + getBookingCollectedAmountCents(b),
       0
     );
 
-    // 2. Ventas de mostrador concluidas en rango
-    const rangeVentas = ventasMostrador.filter(
-      (v: any) => !v.voided && isInRange(v.created_at)
-    );
+    // 2. Ingresos por Ventas: Sumatoria de los montos cobrados en la tabla de ventas directas/POS
     const ventasMostradorCents = rangeVentas.reduce(
       (acc, v) => acc + (v.total_price_cents || 0),
       0
     );
 
+    // 3. Total Ingresos Cobrados = Ingresos por Servicios + Ingresos por Ventas
     const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
 
-    // 3. Egresos operativos activos en rango
-    const rangeExpenses = expenses.filter(
-      (e) => !e.voided && isInRange(e.date || e.created_at)
-    );
+    // 4. Egresos operativos activos en rango
     const totalEgresosCents = rangeExpenses.reduce(
       (acc, e) => acc + (e.amount_cents || 0),
       0
     );
 
+    // 5. Balance Neto de Caja = Total Ingresos Cobrados - Total Egresos Operativos
     const balanceNetoCents = totalIngresosCents - totalEgresosCents;
     const citasCount = rangeBookings.length;
     const citasConfirmadasCount = rangeBookings.filter(
@@ -94,12 +93,14 @@ export const DashboardHome: React.FC = () => {
 
     return {
       totalIngresosCents,
+      ingresosServiciosCents,
+      ventasMostradorCents,
       totalEgresosCents,
       balanceNetoCents,
       citasCount,
       citasConfirmadasCount,
     };
-  }, [timeRange, kpis, bookings, ventasMostrador, expenses, todayStr]);
+  }, [timeRange, bookings, ventasMostrador, expenses, todayStr]);
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -138,10 +139,10 @@ export const DashboardHome: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards Grid (Strict rules from Section C.1) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      {/* KPI Cards Grid (6 métricas: 2 filas de 3 tarjetas equilibradas) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* 1. Total Ingresos Cobrados */}
-        <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden">
+        <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/60 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Total Ingresos Cobrados</span>
             <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 text-[#C8A45C] flex items-center justify-center">
@@ -153,13 +154,49 @@ export const DashboardHome: React.FC = () => {
               {formatSoles(rangeKpis.totalIngresosCents)}
             </span>
             <span className="text-[11px] text-neutral-500 mt-0.5 block">
-              Solo cobros confirmados + POS
+              Servicios + Ventas de mostrador
             </span>
           </div>
         </div>
 
-        {/* 2. Total Egresos Operativos */}
-        <div className="bg-[#141414] border border-red-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden">
+        {/* 2. Ingresos por Servicios */}
+        <div className="bg-[#141414] border border-[#C8A45C]/25 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-400">Ingresos por Servicios</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center">
+              <Scissors className="w-4 h-4 text-[#E6C875]" />
+            </div>
+          </div>
+          <div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] tracking-tight block">
+              {formatSoles(rangeKpis.ingresosServiciosCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 mt-0.5 block">
+              Barbería y Spa cobrados
+            </span>
+          </div>
+        </div>
+
+        {/* 3. Ingresos por Ventas */}
+        <div className="bg-[#141414] border border-emerald-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-emerald-500/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-400">Ingresos por Ventas</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-950/40 text-emerald-400 flex items-center justify-center">
+              <ShoppingBag className="w-4 h-4 text-emerald-400" />
+            </div>
+          </div>
+          <div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight block">
+              {formatSoles(rangeKpis.ventasMostradorCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 mt-0.5 block">
+              Productos físicos de mostrador
+            </span>
+          </div>
+        </div>
+
+        {/* 4. Total Egresos Operativos */}
+        <div className="bg-[#141414] border border-red-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-red-500/50 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Total Egresos Operativos</span>
             <div className="w-8 h-8 rounded-lg bg-red-950/40 text-red-400 flex items-center justify-center">
@@ -176,8 +213,8 @@ export const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. Balance Neto de Caja */}
-        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden">
+        {/* 5. Balance Neto de Caja */}
+        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Balance Neto de Caja</span>
             <div
@@ -203,13 +240,13 @@ export const DashboardHome: React.FC = () => {
               {formatSoles(rangeKpis.balanceNetoCents)}
             </span>
             <span className="text-[11px] text-neutral-500 mt-0.5 block">
-              Ingresos menos Egresos
+              Total Ingresos menos Egresos
             </span>
           </div>
         </div>
 
-        {/* 4. Citas de Hoy */}
-        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden">
+        {/* 6. Citas Programadas Hoy / en Periodo */}
+        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">
               {timeRange === 'hoy' ? 'Citas Programadas Hoy' : 'Citas en Periodo'}

@@ -189,6 +189,8 @@ interface AppContextType {
   // KPI Calculations
   kpis: {
     totalIngresosCents: number;
+    ingresosServiciosCents: number;
+    ventasMostradorCents: number;
     totalEgresosCents: number;
     balanceNetoCents: number;
     citasHoyCount: number;
@@ -3126,6 +3128,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return {
       totalIngresosCents,
+      ingresosServiciosCents,
+      ventasMostradorCents,
       totalEgresosCents,
       balanceNetoCents,
       citasHoyCount: citasHoy.length,
