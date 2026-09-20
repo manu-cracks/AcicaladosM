@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem } from '../../types';
+import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
 import { isEmployeeBlocked, isEmployeeBooked, timeToMinutes, minutesToTime, formatCompletionTime } from '../../lib/bookingAvailability';
 import {
@@ -25,6 +25,8 @@ import {
   History,
   Info,
   Check,
+  Clock,
+  Wallet,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -524,6 +526,48 @@ export const ReservasManager: React.FC = () => {
     });
   }, [bookings, categoryFilter, customDate, dateFilter, isAdmin, searchQuery, todayStr]);
 
+  // 4 Métricas Financieras y Operativas en Tiempo Real (Exclusivo Administrador)
+  const adminKPIs = useMemo(() => {
+    let citasPendientesCobrarCount = 0;
+    let citasConfirmadasCount = 0;
+    let totalIngresosCobradosCents = 0;
+    let totalPorCobrarLocalCents = 0;
+
+    for (const b of filteredBookings) {
+      const cobrado = getBookingCollectedAmountCents(b);
+      const saldo = Math.max(0, (b.total_price_cents || 0) - cobrado);
+
+      // Cuadro 1: Citas Pendientes por Cobrar (saldo mayor a 0)
+      if (saldo > 0 || b.payment_status === 'parcial' || b.payment_status === 'sin_pago') {
+        citasPendientesCobrarCount++;
+      }
+
+      // Cuadro 2: Total de Citas Confirmadas
+      const isConfirmed =
+        (b.status && (b.status.toLowerCase() === 'confirmada' || b.status.toLowerCase() === 'confirmed')) ||
+        Boolean(b.confirmed_at) ||
+        b.payment_status === 'total' ||
+        b.payment_status === 'parcial';
+
+      if (isConfirmed && b.status?.toLowerCase() !== 'cancelada' && b.status?.toLowerCase() !== 'cancelled') {
+        citasConfirmadasCount++;
+      }
+
+      // Cuadro 3: Total Ingresos Cobrados
+      totalIngresosCobradosCents += cobrado;
+
+      // Cuadro 4: Total por Cobrar en Local
+      totalPorCobrarLocalCents += saldo;
+    }
+
+    return {
+      citasPendientesCobrarCount,
+      citasConfirmadasCount,
+      totalIngresosCobradosCents,
+      totalPorCobrarLocalCents,
+    };
+  }, [filteredBookings]);
+
   // Open Payment Modal
   const handleOpenPaymentModal = (b: Booking) => {
     setSelectedBookingForPayment(b);
@@ -699,6 +743,83 @@ export const ReservasManager: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 4 Métricas Financieras y Operativas (Exclusivo Administrador) */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {/* Cuadro 1: Citas Pendientes por Cobrar */}
+          <div className="bg-[#141414] border border-amber-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-amber-500/50 transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400">Citas Pendientes por Cobrar</span>
+              <div className="w-8 h-8 rounded-lg bg-amber-950/40 text-amber-400 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-amber-400" />
+              </div>
+            </div>
+            <div>
+              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-amber-400 tracking-tight block">
+                {adminKPIs.citasPendientesCobrarCount} {adminKPIs.citasPendientesCobrarCount === 1 ? 'cita' : 'citas'}
+              </span>
+              <span className="text-[11px] text-neutral-500 mt-0.5 block">
+                Con saldo restante por liquidar
+              </span>
+            </div>
+          </div>
+
+          {/* Cuadro 2: Total de Citas Confirmadas */}
+          <div className="bg-[#141414] border border-blue-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-blue-500/50 transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400">Total Citas Confirmadas</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-950/40 text-blue-400 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4 text-blue-400" />
+              </div>
+            </div>
+            <div>
+              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white tracking-tight block">
+                {adminKPIs.citasConfirmadasCount} {adminKPIs.citasConfirmadasCount === 1 ? 'cita' : 'citas'}
+              </span>
+              <span className="text-[11px] text-neutral-500 mt-0.5 block">
+                Citas activas en agenda
+              </span>
+            </div>
+          </div>
+
+          {/* Cuadro 3: Total Ingresos Cobrados */}
+          <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/60 transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400">Total Ingresos Cobrados</span>
+              <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 text-[#C8A45C] flex items-center justify-center">
+                <DollarSign className="w-4 h-4" />
+              </div>
+            </div>
+            <div>
+              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] tracking-tight block">
+                {formatSoles(adminKPIs.totalIngresosCobradosCents)}
+              </span>
+              <span className="text-[11px] text-neutral-500 mt-0.5 block">
+                Monto ya pagado (Adelanto + Total)
+              </span>
+            </div>
+          </div>
+
+          {/* Cuadro 4: Total por Cobrar en Local */}
+          <div className="bg-[#141414] border border-emerald-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-emerald-500/50 transition-all">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400">Total por Cobrar en Local</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-950/40 text-emerald-400 flex items-center justify-center">
+                <Wallet className="w-4 h-4 text-emerald-400" />
+              </div>
+            </div>
+            <div>
+              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight block">
+                {formatSoles(adminKPIs.totalPorCobrarLocalCents)}
+              </span>
+              <span className="text-[11px] text-neutral-500 mt-0.5 block">
+                Saldo pendiente a cobrar en caja
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg">
