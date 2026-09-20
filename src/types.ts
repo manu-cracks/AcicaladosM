@@ -54,6 +54,47 @@ export interface WardrobeItem {
   active?: boolean;
   image_url: string;
   description?: string;
+  size?: string;
+  color?: string;
+}
+
+export type DressRentalStatus = 'por_validar' | 'reservado' | 'entregado' | 'finalizado' | 'anulado';
+export type DressRentalOrigin = 'web' | 'local';
+
+export interface DressRental {
+  id: string;
+  ticket_code: string;
+  origin: DressRentalOrigin;
+  wardrobe_item_id?: string;
+  item_code: string;
+  item_name: string;
+  item_size?: string;
+  item_color?: string;
+  client_first_name: string;
+  client_last_name: string;
+  client_dni: string;
+  client_phone: string;
+  event_name: string;
+  destination: string;
+  event_date: string;
+  return_date: string;
+  status: DressRentalStatus;
+  rental_price_cents: number;
+  advance_cents: number;
+  pending_cents: number;
+  guarantee_cents: number;
+  guarantee_returned_cents?: number | null;
+  penalty_cents?: number;
+  penalty_reason?: string | null;
+  is_immediate_delivery: boolean;
+  delivery_date?: string | null;
+  actual_return_date?: string | null;
+  voucher_url?: string | null;
+  voucher_declared_amount_cents?: number | null;
+  rejection_reason?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type EmployeeType = 'barbero' | 'spa' | 'recepcionista';

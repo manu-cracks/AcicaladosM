@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, WardrobeItem } from '../../types';
-import { Shirt, MessageSquare, Sparkles, Tag, Maximize2, MoveHorizontal } from 'lucide-react';
+import { Shirt, MessageSquare, Sparkles, Tag, Maximize2, MoveHorizontal, Calendar } from 'lucide-react';
+import { PublicDressBookingModal } from './PublicDressBookingModal';
 
 export const PublicWardrobe: React.FC = () => {
   const { wardrobe, openLightbox } = useApp();
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [selectedBookingItem, setSelectedBookingItem] = useState<WardrobeItem | null>(null);
 
   // Las 5 categorías de evento exactas
   const categories = [
@@ -142,14 +144,25 @@ export const PublicWardrobe: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleInquireWhatsApp(item)}
-              className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-[#C8A45C] text-white hover:text-black transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Consultar Disponibilidad</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedBookingItem(item)}
+                className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-[#C8A45C] via-[#E2C37D] to-[#C8A45C] text-black hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-[#C8A45C]/15"
+              >
+                <Calendar className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Reservar Prenda</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleInquireWhatsApp(item)}
+                title="Consultar por WhatsApp"
+                className="p-2.5 rounded-xl text-xs font-bold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition-all flex items-center justify-center cursor-pointer border border-neutral-700/60"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-400" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -237,6 +250,14 @@ export const PublicWardrobe: React.FC = () => {
             <span>Desliza cada fila de forma independiente para explorar todo el catálogo</span>
           </div>
         </div>
+      )}
+
+      {/* Modal de Reserva Online para Clientes */}
+      {selectedBookingItem && (
+        <PublicDressBookingModal
+          item={selectedBookingItem}
+          onClose={() => setSelectedBookingItem(null)}
+        />
       )}
     </div>
   );

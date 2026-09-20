@@ -16,6 +16,9 @@ import {
   AttendanceSettings,
   CartItem,
   WardrobeStatus,
+  DressRental,
+  DressRentalStatus,
+  DressRentalOrigin,
   LightboxData,
   PaymentStatus,
   getBookingCollectedAmountCents,
@@ -24,6 +27,7 @@ import {
   INITIAL_SERVICES,
   INITIAL_PRODUCTS,
   INITIAL_WARDROBE,
+  INITIAL_DRESS_RENTALS,
   INITIAL_EMPLOYEES,
   INITIAL_BOOKINGS,
   INITIAL_PAYMENT_LOGS,
@@ -60,6 +64,7 @@ interface AppContextType {
   services: Service[];
   products: Product[];
   wardrobe: WardrobeItem[];
+  dressRentals: DressRental[];
   employees: Employee[];
   setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
   employeeBlocks: EmployeeBlock[];
@@ -174,6 +179,12 @@ interface AppContextType {
   deleteWardrobeItem: (id: string) => Promise<boolean>;
   toggleWardrobeActive: (id: string, currentActive: boolean) => Promise<boolean>;
   updateWardrobeStatus: (id: string, status: WardrobeStatus) => void;
+  addDressRental: (data: Omit<DressRental, 'id' | 'ticket_code' | 'created_at' | 'updated_at'>) => Promise<DressRental | null>;
+  validateYapeVoucher: (rentalId: string, approved: boolean, reason?: string) => Promise<boolean>;
+  confirmDressDelivery: (rentalId: string, balanceCollectedCents: number, guaranteeCollectedCents: number) => Promise<boolean>;
+  processDressReturn: (rentalId: string, guaranteeReturnedCents: number, penaltyReason?: string) => Promise<boolean>;
+  cancelDressRental: (rentalId: string, reason?: string) => Promise<boolean>;
+  deleteDressRental: (rentalId: string) => Promise<boolean>;
 
   // KPI Calculations
   kpis: {
@@ -286,6 +297,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [services, setServices] = useState<Service[]>(INITIAL_SERVICES);
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [wardrobe, setWardrobe] = useState<WardrobeItem[]>(INITIAL_WARDROBE);
+  const [dressRentals, setDressRentals] = useState<DressRental[]>(INITIAL_DRESS_RENTALS);
   const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
   const [employeeBlocks, setEmployeeBlocks] = useState<EmployeeBlock[]>([]);
   const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
@@ -356,8 +368,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             deposit_cents: w.deposit_cents || 0,
             status: (w.availability_status || 'disponible') as WardrobeStatus,
             active: w.is_active !== undefined ? w.is_active : true,
+            size: w.size || 'M',
+            color: w.color || 'Variado',
             image_url: w.images && w.images.length > 0 ? w.images[0] : 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80',
             description: w.description || '',
+          }))
+        );
+      }
+
+      // 3.1 Alquileres y Reservas de Vestuario (dress_rentals)
+      const { data: dbRentals } = await (supabase as any)
+        .from('dress_rentals')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (dbRentals && dbRentals.length > 0) {
+        setDressRentals(
+          dbRentals.map((r: any) => ({
+            id: r.id,
+            ticket_code: r.ticket_code,
+            origin: (r.origin || 'local') as DressRentalOrigin,
+            wardrobe_item_id: r.wardrobe_item_id,
+            item_code: r.item_code,
+            item_name: r.item_name,
+            item_size: r.item_size || 'M',
+            item_color: r.item_color || 'Variado',
+            client_first_name: r.client_first_name,
+            client_last_name: r.client_last_name,
+            client_dni: r.client_dni,
+            client_phone: r.client_phone,
+            event_name: r.event_name,
+            destination: r.destination,
+            event_date: r.event_date,
+            return_date: r.return_date,
+            status: (r.status || 'reservado') as DressRentalStatus,
+            rental_price_cents: r.rental_price_cents || 0,
+            advance_cents: r.advance_cents || 0,
+            pending_cents: r.pending_cents || 0,
+            guarantee_cents: r.guarantee_cents || 0,
+            guarantee_returned_cents: r.guarantee_returned_cents,
+            penalty_cents: r.penalty_cents || 0,
+            penalty_reason: r.penalty_reason,
+            is_immediate_delivery: r.is_immediate_delivery === true,
+            delivery_date: r.delivery_date,
+            actual_return_date: r.actual_return_date,
+            voucher_url: r.voucher_url,
+            voucher_declared_amount_cents: r.voucher_declared_amount_cents,
+            rejection_reason: r.rejection_reason,
+            notes: r.notes,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
           }))
         );
       }
@@ -2757,9 +2816,274 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pulseRealtime();
 
     if (id.includes('-') && id.length === 36) {
-      supabase.from('wardrobe_items').update({ availability_status: status }).eq('id', id).then();
+      supabase.from('wardrobe_items').update({
+        availability_status: status,
+        updated_at: new Date().toISOString(),
+      }).eq('id', id).then();
     }
   }, [pulseRealtime]);
+
+  // ==========================================
+  // OPERACIONES DE ALQUILER DE VESTUARIOS (dress_rentals)
+  // ==========================================
+  const addDressRental = useCallback(
+    async (
+      data: Omit<DressRental, 'id' | 'ticket_code' | 'created_at' | 'updated_at'>
+    ): Promise<DressRental | null> => {
+      try {
+        // Generar correlativo dinámico según origen
+        const prefix = data.origin === 'web' ? 'W' : 'P';
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        const ticketCode = `${prefix}-${randomNum}`;
+
+        const insertPayload = {
+          ticket_code: ticketCode,
+          origin: data.origin,
+          wardrobe_item_id: data.wardrobe_item_id || null,
+          item_code: data.item_code,
+          item_name: data.item_name,
+          item_size: data.item_size || 'M',
+          item_color: data.item_color || 'Variado',
+          client_first_name: data.client_first_name.trim(),
+          client_last_name: data.client_last_name.trim(),
+          client_dni: data.client_dni.trim(),
+          client_phone: data.client_phone.trim(),
+          event_name: data.event_name.trim(),
+          destination: data.destination.trim(),
+          event_date: data.event_date,
+          return_date: data.return_date,
+          status: data.status,
+          rental_price_cents: data.rental_price_cents,
+          advance_cents: data.advance_cents,
+          pending_cents: data.pending_cents,
+          guarantee_cents: data.guarantee_cents,
+          guarantee_returned_cents: data.guarantee_returned_cents || null,
+          penalty_cents: data.penalty_cents || 0,
+          penalty_reason: data.penalty_reason || null,
+          is_immediate_delivery: data.is_immediate_delivery,
+          delivery_date: data.delivery_date || (data.is_immediate_delivery ? new Date().toISOString() : null),
+          actual_return_date: data.actual_return_date || null,
+          voucher_url: data.voucher_url || null,
+          voucher_declared_amount_cents: data.voucher_declared_amount_cents || null,
+          rejection_reason: data.rejection_reason || null,
+          notes: data.notes || null,
+        };
+
+        const { data: dbData, error } = await (supabase as any)
+          .from('dress_rentals')
+          .insert(insertPayload)
+          .select()
+          .single();
+
+        let newRental: DressRental;
+        if (!error && dbData) {
+          const raw: any = dbData;
+          newRental = {
+            id: raw.id,
+            ticket_code: raw.ticket_code,
+            origin: raw.origin as DressRentalOrigin,
+            wardrobe_item_id: raw.wardrobe_item_id,
+            item_code: raw.item_code,
+            item_name: raw.item_name,
+            item_size: raw.item_size || 'M',
+            item_color: raw.item_color || 'Variado',
+            client_first_name: raw.client_first_name,
+            client_last_name: raw.client_last_name,
+            client_dni: raw.client_dni,
+            client_phone: raw.client_phone,
+            event_name: raw.event_name,
+            destination: raw.destination,
+            event_date: raw.event_date,
+            return_date: raw.return_date,
+            status: raw.status as DressRentalStatus,
+            rental_price_cents: raw.rental_price_cents,
+            advance_cents: raw.advance_cents,
+            pending_cents: raw.pending_cents,
+            guarantee_cents: raw.guarantee_cents,
+            guarantee_returned_cents: raw.guarantee_returned_cents,
+            penalty_cents: raw.penalty_cents,
+            penalty_reason: raw.penalty_reason,
+            is_immediate_delivery: raw.is_immediate_delivery,
+            delivery_date: raw.delivery_date,
+            actual_return_date: raw.actual_return_date,
+            voucher_url: raw.voucher_url,
+            voucher_declared_amount_cents: raw.voucher_declared_amount_cents,
+            rejection_reason: raw.rejection_reason,
+            notes: raw.notes,
+            created_at: raw.created_at,
+            updated_at: raw.updated_at,
+          };
+        } else {
+          console.warn('Fallback reactivo local para alquiler de vestuario:', error);
+          newRental = {
+            ...data,
+            id: `rent-${Date.now()}`,
+            ticket_code: ticketCode,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+        }
+
+        setDressRentals((prev) => [newRental, ...prev]);
+        pulseRealtime();
+        return newRental;
+      } catch (err) {
+        console.error('Error adding dress rental:', err);
+        return null;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const validateYapeVoucher = useCallback(
+    async (rentalId: string, approved: boolean, reason?: string): Promise<boolean> => {
+      try {
+        const nextStatus: DressRentalStatus = approved ? 'reservado' : 'anulado';
+        const updatePayload: any = {
+          status: nextStatus,
+          updated_at: new Date().toISOString(),
+        };
+        if (!approved && reason) {
+          updatePayload.rejection_reason = reason;
+        }
+
+        setDressRentals((prev) =>
+          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error validating Yape voucher:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const confirmDressDelivery = useCallback(
+    async (
+      rentalId: string,
+      balanceCollectedCents: number,
+      guaranteeCollectedCents: number
+    ): Promise<boolean> => {
+      try {
+        const updatePayload = {
+          status: 'entregado' as DressRentalStatus,
+          pending_cents: 0,
+          guarantee_cents: guaranteeCollectedCents,
+          delivery_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        setDressRentals((prev) =>
+          prev.map((r) =>
+            r.id === rentalId
+              ? {
+                  ...r,
+                  ...updatePayload,
+                  advance_cents: r.advance_cents + balanceCollectedCents,
+                }
+              : r
+          )
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error confirming dress delivery:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const processDressReturn = useCallback(
+    async (
+      rentalId: string,
+      guaranteeReturnedCents: number,
+      penaltyReason?: string
+    ): Promise<boolean> => {
+      try {
+        const existing = dressRentals.find((r) => r.id === rentalId);
+        const originalGuarantee = existing?.guarantee_cents || 0;
+        const penaltyCents = Math.max(0, originalGuarantee - guaranteeReturnedCents);
+
+        const updatePayload = {
+          status: 'finalizado' as DressRentalStatus,
+          guarantee_returned_cents: guaranteeReturnedCents,
+          penalty_cents: penaltyCents,
+          penalty_reason: penaltyReason || null,
+          actual_return_date: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        setDressRentals((prev) =>
+          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error processing dress return:', err);
+        return false;
+      }
+    },
+    [dressRentals, pulseRealtime]
+  );
+
+  const cancelDressRental = useCallback(
+    async (rentalId: string, reason?: string): Promise<boolean> => {
+      try {
+        const updatePayload = {
+          status: 'anulado' as DressRentalStatus,
+          rejection_reason: reason || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        setDressRentals((prev) =>
+          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error cancelling dress rental:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const deleteDressRental = useCallback(
+    async (rentalId: string): Promise<boolean> => {
+      try {
+        setDressRentals((prev) => prev.filter((r) => r.id !== rentalId));
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').delete().eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error deleting dress rental:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
 
   // KPI CALCULATIONS (Reglas oficiales: Section C.1 & C.5)
   const kpis = useMemo(() => {
@@ -2890,6 +3214,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteWardrobeItem,
         toggleWardrobeActive,
         updateWardrobeStatus,
+        dressRentals,
+        addDressRental,
+        validateYapeVoucher,
+        confirmDressDelivery,
+        processDressReturn,
+        cancelDressRental,
+        deleteDressRental,
         kpis,
       }}
     >
