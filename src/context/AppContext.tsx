@@ -338,8 +338,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
 
-      // 2. Productos
-      const { data: dbProducts } = await supabase.from('products').select('*').order('sort_order');
+      // 2. Productos (Carga únicamente productos activos en el catálogo)
+      const { data: dbProducts } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order');
       if (dbProducts) {
         setProducts(
           dbProducts.map((p: any) => ({
@@ -2798,13 +2802,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteProduct = useCallback(async (id: string): Promise<boolean> => {
     try {
+      // Borrado Lógico (Soft Delete): Retirar del catálogo activo local
       setProducts((prev) => prev.filter((p) => p.id !== id));
       pulseRealtime();
 
       if (!id.startsWith('prod-')) {
-        const { error } = await supabase.from('products').delete().eq('id', id);
+        // Soft delete en Supabase para proteger la integridad de ventas y movimientos
+        const { error } = await supabase
+          .from('products')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('id', id);
         if (error) {
-          console.error('Error al eliminar producto en Supabase:', error);
+          console.error('Error al realizar soft delete de producto en Supabase:', error);
           return false;
         }
       }

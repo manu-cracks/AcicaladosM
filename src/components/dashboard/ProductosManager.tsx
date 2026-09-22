@@ -288,7 +288,7 @@ export const ProductosManager: React.FC = () => {
       const { blob: webpBlob, sizeKb: compressedSizeKb } = await compressImageToWebP(file, 0.85, 1200);
       setImageCompressionInfo(`Optimizado: ${originalSizeKb} KB ➔ ${compressedSizeKb} KB (WebP)`);
 
-      // 2. Subida a Supabase Storage: bucket 'products'
+      // 2. Subida a Supabase Storage: bucket 'products-images'
       const cleanName = (formName || 'producto')
         .toLowerCase()
         .trim()
@@ -298,14 +298,14 @@ export const ProductosManager: React.FC = () => {
       const fileName = `prod-${cleanName}-${Date.now()}.webp`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('products')
+        .from('products-images')
         .upload(fileName, webpBlob, {
           contentType: 'image/webp',
           upsert: true,
         });
 
       if (uploadError) {
-        console.error('Error al subir a Supabase Storage (bucket products):', uploadError);
+        console.error('Error al subir a Supabase Storage (bucket products-images):', uploadError);
         // Fallback: URL temporal local en caso de restricción temporal
         const localPreviewUrl = URL.createObjectURL(webpBlob);
         setFormImageUrl(localPreviewUrl);
@@ -315,7 +315,7 @@ export const ProductosManager: React.FC = () => {
 
       // 3. Obtener URL pública permanente
       const { data: publicUrlData } = supabase.storage
-        .from('products')
+        .from('products-images')
         .getPublicUrl(uploadData?.path || fileName);
 
       if (publicUrlData?.publicUrl) {
@@ -443,7 +443,7 @@ export const ProductosManager: React.FC = () => {
     try {
       const success = await deleteProduct(productToDelete.id);
       if (success) {
-        showToast('success', `Producto "${productToDelete.name}" eliminado del catálogo.`);
+        showToast('success', 'Producto eliminado del catálogo.');
         setProductToDelete(null);
       } else {
         showToast('error', 'No se pudo eliminar el producto.');
@@ -998,7 +998,7 @@ export const ProductosManager: React.FC = () => {
                 />
               </div>
 
-              {/* Subida de Imagen a Supabase Storage (bucket 'products') */}
+              {/* Subida de Imagen a Supabase Storage (bucket 'products-images') */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
                   <span>Fotografía del Producto (Supabase Storage)</span>
@@ -1036,7 +1036,7 @@ export const ProductosManager: React.FC = () => {
                     <div className="py-4 space-y-2 flex flex-col items-center">
                       <div className="w-8 h-8 rounded-full border-2 border-[#C8A45C] border-t-transparent animate-spin" />
                       <p className="text-xs text-[#E6C875] font-semibold">
-                        Comprimiendo y subiendo al bucket 'products'...
+                        Comprimiendo y subiendo al bucket 'products-images'...
                       </p>
                     </div>
                   ) : formImageUrl ? (
@@ -1126,7 +1126,7 @@ export const ProductosManager: React.FC = () => {
             <div className="text-center space-y-1.5">
               <h3 className="text-base font-bold text-white">¿Eliminar producto del catálogo?</h3>
               <p className="text-xs text-neutral-400">
-                Estás a punto de eliminar <span className="text-white font-semibold">"{productToDelete.name}"</span>. Esta acción no se puede deshacer.
+                Estás a punto de retirar del catálogo <span className="text-white font-semibold">"{productToDelete.name}"</span>. Las ventas y movimientos de inventario históricos permanecerán preservados.
               </p>
             </div>
 
