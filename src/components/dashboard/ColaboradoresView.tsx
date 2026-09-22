@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import { Employee, Service, EmployeeBlock, EmployeeAppointmentItem } from '../../types';
 import { timeToMinutes, minutesToTime } from '../../lib/bookingAvailability';
 import {
@@ -149,6 +150,7 @@ export const ColaboradoresView: React.FC = () => {
     addEmployeeLeave,
     deleteEmployeeBlock,
     currentRole,
+    isDataLoading,
   } = useApp();
 
   const isAdmin = currentRole === 'admin';
@@ -689,6 +691,10 @@ export const ColaboradoresView: React.FC = () => {
     }
     return inMemoryAppointments;
   }, [dbAppointments, inMemoryAppointments]);
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">

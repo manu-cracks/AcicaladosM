@@ -113,6 +113,8 @@ async function compressImageToWebP(
   });
 }
 
+import { DashboardSkeleton } from './DashboardSkeleton';
+
 export const VestuarioManager: React.FC = () => {
   const {
     wardrobe,
@@ -125,7 +127,12 @@ export const VestuarioManager: React.FC = () => {
     cancelDressRental,
     deleteDressRental,
     openLightbox,
+    isDataLoading,
   } = useApp();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   // Permisos: Administrador o Recepcionista
   const isAdmin = currentRole === 'admin';

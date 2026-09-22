@@ -20,6 +20,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import { Product, formatSoles } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 
@@ -78,7 +79,7 @@ async function compressImageToWebP(file: File, quality = 0.85, maxWidth = 1200):
 }
 
 export const ProductosManager: React.FC = () => {
-  const { products, addProduct, updateProduct, deleteProduct, openLightbox, currentRole } = useApp();
+  const { products, addProduct, updateProduct, deleteProduct, openLightbox, currentRole, isDataLoading } = useApp();
 
   const isAuthorized = currentRole === 'admin' || currentRole === 'recepcionista';
 
@@ -359,6 +360,10 @@ export const ProductosManager: React.FC = () => {
       setIsDeleting(false);
     }
   };
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 w-full">

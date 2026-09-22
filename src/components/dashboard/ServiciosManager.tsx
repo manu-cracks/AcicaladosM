@@ -18,6 +18,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import { Service } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 
@@ -282,7 +283,7 @@ async function compressImageToWebP(file: File, quality = 0.85, maxWidth = 1200):
 // COMPONENTE PRINCIPAL
 // ==========================================
 export const ServiciosManager: React.FC = () => {
-  const { services, currentRole, addService, updateService, deleteService, toggleServiceActive, openLightbox } = useApp();
+  const { services, currentRole, addService, updateService, deleteService, toggleServiceActive, openLightbox, isDataLoading } = useApp();
 
   // Permisos: Administrador o Recepcionista
   const isAuthorized = currentRole === 'admin' || currentRole === 'recepcionista';
@@ -612,6 +613,10 @@ export const ServiciosManager: React.FC = () => {
     const activeCount = services.filter((s) => s.active).length;
     return { total, barberiaCount, spaCount, activeCount };
   }, [services]);
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   if (!isAuthorized) {
     return (

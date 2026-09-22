@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import { formatSoles, Booking } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import {
@@ -54,7 +55,7 @@ const WEEKDAY_NAMES = [
 ];
 
 export const CalendarioView: React.FC = () => {
-  const { bookings, employees, attendance, pulseRealtime, lastSyncTimestamp, refreshData } = useApp();
+  const { bookings, employees, attendance, pulseRealtime, lastSyncTimestamp, refreshData, isDataLoading } = useApp();
 
   // Selected date state (defaults to current month)
   const today = useMemo(() => new Date(), []);
@@ -336,6 +337,10 @@ export const CalendarioView: React.FC = () => {
       return `${currentDate.getDate()} de ${MONTH_NAMES[currentMonth]} ${currentYear}`;
     }
   }, [viewMode, currentMonth, currentYear, currentDate]);
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-neutral-200 flex flex-col font-sans">

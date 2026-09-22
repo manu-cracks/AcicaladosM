@@ -24,6 +24,8 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
+import { DashboardSkeleton } from './DashboardSkeleton';
+
 export const AsistenciaView: React.FC = () => {
   const {
     currentRole,
@@ -32,7 +34,12 @@ export const AsistenciaView: React.FC = () => {
     attendanceRecords,
     attendanceSettings,
     registerAttendancePunch,
+    isDataLoading,
   } = useApp();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   const safeAttendance = attendanceRecords || attendance || [];
 

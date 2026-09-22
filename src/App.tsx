@@ -32,11 +32,12 @@ import { VestuarioManager } from './components/dashboard/VestuarioManager';
 import { ReportesView } from './components/dashboard/ReportesView';
 import { ServiciosManager } from './components/dashboard/ServiciosManager';
 import { ProductosManager } from './components/dashboard/ProductosManager';
+import { DashboardSkeleton } from './components/dashboard/DashboardSkeleton';
 
 import { MapPin, Phone, ShieldCheck, Scissors, Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { activeView, setActiveView, currentRole, isAuthLoading } = useApp();
+  const { activeView, setActiveView, currentRole, isAuthLoading, isDataLoading } = useApp();
   const mainContentRef = React.useRef<HTMLElement>(null);
 
   const isDashboard = activeView.startsWith('/dashboard');
@@ -116,6 +117,8 @@ const AppContent: React.FC = () => {
                   Ir a Mis Citas / Mi Cuenta
                 </button>
               </div>
+            ) : isDataLoading ? (
+              <DashboardSkeleton />
             ) : (
               <>
                 {activeView === '/dashboard' && <DashboardHome />}

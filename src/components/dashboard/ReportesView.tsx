@@ -26,9 +26,14 @@ import {
   Shirt,
   Percent,
 } from 'lucide-react';
+import { DashboardSkeleton } from './DashboardSkeleton';
 
 export const ReportesView: React.FC = () => {
-  const { bookings, ventasMostrador, expenses, employees, services, wardrobe } = useApp();
+  const { bookings, ventasMostrador, expenses, employees, services, wardrobe, isDataLoading } = useApp();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   // 1. Selector y Control de Fecha Dinámica (Zona Horaria America/Lima)
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateString());

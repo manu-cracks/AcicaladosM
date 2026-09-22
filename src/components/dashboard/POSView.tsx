@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { formatSoles } from '../../types';
+import { DashboardSkeleton } from './DashboardSkeleton';
+import { formatSoles, VentaMostrador } from '../../types';
+import { getTodayDateString } from '../../data/initialData';
+import { supabase } from '../../lib/supabase/client';
 import {
   Zap,
   User,
@@ -35,6 +38,19 @@ import {
   PHONE_ERROR_MESSAGE,
   DNI_ERROR_MESSAGE,
 } from '../../lib/validators';
+
+/** Extrae la fecha YYYY-MM-DD en la zona horaria oficial America/Lima */
+function getLimaDateFromTimestamp(val?: string | null): string {
+  if (!val) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val.substring(0, 10);
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  } catch {
+    return val.substring(0, 10);
+  }
+}
 
 /** Obtiene la fecha y hora actual en la zona horaria oficial de Perú (America/Lima) en formato YYYY-MM-DDTHH:mm */
 function getLimaCurrentDateTimeString(): string {
@@ -73,7 +89,89 @@ function formatDateTimeLima(dateStr: string): string {
 }
 
 export const POSView: React.FC = () => {
-  const { products, ventasMostrador, registerCounterSale, deleteVentaMostrador, openTicketModal, currentRole } = useApp();
+  const {
+    products,
+    ventasMostrador,
+    registerCounterSale,
+    deleteVentaMostrador,
+    openTicketModal,
+    currentRole,
+    currentUser,
+    lastSyncTimestamp,
+    isDataLoading,
+  } = useApp();
+
+  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+  const todayStr = getTodayDateString();
+
+  // Estados del Historial de Ventas (Selector exclusivo para ADMIN)
+  const [historyDate, setHistoryDate] = useState<string>(todayStr);
+  const effectiveHistoryDate = isAdmin ? historyDate : todayStr;
+  const [historySales, setHistorySales] = useState<VentaMostrador[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+
+  // Consulta de ventas en Supabase para la fecha seleccionada (00:00:00 a 23:59:59 America/Lima UTC-5)
+  const fetchHistoryVentas = useCallback(async (targetDate: string) => {
+    setIsLoadingHistory(true);
+    try {
+      const startOfDay = `${targetDate}T00:00:00-05:00`;
+      const endOfDay = `${targetDate}T23:59:59.999-05:00`;
+
+      const { data: dbVentas, error } = await supabase
+        .from('ventas_mostrador')
+        .select('*')
+        .gte('fecha', startOfDay)
+        .lte('fecha', endOfDay)
+        .order('fecha', { ascending: false });
+
+      if (!error && dbVentas) {
+        const mapped: VentaMostrador[] = dbVentas.map((v: any) => {
+          const isMixto = v.metodo_pago?.toLowerCase() === 'mixto';
+          const mEfectivo = v.monto_efectivo != null ? Number(v.monto_efectivo) : undefined;
+          const mYape = v.monto_yape != null ? Number(v.monto_yape) : undefined;
+          const mTransf = v.monto_transferencia != null ? Number(v.monto_transferencia) : undefined;
+          return {
+            id: v.id,
+            ticket_number: v.ticket_number || `TK-${v.id.substring(0, 5).toUpperCase()}`,
+            client_name: v.cliente_nombre,
+            product_name: v.producto_nombre,
+            quantity: v.cantidad,
+            unit_price_cents: Math.round(Number(v.precio_unitario) * 100),
+            total_price_cents: Math.round(Number(v.total) * 100),
+            payment_method: isMixto ? 'MIXTO' : (v.metodo_pago?.toLowerCase() || 'efectivo') as any,
+            notes: v.notas || undefined,
+            created_at: v.fecha || v.created_at,
+            monto_efectivo: mEfectivo,
+            monto_yape: mYape,
+            monto_transferencia: mTransf,
+            cash_cents: mEfectivo != null ? Math.round(mEfectivo * 100) : undefined,
+            yape_cents: mYape != null ? Math.round(mYape * 100) : undefined,
+            transfer_cents: mTransf != null ? Math.round(mTransf * 100) : undefined,
+            detalles_pago: v.detalles_pago || undefined,
+          };
+        });
+        setHistorySales(mapped);
+      } else {
+        // Fallback en caso de desconexión: filtrar desde ventasMostrador de contexto
+        const filtered = ventasMostrador.filter(
+          (v) => getLimaDateFromTimestamp(v.created_at) === targetDate
+        );
+        setHistorySales(filtered);
+      }
+    } catch (err) {
+      console.error('[POSView] Error al consultar historial de ventas:', err);
+      const filtered = ventasMostrador.filter(
+        (v) => getLimaDateFromTimestamp(v.created_at) === targetDate
+      );
+      setHistorySales(filtered);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [ventasMostrador]);
+
+  useEffect(() => {
+    fetchHistoryVentas(effectiveHistoryDate);
+  }, [effectiveHistoryDate, fetchHistoryVentas, lastSyncTimestamp]);
 
   // Estados del Formulario de Venta Rápida
   const [clientName, setClientName] = useState<string>('');
@@ -449,6 +547,11 @@ export const POSView: React.FC = () => {
       notes: finalNotes,
     });
 
+    // Sincronizar de inmediato el historial en pantalla si corresponde a la fecha visualizada
+    if (getLimaDateFromTimestamp(newSale.created_at) === effectiveHistoryDate) {
+      setHistorySales((prev) => [newSale, ...prev.filter((item) => item.id !== newSale.id)]);
+    }
+
     // Feedback visual
     setLastRegisteredTicket({
       number: newSale.ticket_number,
@@ -475,22 +578,28 @@ export const POSView: React.FC = () => {
     }
   };
 
-  // Filtrar historial de ventas
+  // Filtrar historial de ventas de la fecha seleccionada
   const filteredHistory = useMemo(() => {
-    if (!historySearch.trim()) return ventasMostrador;
+    if (!historySearch.trim()) return historySales;
     const q = historySearch.toLowerCase().trim();
-    return ventasMostrador.filter(
+    return historySales.filter(
       (v) =>
         v.ticket_number?.toLowerCase().includes(q) ||
         v.client_name?.toLowerCase().includes(q) ||
         v.product_name?.toLowerCase().includes(q) ||
         v.payment_method?.toLowerCase().includes(q)
     );
-  }, [ventasMostrador, historySearch]);
+  }, [historySales, historySearch]);
 
-  // Resumen del turno
-  const turnoTotalCents = ventasMostrador.reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
-  const turnoTotalCount = ventasMostrador.length;
+  // Resumen del turno recalculado exclusivamente para la fecha seleccionada
+  const turnoTotalCents = useMemo(() => {
+    return historySales.reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
+  }, [historySales]);
+  const turnoTotalCount = historySales.length;
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -1099,6 +1208,30 @@ export const POSView: React.FC = () => {
               <span className="text-[#E6C875] font-bold">{formatSoles(turnoTotalCents)}</span>
             </div>
 
+            {/* Selector de Fecha Personalizado (Exclusivo para ADMIN) */}
+            {isAdmin && (
+              <div className="flex items-center gap-2 bg-[#181818] border border-neutral-800 hover:border-[#C8A45C]/50 focus-within:border-[#C8A45C] rounded-xl px-3 py-1.5 transition">
+                <Calendar className="w-3.5 h-3.5 text-[#C8A45C] shrink-0" />
+                <input
+                  type="date"
+                  value={historyDate}
+                  onChange={(e) => setHistoryDate(e.target.value)}
+                  className="bg-transparent text-white font-mono text-xs outline-none cursor-pointer [color-scheme:dark]"
+                  title="Seleccionar fecha para consultar historial"
+                />
+                {historyDate !== todayStr && (
+                  <button
+                    type="button"
+                    onClick={() => setHistoryDate(todayStr)}
+                    className="text-[10px] bg-[#C8A45C]/15 hover:bg-[#C8A45C]/30 text-[#E6C875] border border-[#C8A45C]/30 font-medium px-1.5 py-0.5 rounded transition cursor-pointer"
+                    title="Restablecer a Hoy"
+                  >
+                    Hoy
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Buscador Rápido */}
             <div className="relative w-full sm:w-64">
               <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
@@ -1198,6 +1331,7 @@ export const POSView: React.FC = () => {
                             onClick={() => {
                               if (window.confirm(`¿Deseas eliminar la venta #${v.ticket_number}?`)) {
                                 deleteVentaMostrador(v.id);
+                                setHistorySales((prev) => prev.filter((item) => item.id !== v.id));
                               }
                             }}
                             className="p-1.5 rounded-lg bg-red-950/20 hover:bg-red-950/50 text-red-400 hover:text-red-300 border border-red-900/30 transition cursor-pointer"
@@ -1213,7 +1347,14 @@ export const POSView: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-neutral-500">
-                    No se encontraron ventas registradas que coincidan con la búsqueda.
+                    {isLoadingHistory ? (
+                      <div className="flex items-center justify-center gap-2 text-xs text-neutral-400">
+                        <Clock className="w-4 h-4 animate-spin text-[#C8A45C]" />
+                        <span>Cargando historial de ventas...</span>
+                      </div>
+                    ) : (
+                      <span>No se encontraron ventas registradas para esta fecha o criterio de búsqueda.</span>
+                    )}
                   </td>
                 </tr>
               )}

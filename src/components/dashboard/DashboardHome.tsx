@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { formatSoles, formatLimaDate, Booking, getBookingCollectedAmountCents } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import {
   TrendingUp,
   TrendingDown,
@@ -47,10 +48,15 @@ export const DashboardHome: React.FC = () => {
     lastSyncTimestamp,
     currentRole,
     currentUser,
+    isDataLoading,
   } = useApp();
 
   const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
   const todayStr = getTodayDateString();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   // Filtro de fecha: 'hoy' | 'semana' | 'mes' | 'todo' | fecha exacta 'YYYY-MM-DD'
   const [dateFilter, setDateFilter] = useState<string>('hoy');

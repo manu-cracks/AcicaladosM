@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
 import { isEmployeeBlocked, isEmployeeBooked, timeToMinutes, minutesToTime, formatCompletionTime } from '../../lib/bookingAvailability';
+import { DashboardSkeleton } from './DashboardSkeleton';
 import {
   BookOpen,
   Plus,
@@ -435,7 +436,12 @@ export const ReservasManager: React.FC = () => {
     editBooking,
     addBooking,
     openTicketModal,
+    isDataLoading,
   } = useApp();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   // Permisos: Administrador estricto vs Recepcionista
   const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';

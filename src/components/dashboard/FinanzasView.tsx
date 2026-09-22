@@ -2,9 +2,14 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
 import { TrendingDown, Plus, DollarSign, ArrowUpRight, ArrowDownRight, Trash2, Calendar, FileText } from 'lucide-react';
+import { DashboardSkeleton } from './DashboardSkeleton';
 
 export const FinanzasView: React.FC = () => {
-  const { kpis, expenses, addExpense, currentRole } = useApp();
+  const { kpis, expenses, addExpense, currentRole, isDataLoading } = useApp();
+
+  if (isDataLoading) {
+    return <DashboardSkeleton />;
+  }
 
   const [concept, setConcept] = useState('');
   const [amountInput, setAmountInput] = useState('');

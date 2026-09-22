@@ -24,16 +24,6 @@ import {
   getBookingCollectedAmountCents,
 } from '../types';
 import {
-  INITIAL_SERVICES,
-  INITIAL_PRODUCTS,
-  INITIAL_WARDROBE,
-  INITIAL_DRESS_RENTALS,
-  INITIAL_EMPLOYEES,
-  INITIAL_BOOKINGS,
-  INITIAL_PAYMENT_LOGS,
-  INITIAL_VENTAS_MOSTRADOR,
-  INITIAL_EXPENSES,
-  INITIAL_ATTENDANCE,
   INITIAL_PAYMENT_SETTINGS,
   INITIAL_BONUS_SETTINGS,
   INITIAL_ATTENDANCE_SETTINGS,
@@ -47,6 +37,8 @@ interface AppContextType {
   // Navigation & Role
   currentRole: UserRole;
   isAuthLoading: boolean;
+  isDataLoading: boolean;
+  isLoading: boolean;
   activeView: string;
   setActiveView: (view: string) => void;
   currentUser: {
@@ -296,17 +288,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveView('/mi-cuenta');
     }
   }, [activeViewState, currentRole, isAuthLoading, setActiveView]);
-  const [services, setServices] = useState<Service[]>(INITIAL_SERVICES);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-  const [wardrobe, setWardrobe] = useState<WardrobeItem[]>(INITIAL_WARDROBE);
-  const [dressRentals, setDressRentals] = useState<DressRental[]>(INITIAL_DRESS_RENTALS);
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  const [isDataLoading, setIsDataLoading] = useState<boolean>(true);
+  const [services, setServices] = useState<Service[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [wardrobe, setWardrobe] = useState<WardrobeItem[]>([]);
+  const [dressRentals, setDressRentals] = useState<DressRental[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeBlocks, setEmployeeBlocks] = useState<EmployeeBlock[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>(INITIAL_BOOKINGS);
-  const [paymentLogs, setPaymentLogs] = useState<PaymentLog[]>(INITIAL_PAYMENT_LOGS);
-  const [ventasMostrador, setVentasMostrador] = useState<VentaMostrador[]>(INITIAL_VENTAS_MOSTRADOR);
-  const [expenses, setExpenses] = useState<Expense[]>(INITIAL_EXPENSES);
-  const [attendance, setAttendance] = useState<EmployeeAttendance[]>(INITIAL_ATTENDANCE);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [paymentLogs, setPaymentLogs] = useState<PaymentLog[]>([]);
+  const [ventasMostrador, setVentasMostrador] = useState<VentaMostrador[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [attendance, setAttendance] = useState<EmployeeAttendance[]>([]);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(INITIAL_PAYMENT_SETTINGS);
   const [bonusSettings, setBonusSettings] = useState<BonusSettings>(INITIAL_BONUS_SETTINGS);
   const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>(INITIAL_ATTENDANCE_SETTINGS);
@@ -322,7 +315,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       // 1. Servicios
       const { data: dbServices } = await supabase.from('services').select('*').order('sort_order');
-      if (dbServices && dbServices.length > 0) {
+      if (dbServices) {
         setServices(
           dbServices.map((s: any) => ({
             id: s.id,
@@ -341,7 +334,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. Productos
       const { data: dbProducts } = await supabase.from('products').select('*').order('sort_order');
-      if (dbProducts && dbProducts.length > 0) {
+      if (dbProducts) {
         setProducts(
           dbProducts.map((p: any) => ({
             id: p.id,
@@ -359,7 +352,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 3. Vestuario
       const { data: dbWardrobe } = await supabase.from('wardrobe_items').select('*').order('code');
-      if (dbWardrobe && dbWardrobe.length > 0) {
+      if (dbWardrobe) {
         setWardrobe(
           dbWardrobe.map((w: any) => ({
             id: w.id,
@@ -383,7 +376,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .from('dress_rentals')
         .select('*')
         .order('created_at', { ascending: false });
-      if (dbRentals && dbRentals.length > 0) {
+      if (dbRentals) {
         setDressRentals(
           dbRentals.map((r: any) => ({
             id: r.id,
@@ -430,7 +423,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .order('rotation_order');
       
       const empMap = new Map<string, string>();
-      if (dbEmployees && dbEmployees.length > 0) {
+      if (dbEmployees) {
         dbEmployees.forEach((e: any) => {
           empMap.set(e.id, `${e.first_name || ''} ${e.last_name || ''}`.trim() || e.first_name || 'Colaborador');
         });
@@ -589,7 +582,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .from('payment_logs')
         .select('*')
         .order('created_at', { ascending: false });
-      if (dbPayments && dbPayments.length > 0) {
+      if (dbPayments) {
         setPaymentLogs(
           dbPayments.map((p: any) => ({
             id: p.id,
@@ -609,11 +602,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 8. Ventas de Mostrador
-      const { data: dbVentas } = await supabase
+      let ventasQuery = supabase
         .from('ventas_mostrador')
         .select('*')
         .order('fecha', { ascending: false });
-      if (dbVentas && dbVentas.length > 0) {
+
+      // Restricción para Recepcionista: Solo consultar ventas del día de Hoy (00:00:00 a 23:59:59 America/Lima)
+      if (effectiveRole === 'recepcionista') {
+        const todayStr = getTodayDateString();
+        const startOfDay = `${todayStr}T00:00:00-05:00`;
+        const endOfDay = `${todayStr}T23:59:59.999-05:00`;
+        ventasQuery = ventasQuery.gte('fecha', startOfDay).lte('fecha', endOfDay);
+      }
+
+      const { data: dbVentas, error: dbVentasErr } = await ventasQuery;
+      if (!dbVentasErr && dbVentas) {
         setVentasMostrador(
           dbVentas.map((v: any) => {
             const isMixto = v.metodo_pago?.toLowerCase() === 'mixto';
@@ -648,7 +651,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .from('expenses')
         .select('*')
         .order('expense_date', { ascending: false });
-      if (dbExpenses && dbExpenses.length > 0) {
+      if (dbExpenses) {
         setExpenses(
           dbExpenses.map((e: any) => ({
             id: e.id,
@@ -688,7 +691,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .from('employee_attendances')
         .select('*')
         .order('date', { ascending: false });
-      if (dbAttendances && dbAttendances.length > 0) {
+      if (dbAttendances) {
         setAttendance(
           dbAttendances.map((a: any) => {
             const empName = empMap.get(a.employee_id) || 'Colaborador';
@@ -737,6 +740,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLastSyncTimestamp(new Date());
     } catch (err) {
       console.warn('Conexión en línea con Supabase completada con fallbacks:', err);
+    } finally {
+      setIsDataLoading(false);
     }
   }, [currentRole]);
 
@@ -3143,6 +3148,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         currentRole,
         isAuthLoading,
+        isDataLoading,
+        isLoading: isDataLoading,
         activeView,
         setActiveView,
         currentUser,
