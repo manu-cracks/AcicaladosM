@@ -641,6 +641,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               quantity: v.cantidad,
               unit_price_cents: Math.round(Number(v.precio_unitario) * 100),
               total_price_cents: Math.round(Number(v.total) * 100),
+              subtotal: v.subtotal != null ? Number(v.subtotal) : undefined,
+              subtotal_cents: v.subtotal != null ? Math.round(Number(v.subtotal) * 100) : undefined,
+              monto_descuento: v.monto_descuento != null ? Number(v.monto_descuento) : 0,
+              discount_cents: v.monto_descuento != null ? Math.round(Number(v.monto_descuento) * 100) : 0,
+              detalles_items: v.detalles_items || undefined,
               payment_method: isMixto ? 'MIXTO' : (v.metodo_pago?.toLowerCase() || 'efectivo') as any,
               notes: v.notas || undefined,
               created_at: v.fecha || v.created_at,
@@ -1691,6 +1696,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cliente_dni: saleData.client_dni || null,
       cliente_phone: saleData.client_phone || null,
       metodo_pago: finalMetodoPago,
+      total: saleData.total_price_cents / 100,
+      subtotal: saleData.subtotal != null ? saleData.subtotal : (saleData.subtotal_cents != null ? saleData.subtotal_cents / 100 : items.reduce((s, i) => s + i.total, 0)),
+      monto_descuento: saleData.monto_descuento != null ? saleData.monto_descuento : (saleData.discount_cents != null ? saleData.discount_cents / 100 : 0),
+      product_name: saleData.product_name,
       monto_efectivo: saleData.monto_efectivo ?? (saleData.cash_cents != null ? saleData.cash_cents / 100 : null),
       monto_yape: saleData.monto_yape ?? (saleData.yape_cents != null ? saleData.yape_cents / 100 : null),
       monto_transferencia: saleData.monto_transferencia ?? (saleData.transfer_cents != null ? saleData.transfer_cents / 100 : null),
@@ -1732,25 +1741,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    const newSales: VentaMostrador[] = items.map((item, idx) => ({
+    const singleSale: VentaMostrador = {
       ...saleData,
-      id: (data as any)?.sales?.[idx]?.id || `vnt-${Date.now()}-${idx}`,
-      ticket_number: ticketNumber,
-      product_id: item.product_id,
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit_price_cents: Math.round(item.unit_price * 100),
-      total_price_cents: Math.round(item.total * 100),
+      id: (data as any)?.sale_id || `vnt-${Date.now()}`,
+      ticket_number: (data as any)?.ticket_number || ticketNumber,
+      product_name: saleData.product_name,
+      quantity: saleData.quantity,
+      unit_price_cents: saleData.unit_price_cents,
+      subtotal: (data as any)?.subtotal ?? (saleData.subtotal_cents ? saleData.subtotal_cents / 100 : saleData.total_price_cents / 100),
+      subtotal_cents: saleData.subtotal_cents ?? saleData.total_price_cents,
+      monto_descuento: (data as any)?.descuento ?? (saleData.discount_cents ? saleData.discount_cents / 100 : 0),
+      discount_cents: saleData.discount_cents ?? 0,
+      total_price_cents: saleData.total_price_cents,
+      detalles_items: items,
       created_at: createdAt,
-    }));
+    };
 
-    setVentasMostrador((prev) => [...newSales, ...prev]);
+    setVentasMostrador((prev) => [singleSale, ...prev]);
     pulseRealtime();
 
     return {
       success: true,
-      ticket_number: ticketNumber,
-      sales: newSales,
+      ticket_number: (data as any)?.ticket_number || ticketNumber,
+      sales: [singleSale],
     };
   }, [currentUser, pulseRealtime]);
 

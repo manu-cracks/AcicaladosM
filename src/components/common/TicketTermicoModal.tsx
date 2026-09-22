@@ -167,15 +167,29 @@ export const TicketTermicoModal: React.FC = () => {
                     </div>
                   ))
                 ) : ventaData ? (
-                  <div className="space-y-0.5">
-                    <div className="flex justify-between">
-                      <span className="font-medium">{ventaData.product_name}</span>
-                      <span className="font-semibold">{formatSoles(ventaData.total_price_cents)}</span>
+                  ventaData.detalles_items && ventaData.detalles_items.length > 0 ? (
+                    ventaData.detalles_items.map((item, idx) => (
+                      <div key={idx} className="space-y-0.5">
+                        <div className="flex justify-between">
+                          <span className="font-medium">{item.product_name}</span>
+                          <span className="font-semibold">{formatSoles(item.subtotal_cents)}</span>
+                        </div>
+                        <div className="text-[10px] text-neutral-600">
+                          Cant: {item.quantity} × {formatSoles(item.unit_price_cents)}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between">
+                        <span className="font-medium">{ventaData.product_name}</span>
+                        <span className="font-semibold">{formatSoles(ventaData.total_price_cents)}</span>
+                      </div>
+                      <div className="text-[10px] text-neutral-600">
+                        Cant: {ventaData.quantity} × {formatSoles(ventaData.unit_price_cents)}
+                      </div>
                     </div>
-                    <div className="text-[10px] text-neutral-600">
-                      Cant: {ventaData.quantity} × {formatSoles(ventaData.unit_price_cents)}
-                    </div>
-                  </div>
+                  )
                 ) : null}
               </div>
             </div>
@@ -213,7 +227,19 @@ export const TicketTermicoModal: React.FC = () => {
                 </>
               ) : ventaData ? (
                 <>
-                  <div className="flex justify-between font-bold text-xs pt-1">
+                  {(ventaData.discount_cents && ventaData.discount_cents > 0) || (ventaData.monto_descuento && ventaData.monto_descuento > 0) ? (
+                    <>
+                      <div className="flex justify-between text-neutral-700">
+                        <span>SUBTOTAL:</span>
+                        <span>{formatSoles(ventaData.subtotal_cents ?? Math.round((ventaData.subtotal || 0) * 100))}</span>
+                      </div>
+                      <div className="flex justify-between text-amber-700 font-medium">
+                        <span>DESCUENTO:</span>
+                        <span>- {formatSoles(ventaData.discount_cents ?? Math.round((ventaData.monto_descuento || 0) * 100))}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  <div className="flex justify-between font-bold text-xs pt-1 border-t border-neutral-300">
                     <span>TOTAL COBRADO:</span>
                     <span>{formatSoles(ventaData.total_price_cents)}</span>
                   </div>

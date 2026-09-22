@@ -291,6 +291,11 @@ export interface VentaMostrador {
     metodos?: string[];
     [key: string]: any;
   };
+  subtotal?: number;
+  subtotal_cents?: number;
+  monto_descuento?: number;
+  discount_cents?: number;
+  detalles_items?: any[];
   notes?: string;
   created_at: string;
 }

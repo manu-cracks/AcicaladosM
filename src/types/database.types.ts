@@ -1355,10 +1355,12 @@ export type Database = {
           cantidad: number
           cliente_nombre: string
           created_at: string
+          detalles_items: Json | null
           detalles_pago: Json | null
           fecha: string
           id: string
           metodo_pago: string
+          monto_descuento: number | null
           monto_efectivo: number | null
           monto_transferencia: number | null
           monto_yape: number | null
@@ -1366,6 +1368,7 @@ export type Database = {
           precio_unitario: number
           producto_nombre: string
           registrado_por: string | null
+          subtotal: number | null
           ticket_number: string | null
           total: number
           updated_at: string
@@ -1374,10 +1377,12 @@ export type Database = {
           cantidad?: number
           cliente_nombre: string
           created_at?: string
+          detalles_items?: Json | null
           detalles_pago?: Json | null
           fecha?: string
           id?: string
           metodo_pago?: string
+          monto_descuento?: number | null
           monto_efectivo?: number | null
           monto_transferencia?: number | null
           monto_yape?: number | null
@@ -1385,6 +1390,7 @@ export type Database = {
           precio_unitario: number
           producto_nombre: string
           registrado_por?: string | null
+          subtotal?: number | null
           ticket_number?: string | null
           total: number
           updated_at?: string
@@ -1393,10 +1399,12 @@ export type Database = {
           cantidad?: number
           cliente_nombre?: string
           created_at?: string
+          detalles_items?: Json | null
           detalles_pago?: Json | null
           fecha?: string
           id?: string
           metodo_pago?: string
+          monto_descuento?: number | null
           monto_efectivo?: number | null
           monto_transferencia?: number | null
           monto_yape?: number | null
@@ -1404,11 +1412,63 @@ export type Database = {
           precio_unitario?: number
           producto_nombre?: string
           registrado_por?: string | null
+          subtotal?: number | null
           ticket_number?: string | null
           total?: number
           updated_at?: string
         }
         Relationships: []
+      }
+      ventas_mostrador_detalles: {
+        Row: {
+          cantidad: number
+          created_at: string | null
+          id: string
+          precio_unitario: number
+          product_id: string | null
+          producto_nombre: string
+          subtotal: number
+          ticket_number: string | null
+          venta_id: string | null
+        }
+        Insert: {
+          cantidad: number
+          created_at?: string | null
+          id?: string
+          precio_unitario: number
+          product_id?: string | null
+          producto_nombre: string
+          subtotal: number
+          ticket_number?: string | null
+          venta_id?: string | null
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string | null
+          id?: string
+          precio_unitario?: number
+          product_id?: string | null
+          producto_nombre?: string
+          subtotal?: number
+          ticket_number?: string | null
+          venta_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ventas_mostrador_detalles_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ventas_mostrador_detalles_venta_id_fkey"
+            columns: ["venta_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_mostrador"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       wardrobe_items: {
         Row: {
