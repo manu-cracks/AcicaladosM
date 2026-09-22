@@ -26,7 +26,11 @@ import {
   ChevronDown,
   Phone,
   FileText,
+  Barcode as BarcodeIcon,
+  ShoppingCart,
 } from 'lucide-react';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { BarcodeNotFoundModal } from './BarcodeNotFoundModal';
 import {
   sanitizePhone,
   sanitizeDni,
@@ -99,6 +103,8 @@ export const POSView: React.FC = () => {
     currentUser,
     lastSyncTimestamp,
     isDataLoading,
+    processPosSaleWithStock,
+    setActiveView,
   } = useApp();
 
   const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
@@ -226,11 +232,180 @@ export const POSView: React.FC = () => {
     );
   }, [products, productDesc]);
 
-  // Selección de una sugerencia del catálogo
+  // --- CARRITO / LISTA DE VENTA POS ---
+  interface POSCartItem {
+    id: string;
+    product_id?: string;
+    name: string;
+    image_url?: string;
+    barcode?: string;
+    unit_price_cents: number;
+    quantity: number;
+    stock_available?: number;
+  }
+
+  const [cart, setCart] = useState<POSCartItem[]>([]);
+  const [manualBarcodeInput, setManualBarcodeInput] = useState<string>('');
+  const [notFoundBarcode, setNotFoundBarcode] = useState<string | null>(null);
+  const [stockAlert, setStockAlert] = useState<{ productName: string; availableStock: number } | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
+  const [isSubmittingSale, setIsSubmittingSale] = useState<boolean>(false);
+
+  // Escaneo o ingreso de código de barras
+  const handleScanProduct = useCallback(
+    (code: string) => {
+      const cleanCode = code.trim();
+      if (!cleanCode) return;
+
+      const found = products.find((p) => p.barcode?.trim() === cleanCode);
+      if (!found) {
+        setNotFoundBarcode(cleanCode);
+        return;
+      }
+
+      if (found.stock <= 0) {
+        setStockAlert({
+          productName: found.name,
+          availableStock: found.stock,
+        });
+        setTimeout(() => setStockAlert(null), 4500);
+        return;
+      }
+
+      setCart((prev) => {
+        const existing = prev.find((item) => item.product_id === found.id);
+        const currentQty = existing ? existing.quantity : 0;
+        if (currentQty + 1 > found.stock) {
+          setStockAlert({
+            productName: found.name,
+            availableStock: found.stock,
+          });
+          setTimeout(() => setStockAlert(null), 4500);
+          return prev;
+        }
+
+        setScanFeedback(`¡"${found.name}" agregado a la venta!`);
+        setTimeout(() => setScanFeedback(null), 2500);
+
+        if (existing) {
+          return prev.map((item) =>
+            item.product_id === found.id
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          );
+        }
+
+        return [
+          ...prev,
+          {
+            id: found.id,
+            product_id: found.id,
+            name: found.name,
+            image_url: found.image_url,
+            barcode: found.barcode,
+            unit_price_cents: found.price_cents,
+            quantity: 1,
+            stock_available: found.stock,
+          },
+        ];
+      });
+    },
+    [products]
+  );
+
+  // Hook global del lector de código de barras
+  useBarcodeScanner({
+    enabled: !notFoundBarcode,
+    onScan: handleScanProduct,
+  });
+
+  const handleManualBarcodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualBarcodeInput.trim()) return;
+    handleScanProduct(manualBarcodeInput.trim());
+    setManualBarcodeInput('');
+  };
+
+  const handleIncrementCartItem = (itemId: string) => {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item;
+        const maxStock = item.stock_available ?? 999;
+        if (item.quantity + 1 > maxStock) {
+          setStockAlert({
+            productName: item.name,
+            availableStock: maxStock,
+          });
+          setTimeout(() => setStockAlert(null), 4000);
+          return item;
+        }
+        return { ...item, quantity: item.quantity + 1 };
+      })
+    );
+  };
+
+  const handleDecrementCartItem = (itemId: string) => {
+    setCart((prev) =>
+      prev
+        .map((item) => {
+          if (item.id !== itemId) return item;
+          return { ...item, quantity: item.quantity - 1 };
+        })
+        .filter((item) => item.quantity > 0)
+    );
+  };
+
+  const handleRemoveCartItem = (itemId: string) => {
+    setCart((prev) => prev.filter((item) => item.id !== itemId));
+  };
+
+  // Selección de una sugerencia del catálogo (lo agrega al carrito)
   const handleSelectProductSuggestion = (product: typeof products[0]) => {
-    setProductDesc(product.name);
-    setSelectedProductId(product.id);
-    setUnitPrice((product.price_cents / 100).toFixed(2));
+    if (product.stock <= 0) {
+      setStockAlert({
+        productName: product.name,
+        availableStock: product.stock,
+      });
+      setTimeout(() => setStockAlert(null), 4000);
+      return;
+    }
+
+    setCart((prev) => {
+      const existing = prev.find((item) => item.product_id === product.id);
+      const currentQty = existing ? existing.quantity : 0;
+      if (currentQty + 1 > product.stock) {
+        setStockAlert({
+          productName: product.name,
+          availableStock: product.stock,
+        });
+        setTimeout(() => setStockAlert(null), 4000);
+        return prev;
+      }
+      setScanFeedback(`¡"${product.name}" agregado a la venta!`);
+      setTimeout(() => setScanFeedback(null), 2500);
+
+      if (existing) {
+        return prev.map((item) =>
+          item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: product.id,
+          product_id: product.id,
+          name: product.name,
+          image_url: product.image_url,
+          barcode: product.barcode,
+          unit_price_cents: product.price_cents,
+          quantity: 1,
+          stock_available: product.stock,
+        },
+      ];
+    });
+
+    setProductDesc('');
+    setSelectedProductId(null);
     setIsDropdownOpen(false);
     setValidationError(null);
   };
@@ -239,14 +414,19 @@ export const POSView: React.FC = () => {
   const handleDescriptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setProductDesc(val);
-    setSelectedProductId(null); // Al escribir libremente se desvincula de un ID estricto
+    setSelectedProductId(null);
     setIsDropdownOpen(true);
     setValidationError(null);
   };
 
-  // Cálculo del Total en Vivo
+  // Cálculo del Total en Vivo (considerando carrito si existe)
+  const cartTotalCents = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.unit_price_cents * item.quantity, 0);
+  }, [cart]);
+
   const parsedPrice = parseFloat(unitPrice) || 0;
-  const totalCents = Math.round(quantity * parsedPrice * 100);
+  const singleTotalCents = Math.round(quantity * parsedPrice * 100);
+  const totalCents = cart.length > 0 ? cartTotalCents : singleTotalCents;
   const formattedTotal = formatSoles(totalCents);
 
   // Cálculos y Validación para Modo Mixto
@@ -270,10 +450,9 @@ export const POSView: React.FC = () => {
   const mixtoDiffCents = totalCents - currentMixtoSumCents;
 
   const isSubmitDisabled =
+    isSubmittingSale ||
     !clientName.trim() ||
-    !productDesc.trim() ||
-    quantity < 1 ||
-    parsedPrice < 0 ||
+    (cart.length === 0 && (!productDesc.trim() || parsedPrice <= 0 || quantity < 1)) ||
     totalCents <= 0 ||
     (isMixtoMode && (!isMixtoBalanced || selectedSubMethods.length !== 2));
 
@@ -441,8 +620,8 @@ export const POSView: React.FC = () => {
     }
   }, [totalCents, isMixtoMode, selectedSubMethods]);
 
-  // Procesamiento del Registro de Venta
-  const handleSubmitSale = (andPrint: boolean) => {
+  // Procesamiento del Registro de Venta mediante Transacción Atómica RPC
+  const handleSubmitSale = async (andPrint: boolean) => {
     setValidationError(null);
 
     if (!clientName.trim()) {
@@ -460,18 +639,23 @@ export const POSView: React.FC = () => {
       return;
     }
 
-    if (!productDesc.trim()) {
-      setValidationError('Por favor, describe el producto o concepto de la venta.');
+    if (cart.length === 0 && !productDesc.trim()) {
+      setValidationError('Escanee un producto o describa el concepto de la venta.');
       return;
     }
 
-    if (quantity < 1 || !Number.isInteger(quantity)) {
+    if (cart.length === 0 && (quantity < 1 || !Number.isInteger(quantity))) {
       setValidationError('La cantidad debe ser un número entero mayor o igual a 1.');
       return;
     }
 
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
-      setValidationError('Por favor, ingresa un precio unitario válido mayor o igual a 0.');
+    if (cart.length === 0 && (isNaN(parsedPrice) || parsedPrice <= 0)) {
+      setValidationError('Por favor, ingresa un precio unitario válido mayor a 0.');
+      return;
+    }
+
+    if (totalCents <= 0) {
+      setValidationError('El monto total de la venta debe ser mayor a cero.');
       return;
     }
 
@@ -486,14 +670,13 @@ export const POSView: React.FC = () => {
       }
     }
 
-    // Convertir fecha de Lima a ISO UTC para almacenamiento
     let isoDateTimeString = new Date().toISOString();
     try {
       if (saleDateTime) {
         isoDateTimeString = new Date(saleDateTime).toISOString();
       }
     } catch {
-      // Fallback a fecha actual
+      // Fallback
     }
 
     const unitPriceCents = Math.round(parsedPrice * 100);
@@ -521,21 +704,18 @@ export const POSView: React.FC = () => {
         }
       : undefined;
 
-    const baseNotes = selectedProductId ? 'Producto de catálogo' : 'Venta libre mostrador';
+    const baseNotes = cart.length > 0
+      ? `Venta POS [${cart.length} productos]`
+      : (selectedProductId ? 'Producto de catálogo' : 'Venta libre mostrador');
     const finalNotes = isMixtoMode
       ? `${baseNotes} [Mixto: ${selectedSubMethods.map((m) => `${m.toUpperCase()}: S/ ${mixtoAmounts[m]}`).join(' + ')}]`
       : baseNotes;
 
-    const newSale = registerCounterSale({
-      product_id: selectedProductId || undefined,
-      product_name: productDesc.trim(),
-      quantity,
-      unit_price_cents: unitPriceCents,
-      total_price_cents: totalCents,
+    const salePayload = {
       client_name: clientName.trim(),
       client_dni: clientDni.trim() || undefined,
       client_phone: clientPhone.trim() || undefined,
-      payment_method: isMixtoMode ? 'MIXTO' : paymentMethod,
+      payment_method: isMixtoMode ? ('MIXTO' as const) : paymentMethod,
       cash_cents: cashCents,
       yape_cents: yapeCents,
       transfer_cents: transferCents,
@@ -545,36 +725,70 @@ export const POSView: React.FC = () => {
       detalles_pago: detallesPago,
       created_at: isoDateTimeString,
       notes: finalNotes,
-    });
+      product_name: cart.length > 0 ? cart.map((i) => `${i.quantity}x ${i.name}`).join(', ') : productDesc.trim(),
+      quantity: cart.length > 0 ? cart.reduce((s, i) => s + i.quantity, 0) : quantity,
+      unit_price_cents: cart.length > 0 ? Math.round(totalCents / cart.reduce((s, i) => s + i.quantity, 0)) : unitPriceCents,
+      total_price_cents: totalCents,
+    };
 
-    // Sincronizar de inmediato el historial en pantalla si corresponde a la fecha visualizada
-    if (getLimaDateFromTimestamp(newSale.created_at) === effectiveHistoryDate) {
-      setHistorySales((prev) => [newSale, ...prev.filter((item) => item.id !== newSale.id)]);
-    }
+    const items = cart.length > 0
+      ? cart.map((item) => ({
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.unit_price_cents / 100,
+          total: (item.unit_price_cents * item.quantity) / 100,
+        }))
+      : [
+          {
+            product_id: selectedProductId || undefined,
+            product_name: productDesc.trim(),
+            quantity,
+            unit_price: parsedPrice,
+            total: singleTotalCents / 100,
+          },
+        ];
 
-    // Feedback visual
-    setLastRegisteredTicket({
-      number: newSale.ticket_number,
-      total: formattedTotal,
-    });
+    setIsSubmittingSale(true);
+    try {
+      // Invocación a transacción en Supabase
+      const res = await processPosSaleWithStock(salePayload, items);
 
-    // Limpiar formulario para la siguiente venta rápida
-    setClientName('');
-    setClientDni('');
-    setClientPhone('');
-    setProductDesc('');
-    setSelectedProductId(null);
-    setQuantity(1);
-    setUnitPrice('');
-    setSaleDateTime(getLimaCurrentDateTimeString());
-    setIsMixtoMode(false);
-    setSelectedSubMethods([]);
-    setMixtoAmounts({ efectivo: '', yape: '', transferencia: '' });
-    setPaymentMethod('efectivo');
+      // Sincronizar de inmediato el historial en pantalla si corresponde a la fecha visualizada
+      if (getLimaDateFromTimestamp(isoDateTimeString) === effectiveHistoryDate) {
+        setHistorySales((prev) => [...res.sales, ...prev]);
+      }
 
-    // Si se solicitó imprimir, abrir el diálogo del ticket térmico
-    if (andPrint) {
-      openTicketModal('pos', newSale);
+      // Feedback visual
+      setLastRegisteredTicket({
+        number: res.ticket_number,
+        total: formattedTotal,
+      });
+
+      // Limpiar carrito y formulario para la siguiente venta
+      setCart([]);
+      setClientName('');
+      setClientDni('');
+      setClientPhone('');
+      setProductDesc('');
+      setSelectedProductId(null);
+      setQuantity(1);
+      setUnitPrice('');
+      setSaleDateTime(getLimaCurrentDateTimeString());
+      setIsMixtoMode(false);
+      setSelectedSubMethods([]);
+      setMixtoAmounts({ efectivo: '', yape: '', transferencia: '' });
+      setPaymentMethod('efectivo');
+
+      // Si se solicitó imprimir, abrir el diálogo del ticket térmico
+      if (andPrint && res.sales.length > 0) {
+        openTicketModal('pos', res.sales[0]);
+      }
+    } catch (err: any) {
+      console.error('Error al procesar la venta POS:', err);
+      setValidationError(err.message || 'Error al procesar la venta en el servidor.');
+    } finally {
+      setIsSubmittingSale(false);
     }
   };
 
@@ -671,6 +885,161 @@ export const POSView: React.FC = () => {
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* Barra Inteligente del Escáner de Código de Barras */}
+        <div className="mt-5 p-4 rounded-xl bg-gradient-to-r from-[#171612] via-[#121212] to-[#171612] border border-[#C8A45C]/40 shadow-inner flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="w-9 h-9 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/40 flex items-center justify-center text-[#E6C875] shrink-0">
+              <BarcodeIcon className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-bold text-white tracking-wide">
+                  Lector de Código de Barras Activo
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400">
+                Escanee productos con su lector USB/Bluetooth para agregarlos a la venta:
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleManualBarcodeSubmit} className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <input
+                type="text"
+                value={manualBarcodeInput}
+                onChange={(e) => setManualBarcodeInput(e.target.value)}
+                placeholder="Código de barras..."
+                className="w-full bg-black/60 border border-neutral-700 focus:border-[#C8A45C] text-white rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono outline-none transition"
+              />
+              {manualBarcodeInput && (
+                <button
+                  type="button"
+                  onClick={() => setManualBarcodeInput('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="px-3 py-1.5 bg-[#C8A45C] hover:bg-[#DFBE73] text-black font-bold text-xs rounded-lg transition shrink-0 cursor-pointer"
+            >
+              Escanear
+            </button>
+          </form>
+        </div>
+
+        {/* Notificación de escaneo exitoso */}
+        {scanFeedback && (
+          <div className="mt-3 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-200 text-xs flex items-center gap-2 animate-in fade-in duration-200">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{scanFeedback}</span>
+          </div>
+        )}
+
+        {/* Alerta de stock insuficiente */}
+        {stockAlert && (
+          <div className="mt-3 p-3 rounded-xl bg-rose-950/60 border border-rose-500/50 text-rose-200 text-xs flex items-center justify-between gap-2 animate-shake">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                Stock insuficiente para <strong>"{stockAlert.productName}"</strong>. Stock disponible:{' '}
+                <strong className="text-white underline">{stockAlert.availableStock} unidades</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStockAlert(null)}
+              className="text-neutral-400 hover:text-white p-1 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Carrito de Productos Escaneados / Seleccionados */}
+        {cart.length > 0 && (
+          <div className="mt-5 space-y-3 bg-[#0D0D0D] border border-neutral-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4 text-[#C8A45C]" />
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  Lista de Productos a Vender ({cart.reduce((sum, i) => sum + i.quantity, 0)} ítems)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCart([])}
+                className="text-[11px] text-neutral-400 hover:text-rose-400 transition underline cursor-pointer"
+              >
+                Vaciar lista
+              </button>
+            </div>
+
+            <div className="divide-y divide-neutral-800/60 max-h-60 overflow-y-auto">
+              {cart.map((item) => (
+                <div key={item.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-9 h-9 rounded-lg bg-neutral-900 border border-neutral-800 overflow-hidden shrink-0 flex items-center justify-center">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="w-4 h-4 text-neutral-600" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-semibold text-white truncate block">{item.name}</span>
+                      <div className="flex items-center gap-2 text-[10px] text-neutral-400 font-mono">
+                        <span>{formatSoles(item.unit_price_cents)} c/u</span>
+                        {item.barcode && <span>• Barcode: {item.barcode}</span>}
+                        {item.stock_available !== undefined && (
+                          <span className="text-emerald-400">Stock: {item.stock_available}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center bg-neutral-900 border border-neutral-800 rounded-lg p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleDecrementCartItem(item.id)}
+                        className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-800 rounded cursor-pointer"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-8 text-center font-bold text-white text-xs">{item.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleIncrementCartItem(item.id)}
+                        className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-800 rounded cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <span className="font-bold text-[#E6C875] w-20 text-right">
+                      {formatSoles(item.unit_price_cents * item.quantity)}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCartItem(item.id)}
+                      className="p-1 text-neutral-500 hover:text-rose-400 transition cursor-pointer"
+                      title="Quitar de la lista"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1362,6 +1731,18 @@ export const POSView: React.FC = () => {
           </table>
         </div>
       </div>
+      {/* Modal de Producto No Encontrado */}
+      <BarcodeNotFoundModal
+        isOpen={!!notFoundBarcode}
+        scannedBarcode={notFoundBarcode || ''}
+        userRole={currentRole as any}
+        onClose={() => setNotFoundBarcode(null)}
+        onRegisterNew={(barcode) => {
+          setNotFoundBarcode(null);
+          sessionStorage.setItem('pendingBarcode', barcode);
+          setActiveView('/dashboard/productos');
+        }}
+      />
     </div>
   );
 };

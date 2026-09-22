@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      attendance_breaks: {
+        Row: {
+          attendance_id: string | null
+          created_at: string | null
+          duration_minutes: number | null
+          employee_id: string | null
+          end_time: string | null
+          id: string
+          reason: string | null
+          start_time: string
+        }
+        Insert: {
+          attendance_id?: string | null
+          created_at?: string | null
+          duration_minutes?: number | null
+          employee_id?: string | null
+          end_time?: string | null
+          id?: string
+          reason?: string | null
+          start_time: string
+        }
+        Update: {
+          attendance_id?: string | null
+          created_at?: string | null
+          duration_minutes?: number | null
+          employee_id?: string | null
+          end_time?: string | null
+          id?: string
+          reason?: string | null
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_breaks_attendance_id_fkey"
+            columns: ["attendance_id"]
+            isOneToOne: false
+            referencedRelation: "employee_attendances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_breaks_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_justifications: {
         Row: {
           approved_at: string | null
@@ -398,6 +446,122 @@ export type Database = {
         }
         Relationships: []
       }
+      dress_rentals: {
+        Row: {
+          actual_return_date: string | null
+          advance_cents: number
+          client_dni: string
+          client_first_name: string
+          client_last_name: string
+          client_phone: string
+          created_at: string
+          delivery_date: string | null
+          destination: string
+          event_date: string
+          event_name: string
+          guarantee_cents: number
+          guarantee_returned_cents: number | null
+          id: string
+          is_immediate_delivery: boolean
+          item_code: string
+          item_color: string | null
+          item_name: string
+          item_size: string | null
+          notes: string | null
+          origin: string
+          penalty_cents: number | null
+          penalty_reason: string | null
+          pending_cents: number
+          rejection_reason: string | null
+          rental_price_cents: number
+          return_date: string
+          status: string
+          ticket_code: string
+          updated_at: string
+          voucher_declared_amount_cents: number | null
+          voucher_url: string | null
+          wardrobe_item_id: string | null
+        }
+        Insert: {
+          actual_return_date?: string | null
+          advance_cents?: number
+          client_dni: string
+          client_first_name: string
+          client_last_name: string
+          client_phone: string
+          created_at?: string
+          delivery_date?: string | null
+          destination: string
+          event_date: string
+          event_name: string
+          guarantee_cents?: number
+          guarantee_returned_cents?: number | null
+          id?: string
+          is_immediate_delivery?: boolean
+          item_code: string
+          item_color?: string | null
+          item_name: string
+          item_size?: string | null
+          notes?: string | null
+          origin?: string
+          penalty_cents?: number | null
+          penalty_reason?: string | null
+          pending_cents?: number
+          rejection_reason?: string | null
+          rental_price_cents?: number
+          return_date: string
+          status?: string
+          ticket_code: string
+          updated_at?: string
+          voucher_declared_amount_cents?: number | null
+          voucher_url?: string | null
+          wardrobe_item_id?: string | null
+        }
+        Update: {
+          actual_return_date?: string | null
+          advance_cents?: number
+          client_dni?: string
+          client_first_name?: string
+          client_last_name?: string
+          client_phone?: string
+          created_at?: string
+          delivery_date?: string | null
+          destination?: string
+          event_date?: string
+          event_name?: string
+          guarantee_cents?: number
+          guarantee_returned_cents?: number | null
+          id?: string
+          is_immediate_delivery?: boolean
+          item_code?: string
+          item_color?: string | null
+          item_name?: string
+          item_size?: string | null
+          notes?: string | null
+          origin?: string
+          penalty_cents?: number | null
+          penalty_reason?: string | null
+          pending_cents?: number
+          rejection_reason?: string | null
+          rental_price_cents?: number
+          return_date?: string
+          status?: string
+          ticket_code?: string
+          updated_at?: string
+          voucher_declared_amount_cents?: number | null
+          voucher_url?: string | null
+          wardrobe_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dress_rentals_wardrobe_item_id_fkey"
+            columns: ["wardrobe_item_id"]
+            isOneToOne: false
+            referencedRelation: "wardrobe_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       egresos: {
         Row: {
           amount_cents: number
@@ -466,8 +630,12 @@ export type Database = {
           entry_justification: string | null
           exit_justification: string | null
           id: string
+          is_on_leave: boolean | null
+          leave_reason: string | null
+          leave_start_time: string | null
           notes: string | null
           overtime_minutes: number | null
+          owed_minutes: number | null
           status: string
           tardy_minutes: number | null
           updated_at: string
@@ -488,8 +656,12 @@ export type Database = {
           entry_justification?: string | null
           exit_justification?: string | null
           id?: string
+          is_on_leave?: boolean | null
+          leave_reason?: string | null
+          leave_start_time?: string | null
           notes?: string | null
           overtime_minutes?: number | null
+          owed_minutes?: number | null
           status?: string
           tardy_minutes?: number | null
           updated_at?: string
@@ -510,8 +682,12 @@ export type Database = {
           entry_justification?: string | null
           exit_justification?: string | null
           id?: string
+          is_on_leave?: boolean | null
+          leave_reason?: string | null
+          leave_start_time?: string | null
           notes?: string | null
           overtime_minutes?: number | null
+          owed_minutes?: number | null
           status?: string
           tardy_minutes?: number | null
           updated_at?: string
@@ -667,6 +843,7 @@ export type Database = {
           last_name: string
           phone: string | null
           profile_id: string | null
+          qr_code: string | null
           rotation_order: number
           shift_end: string | null
           shift_start: string | null
@@ -686,6 +863,7 @@ export type Database = {
           last_name: string
           phone?: string | null
           profile_id?: string | null
+          qr_code?: string | null
           rotation_order?: number
           shift_end?: string | null
           shift_start?: string | null
@@ -705,6 +883,7 @@ export type Database = {
           last_name?: string
           phone?: string | null
           profile_id?: string | null
+          qr_code?: string | null
           rotation_order?: number
           shift_end?: string | null
           shift_start?: string | null
@@ -843,6 +1022,47 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory_movements: {
+        Row: {
+          area_destination: string | null
+          created_at: string
+          id: string
+          movement_type: string
+          notes: string | null
+          product_id: string
+          quantity: number
+          user_id: string | null
+        }
+        Insert: {
+          area_destination?: string | null
+          created_at?: string
+          id?: string
+          movement_type: string
+          notes?: string | null
+          product_id: string
+          quantity: number
+          user_id?: string | null
+        }
+        Update: {
+          area_destination?: string | null
+          created_at?: string
+          id?: string
+          movement_type?: string
+          notes?: string | null
+          product_id?: string
+          quantity?: number
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_movements_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_logs: {
         Row: {
           amount_cents: number | null
@@ -940,6 +1160,7 @@ export type Database = {
       }
       products: {
         Row: {
+          barcode: string | null
           category: string | null
           created_at: string
           currency: string
@@ -948,14 +1169,18 @@ export type Database = {
           id: string
           images: string[]
           is_active: boolean
+          min_stock: number | null
           name: string
           price_cents: number
           slug: string
           sort_order: number
           stock: number
+          unit_measure: string | null
           updated_at: string
+          use_type: string | null
         }
         Insert: {
+          barcode?: string | null
           category?: string | null
           created_at?: string
           currency?: string
@@ -964,14 +1189,18 @@ export type Database = {
           id?: string
           images?: string[]
           is_active?: boolean
+          min_stock?: number | null
           name: string
           price_cents: number
           slug: string
           sort_order?: number
           stock?: number
+          unit_measure?: string | null
           updated_at?: string
+          use_type?: string | null
         }
         Update: {
+          barcode?: string | null
           category?: string | null
           created_at?: string
           currency?: string
@@ -980,12 +1209,15 @@ export type Database = {
           id?: string
           images?: string[]
           is_active?: boolean
+          min_stock?: number | null
           name?: string
           price_cents?: number
           slug?: string
           sort_order?: number
           stock?: number
+          unit_measure?: string | null
           updated_at?: string
+          use_type?: string | null
         }
         Relationships: []
       }
@@ -1123,9 +1355,13 @@ export type Database = {
           cantidad: number
           cliente_nombre: string
           created_at: string
+          detalles_pago: Json | null
           fecha: string
           id: string
           metodo_pago: string
+          monto_efectivo: number | null
+          monto_transferencia: number | null
+          monto_yape: number | null
           notas: string | null
           precio_unitario: number
           producto_nombre: string
@@ -1138,9 +1374,13 @@ export type Database = {
           cantidad?: number
           cliente_nombre: string
           created_at?: string
+          detalles_pago?: Json | null
           fecha?: string
           id?: string
           metodo_pago?: string
+          monto_efectivo?: number | null
+          monto_transferencia?: number | null
+          monto_yape?: number | null
           notas?: string | null
           precio_unitario: number
           producto_nombre: string
@@ -1153,9 +1393,13 @@ export type Database = {
           cantidad?: number
           cliente_nombre?: string
           created_at?: string
+          detalles_pago?: Json | null
           fecha?: string
           id?: string
           metodo_pago?: string
+          monto_efectivo?: number | null
+          monto_transferencia?: number | null
+          monto_yape?: number | null
           notas?: string | null
           precio_unitario?: number
           producto_nombre?: string
@@ -1171,6 +1415,7 @@ export type Database = {
           availability_status: string
           category: string | null
           code: string | null
+          color: string | null
           created_at: string
           deposit_cents: number
           description: string | null
@@ -1180,7 +1425,7 @@ export type Database = {
           is_active: boolean
           name: string
           price_cents: number
-          section: string | null
+          size: string | null
           sort_order: number
           updated_at: string
         }
@@ -1188,6 +1433,7 @@ export type Database = {
           availability_status?: string
           category?: string | null
           code?: string | null
+          color?: string | null
           created_at?: string
           deposit_cents?: number
           description?: string | null
@@ -1197,7 +1443,7 @@ export type Database = {
           is_active?: boolean
           name: string
           price_cents?: number
-          section?: string | null
+          size?: string | null
           sort_order?: number
           updated_at?: string
         }
@@ -1205,6 +1451,7 @@ export type Database = {
           availability_status?: string
           category?: string | null
           code?: string | null
+          color?: string | null
           created_at?: string
           deposit_cents?: number
           description?: string | null
@@ -1214,7 +1461,7 @@ export type Database = {
           is_active?: boolean
           name?: string
           price_cents?: number
-          section?: string | null
+          size?: string | null
           sort_order?: number
           updated_at?: string
         }
@@ -1301,50 +1548,46 @@ export type Database = {
     }
     Functions: {
       expire_stale_bookings: { Args: never; Returns: undefined }
-      recalculate_booking_payment: {
-        Args: { p_booking_id: string }
-        Returns: undefined
-      }
       get_employee_agenda: {
-        Args: {
-          p_employee_id: string
-          p_date?: string | null
-        }
+        Args: { p_date?: string; p_employee_id: string }
         Returns: {
-          id: string
-          booking_id: string
           booking_code: string
+          booking_date: string
+          booking_id: string
+          client_email: string
           client_name: string
           client_phone: string
-          client_email: string
-          booking_date: string
+          duration_minutes: number
+          end_time: string
+          id: string
+          payment_status: string
           service_id: string
           service_name: string
           service_price_cents: number
-          duration_minutes: number
           start_time: string
-          end_time: string
           status: string
-          payment_status: string
         }[]
       }
       get_financial_balances: {
+        Args: { p_date?: string; p_end_date?: string; p_start_date?: string }
+        Returns: Json
+      }
+      get_user_role: { Args: never; Returns: string }
+      process_internal_consumption: {
         Args: {
-          p_date?: string | null
-          p_start_date?: string | null
-          p_end_date?: string | null
+          p_area: string
+          p_notes?: string
+          p_product_id: string
+          p_quantity: number
+          p_responsible: string
+          p_user_id?: string
         }
-        Returns: {
-          ingresos_servicios_cents: number
-          ventas_mostrador_cents: number
-          total_ingresos_cents: number
-          total_egresos_cents: number
-          balance_neto_cents: number
-          citas_count: number
-          citas_confirmadas_count: number
-          query_date: string | null
-          timezone: string
-        }
+        Returns: Json
+      }
+      process_pos_sale: { Args: { p_items: Json; p_sale: Json }; Returns: Json }
+      recalculate_booking_payment: {
+        Args: { p_booking_id: string }
+        Returns: undefined
       }
     }
     Enums: {

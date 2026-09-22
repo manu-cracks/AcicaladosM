@@ -22,6 +22,9 @@ export interface Service {
   description?: string;
 }
 
+export type ProductUnitMeasure = 'unidad' | 'ml' | 'frasco' | 'paquete' | 'litro' | 'caja' | string;
+export type ProductUseType = 'venta' | 'consumo_interno' | 'mixto';
+
 export interface Product {
   id: string;
   name: string;
@@ -29,9 +32,27 @@ export interface Product {
   category: 'ceras_pomadas' | 'shampoos' | 'barba_afeitado' | 'tratamientos' | 'accesorios';
   price_cents: number;
   stock: number;
+  min_stock?: number;
+  barcode?: string;
+  unit_measure?: ProductUnitMeasure;
+  use_type?: ProductUseType;
   image_url: string;
   description: string;
   active?: boolean;
+}
+
+export type InventoryMovementType = 'VENTA' | 'CONSUMO_INTERNO' | 'INGRESO' | 'AJUSTE';
+
+export interface InventoryMovement {
+  id: string;
+  product_id: string;
+  movement_type: InventoryMovementType;
+  quantity: number;
+  user_id?: string;
+  area_destination?: string;
+  notes?: string;
+  created_at: string;
+  product_name?: string;
 }
 
 export type WardrobeStatus = 'disponible' | 'reservado' | 'en_uso' | 'mantenimiento';

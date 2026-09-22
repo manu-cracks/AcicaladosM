@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Package,
   Plus,
@@ -18,11 +18,17 @@ import {
   Tag,
   Layers,
   Image as ImageIcon,
+  Barcode as BarcodeIcon,
+  Printer,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import { Product, formatSoles } from '../../types';
 import { supabase } from '../../lib/supabase/client';
+import { ProductBarcodeLabelModal } from './ProductBarcodeLabelModal';
+import { ConsumoInternoModal } from './ConsumoInternoModal';
+import { BarcodeNotFoundModal } from './BarcodeNotFoundModal';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 
 // Categorías oficiales del catálogo de productos
 export const PRODUCT_CATEGORIES = [
@@ -79,7 +85,7 @@ async function compressImageToWebP(file: File, quality = 0.85, maxWidth = 1200):
 }
 
 export const ProductosManager: React.FC = () => {
-  const { products, addProduct, updateProduct, deleteProduct, openLightbox, currentRole, isDataLoading } = useApp();
+  const { products, addProduct, updateProduct, deleteProduct, openLightbox, currentRole, isDataLoading, employees } = useApp();
 
   const isAuthorized = currentRole === 'admin' || currentRole === 'recepcionista';
 
@@ -100,6 +106,17 @@ export const ProductosManager: React.FC = () => {
   const [formStock, setFormStock] = useState<string>('15');
   const [formDescription, setFormDescription] = useState('');
   const [formImageUrl, setFormImageUrl] = useState('');
+  const [formBarcode, setFormBarcode] = useState<string>('');
+  const [formUnitMeasure, setFormUnitMeasure] = useState<string>('unidad');
+  const [formUseType, setFormUseType] = useState<'venta' | 'consumo_interno' | 'mixto'>('venta');
+  const [formMinStock, setFormMinStock] = useState<string>('5');
+
+  // Modales adicionales
+  const [selectedLabelProduct, setSelectedLabelProduct] = useState<Product | null>(null);
+  const [isLabelModalOpen, setIsLabelModalOpen] = useState<boolean>(false);
+  const [selectedConsumoProduct, setSelectedConsumoProduct] = useState<Product | null>(null);
+  const [isConsumoModalOpen, setIsConsumoModalOpen] = useState<boolean>(false);
+  const [notFoundBarcode, setNotFoundBarcode] = useState<string | null>(null);
 
   // Estado de Carga de Imagen
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -127,7 +144,7 @@ export const ProductosManager: React.FC = () => {
     const totalCount = products.length;
     const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
     const totalValuationCents = products.reduce((sum, p) => sum + (p.stock || 0) * (p.price_cents || 0), 0);
-    const lowStockCount = products.filter((p) => p.stock > 0 && p.stock <= 5).length;
+    const lowStockCount = products.filter((p) => p.stock > 0 && p.stock <= (p.min_stock ?? 5)).length;
     const outOfStockCount = products.filter((p) => p.stock === 0).length;
 
     return {
@@ -149,7 +166,7 @@ export const ProductosManager: React.FC = () => {
 
       // Filtro de Stock
       if (selectedStockFilter === 'in_stock' && item.stock <= 0) return false;
-      if (selectedStockFilter === 'low_stock' && (item.stock <= 0 || item.stock > 5)) return false;
+      if (selectedStockFilter === 'low_stock' && (item.stock <= 0 || item.stock > (item.min_stock ?? 5))) return false;
       if (selectedStockFilter === 'out_of_stock' && item.stock !== 0) return false;
 
       // Filtro de Búsqueda
@@ -157,12 +174,68 @@ export const ProductosManager: React.FC = () => {
         const query = searchQuery.toLowerCase().trim();
         const matchesName = item.name.toLowerCase().includes(query);
         const matchesDesc = item.description ? item.description.toLowerCase().includes(query) : false;
-        if (!matchesName && !matchesDesc) return false;
+        const matchesBarcode = item.barcode ? item.barcode.toLowerCase().includes(query) : false;
+        if (!matchesName && !matchesDesc && !matchesBarcode) return false;
       }
 
       return true;
     });
   }, [products, selectedCategoryFilter, selectedStockFilter, searchQuery]);
+
+  // Apertura de modal con código de barras escaneado
+  const handleOpenCreateModalWithBarcode = (barcode: string) => {
+    setModalMode('create');
+    setEditingProductId(null);
+    setFormName('');
+    setFormCategory('ceras_pomadas');
+    setFormPriceSoles('45.00');
+    setFormStock('10');
+    setFormDescription('');
+    setFormImageUrl('');
+    setFormBarcode(barcode);
+    setFormUnitMeasure('unidad');
+    setFormUseType('venta');
+    setFormMinStock('5');
+    setImageCompressionInfo(null);
+    setIsModalOpen(true);
+  };
+
+  const handleGenerateRandomBarcode = () => {
+    const code = `775${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+    setFormBarcode(code);
+  };
+
+  // Escáner de código de barras activo en la vista de productos
+  useBarcodeScanner({
+    enabled: isAuthorized && !isModalOpen && !isConsumoModalOpen && !isLabelModalOpen,
+    onScan: (code) => {
+      const clean = code.trim();
+      if (!clean) return;
+
+      const found = products.find((p) => p.barcode?.trim() === clean);
+      if (found) {
+        showToast('success', `Producto escaneado: "${found.name}" (Stock: ${found.stock})`);
+        setSearchQuery(found.name);
+      } else {
+        if (currentRole === 'admin') {
+          handleOpenCreateModalWithBarcode(clean);
+        } else {
+          setNotFoundBarcode(clean);
+        }
+      }
+    },
+  });
+
+  // Si proviene de un escaneo en POS que no existía
+  useEffect(() => {
+    const pending = sessionStorage.getItem('pendingBarcode');
+    if (pending) {
+      sessionStorage.removeItem('pendingBarcode');
+      if (currentRole === 'admin') {
+        handleOpenCreateModalWithBarcode(pending);
+      }
+    }
+  }, [currentRole]);
 
   // Manejador de Apertura del Modal para Crear
   const handleOpenCreateModal = () => {
@@ -174,6 +247,10 @@ export const ProductosManager: React.FC = () => {
     setFormStock('15');
     setFormDescription('');
     setFormImageUrl('');
+    setFormBarcode('');
+    setFormUnitMeasure('unidad');
+    setFormUseType('venta');
+    setFormMinStock('5');
     setImageCompressionInfo(null);
     setIsModalOpen(true);
   };
@@ -188,6 +265,10 @@ export const ProductosManager: React.FC = () => {
     setFormStock(product.stock.toString());
     setFormDescription(product.description || '');
     setFormImageUrl(product.image_url || '');
+    setFormBarcode(product.barcode || '');
+    setFormUnitMeasure(product.unit_measure || 'unidad');
+    setFormUseType(product.use_type || 'venta');
+    setFormMinStock((product.min_stock ?? 5).toString());
     setImageCompressionInfo(null);
     setIsModalOpen(true);
   };
@@ -276,8 +357,8 @@ export const ProductosManager: React.FC = () => {
     }
 
     const parsedPrice = parseFloat(formPriceSoles);
-    if (isNaN(parsedPrice) || parsedPrice < 0) {
-      showToast('error', 'Por favor ingresa un precio válido en Soles (mayor o igual a 0).');
+    if ((formUseType === 'venta' || formUseType === 'mixto') && (isNaN(parsedPrice) || parsedPrice < 0)) {
+      showToast('error', 'Por favor ingresa un precio válido en Soles para productos de venta.');
       return;
     }
 
@@ -287,7 +368,13 @@ export const ProductosManager: React.FC = () => {
       return;
     }
 
-    const priceCents = Math.round(parsedPrice * 100);
+    const parsedMinStock = parseInt(formMinStock, 10);
+    if (isNaN(parsedMinStock) || parsedMinStock < 0) {
+      showToast('error', 'Por favor ingresa un stock mínimo válido (0 o mayor).');
+      return;
+    }
+
+    const priceCents = Math.round(parsedPrice * 100) || 0;
     const finalImageUrl =
       formImageUrl.trim() ||
       'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=600&q=80';
@@ -301,6 +388,10 @@ export const ProductosManager: React.FC = () => {
           category: formCategory,
           price_cents: priceCents,
           stock: parsedStock,
+          min_stock: parsedMinStock,
+          barcode: formBarcode.trim() || undefined,
+          unit_measure: formUnitMeasure,
+          use_type: formUseType,
           image_url: finalImageUrl,
           description: formDescription.trim(),
           active: true,
@@ -321,6 +412,10 @@ export const ProductosManager: React.FC = () => {
           category: formCategory,
           price_cents: priceCents,
           stock: parsedStock,
+          min_stock: parsedMinStock,
+          barcode: formBarcode.trim() || undefined,
+          unit_measure: formUnitMeasure,
+          use_type: formUseType,
           image_url: finalImageUrl,
           description: formDescription.trim(),
           active: existing?.active !== undefined ? existing.active : true,
@@ -402,15 +497,29 @@ export const ProductosManager: React.FC = () => {
           </p>
         </div>
 
-        {/* Botón Principal "+ Nuevo Producto" (Reemplaza el Carrito) */}
-        <button
-          type="button"
-          onClick={handleOpenCreateModal}
-          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8A45C] to-[#DFBE73] hover:from-[#DFBE73] hover:to-[#E6C875] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#C8A45C]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer self-start md:self-auto"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>+ Nuevo Producto</span>
-        </button>
+        {/* Botones de Acción */}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedConsumoProduct(null);
+              setIsConsumoModalOpen(true);
+            }}
+            className="px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-amber-500/40 text-amber-300 font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all duration-200 cursor-pointer"
+          >
+            <Boxes className="w-4 h-4 text-amber-400" />
+            <span>Consumo Interno</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#C8A45C] to-[#DFBE73] hover:from-[#DFBE73] hover:to-[#E6C875] text-black font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#C8A45C]/20 transition-all duration-200 transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>+ Nuevo Producto</span>
+          </button>
+        </div>
       </div>
 
       {/* Tarjetas de Métricas Rápidas (KPIs) */}
@@ -633,8 +742,47 @@ export const ProductosManager: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Botones de Gestión Administrativa (Editar y Eliminar) */}
-                  <div className="pt-2 border-t border-neutral-800/80 flex items-center gap-2">
+                  {/* Código de barras y tipo de uso */}
+                  <div className="flex items-center justify-between text-[11px] text-neutral-400">
+                    <span className="flex items-center gap-1 font-mono text-[10px]">
+                      <BarcodeIcon className="w-3 h-3 text-[#C8A45C]" />
+                      {product.barcode || 'Sin código'}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-[10px] text-neutral-400 uppercase">
+                      {product.use_type || 'venta'}
+                    </span>
+                  </div>
+
+                  {/* Botones de Operación y Gestión */}
+                  <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedConsumoProduct(product);
+                        setIsConsumoModalOpen(true);
+                      }}
+                      className="py-1 px-2 rounded-lg text-[11px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-amber-300 hover:text-amber-200 transition flex items-center justify-center gap-1"
+                      title="Registrar salida para consumo interno"
+                    >
+                      <Boxes className="w-3 h-3 text-amber-400" />
+                      <span>Consumo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLabelProduct(product);
+                        setIsLabelModalOpen(true);
+                      }}
+                      className="py-1 px-2 rounded-lg text-[11px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-neutral-300 hover:text-white transition flex items-center justify-center gap-1"
+                      title="Generar e imprimir etiqueta de código de barras"
+                    >
+                      <Printer className="w-3 h-3 text-[#C8A45C]" />
+                      <span>Etiqueta</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(product)}
@@ -702,7 +850,31 @@ export const ProductosManager: React.FC = () => {
                 />
               </div>
 
-              {/* Categoría y Precio */}
+              {/* Código de Barras */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                    <BarcodeIcon className="w-3.5 h-3.5 text-[#C8A45C]" />
+                    Código de Barras (Escáner / EAN-13 / Code128)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRandomBarcode}
+                    className="text-[10px] text-[#C8A45C] hover:text-[#E6C875] underline font-mono cursor-pointer"
+                  >
+                    Generar aleatorio
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={formBarcode}
+                  onChange={(e) => setFormBarcode(e.target.value.trim())}
+                  placeholder="Ej. 7751234000012 (o escanee con el lector USB)"
+                  className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 font-mono outline-none transition"
+                />
+              </div>
+
+              {/* Categoría y Unidad de Medida */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-neutral-300">
@@ -723,7 +895,43 @@ export const ProductosManager: React.FC = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-neutral-300">
-                    Precio de Venta (S/.) <span className="text-rose-500">*</span>
+                    Unidad de Medida <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formUnitMeasure}
+                    onChange={(e) => setFormUnitMeasure(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] rounded-xl text-xs text-white outline-none cursor-pointer"
+                  >
+                    <option value="unidad">Unidades (uds.)</option>
+                    <option value="ml">Mililitros (ml)</option>
+                    <option value="litro">Litros (L)</option>
+                    <option value="frasco">Frasco</option>
+                    <option value="paquete">Paquete</option>
+                    <option value="caja">Caja</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Tipo de Uso y Precio */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Tipo de Uso <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formUseType}
+                    onChange={(e: any) => setFormUseType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] rounded-xl text-xs text-white outline-none cursor-pointer"
+                  >
+                    <option value="venta">Venta al Público (Mostrador)</option>
+                    <option value="consumo_interno">Consumo Interno (Insumo Sillón)</option>
+                    <option value="mixto">Mixto (Venta & Consumo)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Precio de Venta (S/.) {formUseType !== 'consumo_interno' && <span className="text-rose-500">*</span>}
                   </label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
@@ -733,7 +941,7 @@ export const ProductosManager: React.FC = () => {
                       type="number"
                       step="0.10"
                       min="0"
-                      required
+                      required={formUseType !== 'consumo_interno'}
                       value={formPriceSoles}
                       onChange={(e) => setFormPriceSoles(e.target.value)}
                       placeholder="0.00"
@@ -743,12 +951,12 @@ export const ProductosManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Stock Inicial / Disponible */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">
-                  Stock / Unidades en Inventario <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
+              {/* Stock Inicial y Stock Mínimo */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Stock en Inventario <span className="text-rose-500">*</span>
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -759,9 +967,22 @@ export const ProductosManager: React.FC = () => {
                     placeholder="15"
                     className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none transition"
                   />
-                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500">
-                    unidades
-                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Stock Mínimo de Alerta <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={formMinStock}
+                    onChange={(e) => setFormMinStock(e.target.value)}
+                    placeholder="5"
+                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none transition"
+                  />
                 </div>
               </div>
 
@@ -930,6 +1151,43 @@ export const ProductosManager: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Modales de Operaciones Complementarias */}
+      <ProductBarcodeLabelModal
+        product={selectedLabelProduct}
+        isOpen={isLabelModalOpen}
+        onClose={() => {
+          setIsLabelModalOpen(false);
+          setSelectedLabelProduct(null);
+        }}
+      />
+
+      <ConsumoInternoModal
+        isOpen={isConsumoModalOpen}
+        initialProduct={selectedConsumoProduct}
+        products={products}
+        employees={employees}
+        onClose={() => {
+          setIsConsumoModalOpen(false);
+          setSelectedConsumoProduct(null);
+        }}
+        onSuccess={(info) => {
+          showToast(
+            'success',
+            `Consumo interno registrado: ${info.quantity} unid. de "${info.productName}" para "${info.area}".`
+          );
+        }}
+      />
+
+      <BarcodeNotFoundModal
+        isOpen={!!notFoundBarcode}
+        scannedBarcode={notFoundBarcode || ''}
+        userRole={currentRole as any}
+        onClose={() => setNotFoundBarcode(null)}
+        onRegisterNew={(barcode) => {
+          setNotFoundBarcode(null);
+          handleOpenCreateModalWithBarcode(barcode);
+        }}
+      />
     </div>
   );
 };

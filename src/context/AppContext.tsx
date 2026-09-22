@@ -3,6 +3,7 @@ import {
   UserRole,
   Service,
   Product,
+  ProductUseType,
   WardrobeItem,
   Employee,
   EmployeeBlock,
@@ -55,6 +56,7 @@ interface AppContextType {
   // Data Collections
   services: Service[];
   products: Product[];
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   wardrobe: WardrobeItem[];
   dressRentals: DressRental[];
   employees: Employee[];
@@ -117,6 +119,10 @@ interface AppContextType {
   // POS
   registerVentaMostrador: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
   registerCounterSale: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
+  processPosSaleWithStock: (
+    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
+    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
+  ) => Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }>;
   deleteVentaMostrador: (id: string) => void;
 
   // Expenses
@@ -342,7 +348,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             slug: p.slug,
             category: (p.category || 'ceras_pomadas') as any,
             price_cents: p.price_cents,
-            stock: p.stock,
+            stock: p.stock ?? 0,
+            min_stock: p.min_stock ?? 5,
+            barcode: p.barcode || undefined,
+            unit_measure: p.unit_measure || 'unidad',
+            use_type: (p.use_type as ProductUseType) || 'venta',
             image_url: p.images && p.images.length > 0 ? p.images[0] : 'https://images.unsplash.com/photo-1585232351009-aa87416fca90?auto=format&fit=crop&w=600&q=80',
             description: p.description || '',
             active: p.is_active !== undefined ? p.is_active : true,
@@ -1665,6 +1675,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [pulseRealtime]);
 
+  const processPosSaleWithStock = useCallback(async (
+    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
+    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
+  ): Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }> => {
+    const ticketNumber = `TK-${Math.floor(10000 + Math.random() * 90000)}`;
+    const today = getTodayDateString();
+    const createdAt = saleData.created_at || `${today}T12:00:00Z`;
+
+    const isMixto = saleData.payment_method?.toLowerCase() === 'mixto';
+    const finalMetodoPago = isMixto ? 'MIXTO' : (saleData.payment_method.charAt(0).toUpperCase() + saleData.payment_method.slice(1));
+
+    const pSale = {
+      cliente_nombre: saleData.client_name,
+      cliente_dni: saleData.client_dni || null,
+      cliente_phone: saleData.client_phone || null,
+      metodo_pago: finalMetodoPago,
+      monto_efectivo: saleData.monto_efectivo ?? (saleData.cash_cents != null ? saleData.cash_cents / 100 : null),
+      monto_yape: saleData.monto_yape ?? (saleData.yape_cents != null ? saleData.yape_cents / 100 : null),
+      monto_transferencia: saleData.monto_transferencia ?? (saleData.transfer_cents != null ? saleData.transfer_cents / 100 : null),
+      detalles_pago: saleData.detalles_pago || null,
+      ticket_number: ticketNumber,
+      fecha: createdAt,
+      notas: saleData.notes || null,
+      registrado_por: currentUser?.id || null,
+    };
+
+    const pItems = items.map((item) => ({
+      product_id: item.product_id || null,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total: item.total,
+    }));
+
+    const { data, error } = await supabase.rpc('process_pos_sale', {
+      p_sale: pSale,
+      p_items: pItems,
+    });
+
+    if (error) {
+      console.error('Error invocando process_pos_sale en Supabase:', error);
+      throw new Error(error.message || 'Error al procesar la venta');
+    }
+
+    // Descontar stock localmente
+    items.forEach((item) => {
+      if (item.product_id) {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === item.product_id
+              ? { ...p, stock: Math.max(0, p.stock - item.quantity) }
+              : p
+          )
+        );
+      }
+    });
+
+    const newSales: VentaMostrador[] = items.map((item, idx) => ({
+      ...saleData,
+      id: (data as any)?.sales?.[idx]?.id || `vnt-${Date.now()}-${idx}`,
+      ticket_number: ticketNumber,
+      product_id: item.product_id,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      unit_price_cents: Math.round(item.unit_price * 100),
+      total_price_cents: Math.round(item.total * 100),
+      created_at: createdAt,
+    }));
+
+    setVentasMostrador((prev) => [...newSales, ...prev]);
+    pulseRealtime();
+
+    return {
+      success: true,
+      ticket_number: ticketNumber,
+      sales: newSales,
+    };
+  }, [currentUser, pulseRealtime]);
+
   // EXPENSES HANDLERS
   const addExpense = useCallback((expenseData: Omit<Expense, 'id' | 'created_at' | 'voided'>) => {
     const today = getTodayDateString();
@@ -2581,7 +2670,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .replace(/(^-|-$)/g, '');
       const uniqueSlug = `${baseSlug || 'prod'}-${Date.now()}`;
 
-      const insertPayload = {
+      const insertPayload: any = {
         name: prodData.name.trim(),
         slug: prodData.slug && prodData.slug.trim() ? prodData.slug.trim() : uniqueSlug,
         description: prodData.description || null,
@@ -2589,6 +2678,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         price_cents: prodData.price_cents,
         currency: 'PEN',
         stock: prodData.stock,
+        min_stock: prodData.min_stock ?? 5,
+        barcode: prodData.barcode || null,
+        unit_measure: prodData.unit_measure || 'unidad',
+        use_type: prodData.use_type || 'venta',
         is_active: prodData.active !== undefined ? prodData.active : true,
         images: prodData.image_url ? [prodData.image_url] : [],
         sort_order: 0,
@@ -2622,11 +2715,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           category: (data.category || 'ceras_pomadas') as any,
           price_cents: data.price_cents,
           stock: data.stock,
+          min_stock: data.min_stock ?? 5,
+          barcode: data.barcode || undefined,
+          unit_measure: data.unit_measure || 'unidad',
+          use_type: (data.use_type as ProductUseType) || 'venta',
           image_url: data.images && data.images.length > 0 ? data.images[0] : prodData.image_url,
           description: data.description || '',
           active: data.is_active !== undefined ? data.is_active : true,
         };
         setProducts((prev) => [newProd, ...prev]);
+
+        // Si se registró con stock inicial mayor a cero, registrar movimiento INGRESO
+        if (newProd.stock > 0) {
+          supabase.from('inventory_movements').insert({
+            product_id: newProd.id,
+            movement_type: 'INGRESO',
+            quantity: newProd.stock,
+            user_id: currentUser?.id || null,
+            area_destination: 'Almacén Principal',
+            notes: 'Stock inicial por alta de producto',
+          }).then();
+        }
+
         pulseRealtime();
         return true;
       }
@@ -2635,7 +2745,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Error adding product:', err);
       return false;
     }
-  }, [pulseRealtime]);
+  }, [pulseRealtime, currentUser]);
 
   const updateProduct = useCallback(async (prod: Product): Promise<boolean> => {
     try {
@@ -2651,6 +2761,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             description: prod.description || null,
             price_cents: prod.price_cents,
             stock: prod.stock,
+            min_stock: prod.min_stock ?? 5,
+            barcode: prod.barcode || null,
+            unit_measure: prod.unit_measure || 'unidad',
+            use_type: prod.use_type || 'venta',
             images: prod.image_url ? [prod.image_url] : [],
             is_active: prod.active !== undefined ? prod.active : true,
             updated_at: new Date().toISOString(),
@@ -3198,7 +3312,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         editBooking,
         registerVentaMostrador,
         registerCounterSale: registerVentaMostrador,
+        processPosSaleWithStock,
         deleteVentaMostrador,
+        setProducts,
         addExpense,
         voidExpense,
         addEmployee,
