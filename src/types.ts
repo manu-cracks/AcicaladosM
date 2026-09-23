@@ -258,6 +258,9 @@ export interface Booking {
   status?: string;
   created_at: string;
   confirmed_at?: string;
+  completed_at?: string;
+  cancelled_at?: string;
+  expired_at?: string;
   notes?: string;
   payment_method?: string;
   cash_cents?: number;
@@ -422,29 +425,37 @@ export interface LightboxData {
  * - Si la cita está pendiente o no registra abono: Aporta S/ 0.00.
  */
 export function getBookingCollectedAmountCents(b: Booking): number {
+  // Citas anuladas, canceladas o expiradas no aportan recaudación efectiva
+  if (
+    b.status === 'cancelada' ||
+    b.status === 'cancelled' ||
+    b.status === 'expirada' ||
+    Boolean(b.cancelled_at) ||
+    Boolean(b.expired_at)
+  ) {
+    return 0;
+  }
+
   const totalPrice = b.total_price_cents || 0;
   const advance = b.advance_amount_cents || 0;
 
-  // Si tiene adelanto registrado pero es menor que el precio total, suma ÚNICAMENTE lo efectivamente cobrado
-  if (advance > 0 && totalPrice > 0 && advance < totalPrice) {
+  // Lógica Estricta de "Adelantos":
+  // Si el cliente hizo un pago parcial o adelanto menor al precio total,
+  // se suma ESTRICTAMENTE el monto de ese adelanto cobrado, NUNCA el precio total.
+  if (b.payment_status === 'parcial' || (advance > 0 && totalPrice > 0 && advance < totalPrice)) {
     return advance;
   }
 
-  // Cita con cobro total concluido / 100% pagada
+  // Solo se suma el monto total si el estado del pago es completamente cancelado/liquidado (100% pagado)
   const isPaidTotal =
-    (b.payment_status === 'total' && (advance >= totalPrice || advance === 0)) ||
+    b.payment_status === 'total' ||
     (advance > 0 && totalPrice > 0 && advance >= totalPrice);
 
   if (isPaidTotal) {
     return Math.max(totalPrice, advance);
   }
 
-  // Cita con pago parcial (solo adelanto verificado)
-  if (advance > 0 || b.payment_status === 'parcial') {
-    return Math.min(advance, totalPrice > 0 ? totalPrice : advance);
-  }
-
-  // Pendiente o sin pago
+  // Pendiente o sin pago confirmado
   return 0;
 }
 

@@ -47,6 +47,19 @@ export function getLimaTimeString(): string {
   });
 }
 
+/** Extrae la fecha YYYY-MM-DD en la zona horaria oficial America/Lima */
+export function getLimaDateFromTimestamp(val?: string | null): string {
+  if (!val) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val.substring(0, 10);
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  } catch {
+    return val.substring(0, 10);
+  }
+}
+
 export const INITIAL_PAYMENT_SETTINGS: PaymentSettings = {
   advance_percentage: 25,
   yape_phone: '987 654 321',

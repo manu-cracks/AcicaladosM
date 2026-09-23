@@ -1,15 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
-import { TrendingDown, Plus, DollarSign, ArrowUpRight, ArrowDownRight, Trash2, Calendar, FileText } from 'lucide-react';
+import { TrendingDown, Plus, FileText } from 'lucide-react';
 import { DashboardSkeleton } from './DashboardSkeleton';
+import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 
 export const FinanzasView: React.FC = () => {
-  const { kpis, expenses, addExpense, currentRole, isDataLoading } = useApp();
+  const { expenses, addExpense, currentRole, isDataLoading } = useApp();
 
   if (isDataLoading) {
     return <DashboardSkeleton />;
   }
+
+  const todayStr = getTodayDateString();
+
+  // Filtrado Estricto por Día ("Hoy" America/Lima UTC-5)
+  const todayExpenses = useMemo(() => {
+    return expenses.filter(
+      (e) => !e.voided && getLimaDateFromTimestamp(e.date || e.created_at) === todayStr
+    );
+  }, [expenses, todayStr]);
+
+  const totalEgresosHoyCents = useMemo(() => {
+    return todayExpenses.reduce((acc, e) => acc + (e.amount_cents || 0), 0);
+  }, [todayExpenses]);
 
   const [concept, setConcept] = useState('');
   const [amountInput, setAmountInput] = useState('');
@@ -32,7 +46,7 @@ export const FinanzasView: React.FC = () => {
       payment_method: 'efectivo',
       beneficiary: responsible,
       responsible,
-      date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' }),
+      date: todayStr,
     });
 
     setConcept('');
@@ -46,64 +60,36 @@ export const FinanzasView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
         <div className="space-y-1">
           <h1 className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white tracking-wide">
-            Control Financiero, Egresos & Caja Chica
+            Control de Egresos & Caja Chica
           </h1>
           <p className="text-xs text-neutral-400">
-            Arqueo de ingresos por servicios/POS y balance contra egresos operativos e insumos.
+            Registro y control de gastos operativos, insumos y caja chica diaria (Jornada: {todayStr}).
           </p>
         </div>
 
         <button
           type="button"
           onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 rounded-xl text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow transition flex items-center gap-2 self-start sm:self-auto"
+          className="px-4 py-2 rounded-xl text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Registrar Nuevo Egreso</span>
         </button>
       </div>
 
-      {/* Financial KPIs Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-2 shadow-xl">
-          <div className="flex justify-between items-center text-xs text-neutral-400">
-            <span>Total Ingresos Cobrados</span>
-            <DollarSign className="w-4 h-4 text-[#C8A45C]" />
-          </div>
-          <span className="font-serif-luxury text-2xl font-bold text-[#E6C875] block">
-            {formatSoles(kpis.totalIngresosCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500">Cobros efectivos y Yape confirmados</span>
-        </div>
-
+      {/* Financial KPIs Banner: Exclusivo Gastos Diarios (Limpieza visual según RBAC) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-[#141414] border border-red-900/40 rounded-2xl p-5 space-y-2 shadow-xl">
           <div className="flex justify-between items-center text-xs text-neutral-400">
-            <span>Total Egresos Operativos</span>
+            <span className="font-semibold uppercase tracking-wider">Total Egresos Operativos (Hoy)</span>
             <TrendingDown className="w-4 h-4 text-red-400" />
           </div>
-          <span className="font-serif-luxury text-2xl font-bold text-red-400 block">
-            {formatSoles(kpis.totalEgresosCents)}
+          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-red-400 block">
+            {formatSoles(totalEgresosHoyCents)}
           </span>
-          <span className="text-[11px] text-neutral-500">Insumos y caja chica contabilizada</span>
-        </div>
-
-        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-2 shadow-xl">
-          <div className="flex justify-between items-center text-xs text-neutral-400">
-            <span>Balance Neto Disponible</span>
-            {kpis.balanceNetoCents >= 0 ? (
-              <ArrowUpRight className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <ArrowDownRight className="w-4 h-4 text-red-400" />
-            )}
-          </div>
-          <span
-            className={`font-serif-luxury text-2xl font-bold block ${
-              kpis.balanceNetoCents >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatSoles(kpis.balanceNetoCents)}
+          <span className="text-[11px] text-neutral-500">
+            {todayExpenses.length} gasto(s) registrado(s) en la jornada actual
           </span>
-          <span className="text-[11px] text-neutral-500">Utilidad operativa de la jornada</span>
         </div>
       </div>
 
@@ -111,7 +97,7 @@ export const FinanzasView: React.FC = () => {
       <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-6 space-y-4 shadow-xl">
         <h3 className="font-serif-luxury text-base font-bold text-white border-b border-neutral-800 pb-3 flex items-center gap-2">
           <FileText className="w-4 h-4 text-[#C8A45C]" />
-          <span>Libro Diario de Egresos Operativos</span>
+          <span>Libro Diario de Egresos Operativos (Hoy)</span>
         </h3>
 
         <div className="overflow-x-auto">
@@ -127,29 +113,29 @@ export const FinanzasView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60">
-              {expenses.length === 0 ? (
+              {todayExpenses.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-neutral-500">
-                    No se han registrado egresos en la jornada.
+                    No se han registrado egresos en la jornada de hoy.
                   </td>
                 </tr>
               ) : (
-                expenses.map((exp) => (
+                todayExpenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-[#181818] transition">
                     <td className="py-3 px-4 text-neutral-400">
                       {exp.created_at.replace('T', ' ').substring(0, 16)}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-white">{exp.concept}</td>
+                    <td className="py-3 px-4 font-semibold text-white">{exp.concept || exp.description}</td>
                     <td className="py-3 px-4 capitalize text-neutral-300">
                       {exp.category.replace('_', ' ')}
                     </td>
-                    <td className="py-3 px-4 text-neutral-300">{exp.responsible}</td>
+                    <td className="py-3 px-4 text-neutral-300">{exp.responsible || exp.beneficiary}</td>
                     <td className="py-3 px-4 text-right font-bold text-red-400">
                       - {formatSoles(exp.amount_cents)}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span className="text-[9px] font-bold px-2 py-0.5 rounded badge-error uppercase">
-                        {exp.status}
+                        {exp.status || 'Activo'}
                       </span>
                     </td>
                   </tr>

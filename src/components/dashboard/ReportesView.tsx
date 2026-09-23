@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, getBookingCollectedAmountCents, getBookingServicesWithCollectedCents } from '../../types';
-import { getTodayDateString } from '../../data/initialData';
+import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 import { jsPDF } from 'jspdf';
 import {
   Calendar,
@@ -69,7 +69,18 @@ export const ReportesView: React.FC = () => {
   // 2. Cálculos y Métricas Reactivas para la Fecha Seleccionada
   // Citas de la fecha (excluyendo canceladas y expiradas)
   const dayBookings = useMemo(() => {
-    return bookings.filter((b) => b.date === selectedDate);
+    return bookings.filter((b) => {
+      if (
+        b.status === 'cancelada' ||
+        b.status === 'cancelled' ||
+        b.status === 'expirada' ||
+        Boolean(b.cancelled_at) ||
+        Boolean(b.expired_at)
+      ) {
+        return false;
+      }
+      return getLimaDateFromTimestamp(b.date) === selectedDate;
+    });
   }, [bookings, selectedDate]);
 
   // Total de Atenciones de la fecha (conteo de servicios agendados o citas completadas)
@@ -119,7 +130,7 @@ export const ReportesView: React.FC = () => {
   const dayVentas = useMemo(() => {
     return ventasMostrador.filter((v: any) => {
       if (v.voided) return false;
-      const vDate = v.created_at ? v.created_at.substring(0, 10) : '';
+      const vDate = getLimaDateFromTimestamp(v.created_at || v.fecha);
       return vDate === selectedDate;
     });
   }, [ventasMostrador, selectedDate]);
@@ -138,7 +149,7 @@ export const ReportesView: React.FC = () => {
   const dayExpenses = useMemo(() => {
     return expenses.filter((e) => {
       if (e.voided) return false;
-      const eDate = e.date || (e.created_at ? e.created_at.substring(0, 10) : '');
+      const eDate = getLimaDateFromTimestamp(e.date || e.created_at);
       return eDate === selectedDate;
     });
   }, [expenses, selectedDate]);

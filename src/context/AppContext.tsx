@@ -29,6 +29,7 @@ import {
   INITIAL_BONUS_SETTINGS,
   INITIAL_ATTENDANCE_SETTINGS,
   getTodayDateString,
+  getLimaDateFromTimestamp,
 } from '../data/initialData';
 import { sanitizePhone, sanitizeDni } from '../lib/validators';
 import { supabase } from '../lib/supabase/client';
@@ -603,6 +604,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             payment_status: b.payment_status as any,
             created_at: b.created_at,
             confirmed_at: b.confirmed_at || undefined,
+            completed_at: b.completed_at || undefined,
+            cancelled_at: b.cancelled_at || undefined,
+            expired_at: b.expired_at || undefined,
+            status: b.cancelled_at
+              ? 'cancelada'
+              : b.expired_at
+              ? 'expirada'
+              : b.completed_at
+              ? 'completada'
+              : b.confirmed_at
+              ? 'confirmada'
+              : 'pendiente',
           }))
         );
       }
@@ -1646,54 +1659,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [fetchAllFromSupabase, pulseRealtime]);
 
   // POS HANDLERS
-  const registerVentaMostrador = useCallback((
-    ventaData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }
-  ): VentaMostrador => {
-    const today = getTodayDateString();
-    const newVenta: VentaMostrador = {
-      ...ventaData,
-      id: `vnt-${Date.now()}`,
-      ticket_number: `TK-${Math.floor(10000 + Math.random() * 90000)}`,
-      created_at: ventaData.created_at || `${today}T12:00:00Z`,
-    };
+  const registerVentaMostrador = useCallback(
+    (
+      ventaData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }
+    ): VentaMostrador => {
+      const today = getTodayDateString();
+      const nowIso = new Date().toISOString();
+      const newVenta: VentaMostrador = {
+        ...ventaData,
+        id: `vnt-${Date.now()}`,
+        ticket_number: `TK-${Math.floor(10000 + Math.random() * 90000)}`,
+        created_at: ventaData.created_at || nowIso,
+      };
 
-    setVentasMostrador((prev) => [newVenta, ...prev]);
+      setVentasMostrador((prev) => [newVenta, ...prev]);
 
-    // Reducir stock únicamente si corresponde a un producto registrado del catálogo
-    if (ventaData.product_id) {
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.id === ventaData.product_id
-            ? { ...p, stock: Math.max(0, p.stock - ventaData.quantity) }
-            : p
-        )
-      );
-    }
+      // Reducir stock únicamente si corresponde a un producto registrado del catálogo
+      if (ventaData.product_id) {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === ventaData.product_id
+              ? { ...p, stock: Math.max(0, p.stock - ventaData.quantity) }
+              : p
+          )
+        );
+      }
 
-    pulseRealtime();
+      pulseRealtime();
 
-    // Guardar venta de mostrador en Supabase (destino autorizado acicaladosMej)
-    const isMixto = ventaData.payment_method?.toLowerCase() === 'mixto';
-    const finalMetodoPago = isMixto ? 'MIXTO' : (ventaData.payment_method.charAt(0).toUpperCase() + ventaData.payment_method.slice(1));
+      // Guardar venta de mostrador en Supabase (destino autorizado acicaladosMej)
+      const isMixto = ventaData.payment_method?.toLowerCase() === 'mixto';
+      const finalMetodoPago = isMixto ? 'MIXTO' : (ventaData.payment_method.charAt(0).toUpperCase() + ventaData.payment_method.slice(1));
 
-    supabase.from('ventas_mostrador').insert({
-      cliente_nombre: ventaData.client_name,
-      producto_nombre: ventaData.product_name,
-      cantidad: ventaData.quantity,
-      precio_unitario: ventaData.unit_price_cents / 100,
-      total: ventaData.total_price_cents / 100,
-      metodo_pago: finalMetodoPago as any,
-      notas: ventaData.notes || null,
-      ticket_number: newVenta.ticket_number,
-      fecha: newVenta.created_at,
-      monto_efectivo: ventaData.monto_efectivo ?? (ventaData.cash_cents != null ? ventaData.cash_cents / 100 : null),
-      monto_yape: ventaData.monto_yape ?? (ventaData.yape_cents != null ? ventaData.yape_cents / 100 : null),
-      monto_transferencia: ventaData.monto_transferencia ?? (ventaData.transfer_cents != null ? ventaData.transfer_cents / 100 : null),
-      detalles_pago: ventaData.detalles_pago || null,
-    } as any).then();
+      supabase.from('ventas_mostrador').insert({
+        cliente_nombre: ventaData.client_name,
+        producto_nombre: ventaData.product_name,
+        cantidad: ventaData.quantity,
+        precio_unitario: ventaData.unit_price_cents / 100,
+        total: ventaData.total_price_cents / 100,
+        metodo_pago: finalMetodoPago as any,
+        notas: ventaData.notes || null,
+        ticket_number: newVenta.ticket_number,
+        fecha: newVenta.created_at,
+        created_at: newVenta.created_at,
+        monto_efectivo: ventaData.monto_efectivo ?? (ventaData.cash_cents != null ? ventaData.cash_cents / 100 : null),
+        monto_yape: ventaData.monto_yape ?? (ventaData.yape_cents != null ? ventaData.yape_cents / 100 : null),
+        monto_transferencia: ventaData.monto_transferencia ?? (ventaData.transfer_cents != null ? ventaData.transfer_cents / 100 : null),
+        detalles_pago: ventaData.detalles_pago || null,
+      } as any).then();
 
-    return newVenta;
-  }, [pulseRealtime]);
+      return newVenta;
+    },
+    [pulseRealtime]
+  );
 
   const deleteVentaMostrador = useCallback((id: string) => {
     setVentasMostrador((prev) => prev.filter((v) => v.id !== id));
@@ -1708,8 +1726,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
   ): Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }> => {
     const ticketNumber = `TK-${Math.floor(10000 + Math.random() * 90000)}`;
-    const today = getTodayDateString();
-    const createdAt = saleData.created_at || `${today}T12:00:00Z`;
+    const nowIso = new Date().toISOString();
+    const createdAt = saleData.created_at || nowIso;
 
     const isMixto = saleData.payment_method?.toLowerCase() === 'mixto';
     const finalMetodoPago = isMixto ? 'MIXTO' : (saleData.payment_method.charAt(0).toUpperCase() + saleData.payment_method.slice(1));
@@ -1729,6 +1747,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       detalles_pago: saleData.detalles_pago || null,
       ticket_number: ticketNumber,
       fecha: createdAt,
+      created_at: createdAt,
       notas: saleData.notes || null,
       registrado_por: currentUser?.id || null,
     };
@@ -1793,11 +1812,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // EXPENSES HANDLERS
   const addExpense = useCallback((expenseData: Omit<Expense, 'id' | 'created_at' | 'voided'>) => {
     const today = getTodayDateString();
+    const nowIso = new Date().toISOString();
     const newExpense: Expense = {
       ...expenseData,
       id: `exp-${Date.now()}`,
       voided: false,
-      created_at: `${today}T12:00:00Z`,
+      date: expenseData.date || today,
+      created_at: nowIso,
     };
     setExpenses((prev) => [newExpense, ...prev]);
     pulseRealtime();
@@ -1807,7 +1828,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       category: expenseData.category,
       amount_cents: expenseData.amount_cents,
       payment_method: expenseData.payment_method === 'efectivo' ? 'cash' : expenseData.payment_method,
-      expense_date: expenseData.date,
+      expense_date: expenseData.date || today,
+      created_at: nowIso,
       supplier: expenseData.beneficiary || null,
       receipt_url: expenseData.voucher_url || null,
       status: 'active',
@@ -3343,11 +3365,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [pulseRealtime]
   );
 
-  // KPI CALCULATIONS (Reglas oficiales: Section C.1 & C.5)
+  // KPI CALCULATIONS (Reglas oficiales: Section C.1 & C.5 - Filtrado estricto por "Hoy" America/Lima UTC-5)
   const kpis = useMemo(() => {
     const today = getTodayDateString();
 
-    const activeBookings = bookings;
+    // 1. Citas activas de Hoy (excluyendo canceladas y expiradas)
+    const activeBookings = bookings.filter((b) => {
+      if (
+        b.status === 'cancelada' ||
+        b.status === 'cancelled' ||
+        b.status === 'expirada' ||
+        Boolean(b.cancelled_at) ||
+        Boolean(b.expired_at)
+      ) {
+        return false;
+      }
+      return getLimaDateFromTimestamp(b.date) === today;
+    });
 
     // Suma únicamente reservas en estado PAGADO (100%) y adelantos percibidos en tiempo real
     const ingresosServiciosCents = activeBookings.reduce(
@@ -3355,7 +3389,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       0
     );
 
-    const activeVentas = ventasMostrador.filter((v: any) => !v.voided);
+    // 2. Ventas de Mostrador de Hoy (excluyendo anuladas)
+    const activeVentas = ventasMostrador.filter(
+      (v: any) => !v.voided && getLimaDateFromTimestamp(v.created_at || v.fecha) === today
+    );
     const ventasMostradorCents = activeVentas.reduce(
       (acc, v) => acc + (v.total_price_cents || 0),
       0
@@ -3363,7 +3400,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
 
-    const activeExpenses = expenses.filter((e) => !e.voided);
+    // 3. Egresos Operativos de Hoy (excluyendo anulados)
+    const activeExpenses = expenses.filter(
+      (e) => !e.voided && getLimaDateFromTimestamp(e.date || e.created_at) === today
+    );
     const totalEgresosCents = activeExpenses.reduce(
       (acc, e) => acc + (e.amount_cents || 0),
       0
@@ -3371,8 +3411,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const balanceNetoCents = totalIngresosCents - totalEgresosCents;
 
-    const citasHoy = bookings.filter((b) => b.date === today);
-    const citasConfirmadas = bookings.filter(
+    const citasHoy = bookings.filter(
+      (b) =>
+        getLimaDateFromTimestamp(b.date) === today &&
+        b.status !== 'cancelada' &&
+        b.status !== 'cancelled' &&
+        !b.cancelled_at
+    );
+    const citasConfirmadas = citasHoy.filter(
       (b) => b.payment_status === 'total' || b.payment_status === 'parcial'
     );
 

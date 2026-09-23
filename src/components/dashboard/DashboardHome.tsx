@@ -101,12 +101,22 @@ export const DashboardHome: React.FC = () => {
 
   // 1. Filtrado riguroso de citas por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
   const rangeBookings = useMemo(() => {
-    if (dateFilter === 'todo') return bookings;
+    const validBookings = bookings.filter((b) => {
+      return (
+        b.status !== 'cancelada' &&
+        b.status !== 'cancelled' &&
+        b.status !== 'expirada' &&
+        !b.cancelled_at &&
+        !b.expired_at
+      );
+    });
+
+    if (dateFilter === 'todo') return validBookings;
     if (isExactDate) {
-      return bookings.filter((b) => getLimaDateFromTimestamp(b.date) === dateFilter);
+      return validBookings.filter((b) => getLimaDateFromTimestamp(b.date) === dateFilter);
     }
     if (dateFilter === 'hoy') {
-      return bookings.filter((b) => getLimaDateFromTimestamp(b.date) === todayStr);
+      return validBookings.filter((b) => getLimaDateFromTimestamp(b.date) === todayStr);
     }
 
     let startDateStr = todayStr;
@@ -120,7 +130,7 @@ export const DashboardHome: React.FC = () => {
       startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
     }
 
-    return bookings.filter((b) => {
+    return validBookings.filter((b) => {
       const d = getLimaDateFromTimestamp(b.date);
       return d >= startDateStr && d <= todayStr;
     });
