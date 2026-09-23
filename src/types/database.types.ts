@@ -846,6 +846,7 @@ export type Database = {
           dni: string | null
           email: string | null
           first_name: string
+          foto_url: string | null
           handles_reception: boolean | null
           id: string
           is_active: boolean
@@ -866,6 +867,7 @@ export type Database = {
           dni?: string | null
           email?: string | null
           first_name: string
+          foto_url?: string | null
           handles_reception?: boolean | null
           id?: string
           is_active?: boolean
@@ -886,6 +888,7 @@ export type Database = {
           dni?: string | null
           email?: string | null
           first_name?: string
+          foto_url?: string | null
           handles_reception?: boolean | null
           id?: string
           is_active?: boolean

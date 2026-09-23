@@ -131,6 +131,7 @@ export interface Employee {
   active: boolean;
   handles_reception?: boolean;
   avatar_url?: string;
+  foto_url?: string;
   avatar?: string;
   qr_code_uuid?: string;
   qr_code?: string;

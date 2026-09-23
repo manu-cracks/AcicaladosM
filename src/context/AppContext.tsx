@@ -465,8 +465,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             type: e.type,
             skills: e.employee_skills ? e.employee_skills.map((sk: any) => sk.service_id) : [],
             active: e.is_active,
-            avatar: e.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-            avatar_url: e.avatar_url,
+            avatar: e.foto_url || e.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+            avatar_url: e.foto_url || e.avatar_url,
+            foto_url: e.foto_url || e.avatar_url,
             phone: sanitizePhone(e.phone) || '987654321',
             email: e.email || '',
             dni: sanitizeDni(e.dni) || '',
@@ -1838,6 +1839,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const firstName = empData.first_name || empData.full_name.trim().split(' ')[0] || 'Colaborador';
       const lastName = empData.last_name || empData.full_name.trim().split(' ').slice(1).join(' ') || '';
 
+      const photoUrl = empData.foto_url || empData.avatar_url || empData.avatar || null;
+
       const insertPayload = {
         first_name: firstName,
         last_name: lastName,
@@ -1845,6 +1848,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dni: sanitizeDni(empData.dni) || null,
         phone: sanitizePhone(empData.phone) || null,
         email: empData.email || null,
+        foto_url: photoUrl,
+        avatar_url: photoUrl,
         handles_reception: empData.handles_reception || false,
         shift_start: empData.shift_start || '09:00',
         shift_end: empData.shift_end || '18:00',
@@ -1887,8 +1892,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: data.type,
         skills: empData.skills || [],
         active: data.is_active,
-        avatar: data.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-        avatar_url: data.avatar_url,
+        avatar: data.foto_url || data.avatar_url || empData.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
+        avatar_url: data.foto_url || data.avatar_url,
+        foto_url: data.foto_url || data.avatar_url,
         phone: data.phone || '',
         email: data.email || '',
         dni: data.dni || '',
@@ -1929,21 +1935,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pulseRealtime();
 
       if (updated.id.includes('-') && updated.id.length === 36) {
+        const photoUrl = updated.foto_url !== undefined ? updated.foto_url : updated.avatar_url;
+        const updatePayload: any = {
+          first_name: firstName,
+          last_name: lastName,
+          type: updated.type,
+          dni: sanitizeDni(updated.dni) || null,
+          phone: sanitizePhone(updated.phone) || null,
+          email: updated.email || null,
+          handles_reception: updated.handles_reception || false,
+          shift_start: updated.shift_start || '09:00',
+          shift_end: updated.shift_end || '18:00',
+          commission_percentage: updated.commission_percentage ?? 40,
+          is_active: updated.active,
+        };
+
+        if (photoUrl !== undefined) {
+          updatePayload.foto_url = photoUrl || null;
+          updatePayload.avatar_url = photoUrl || null;
+        }
+
         const { error } = await supabase
           .from('employees')
-          .update({
-            first_name: firstName,
-            last_name: lastName,
-            type: updated.type,
-            dni: sanitizeDni(updated.dni) || null,
-            phone: sanitizePhone(updated.phone) || null,
-            email: updated.email || null,
-            handles_reception: updated.handles_reception || false,
-            shift_start: updated.shift_start || '09:00',
-            shift_end: updated.shift_end || '18:00',
-            commission_percentage: updated.commission_percentage ?? 40,
-            is_active: updated.active,
-          })
+          .update(updatePayload as any)
           .eq('id', updated.id);
 
         if (error) {

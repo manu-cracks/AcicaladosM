@@ -34,7 +34,8 @@ import {
   Info,
   Download,
   Loader2,
-  Printer
+  Printer,
+  Camera
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../../lib/supabase/client';
@@ -140,6 +141,52 @@ const LEAVE_TYPES = [
   'Otro Motivo',
 ] as const;
 
+/**
+ * Helper para subir fotografía de empleado al bucket público 'empleados-fotos'
+ */
+const uploadEmployeePhoto = async (file: File, idPrefix: string): Promise<string> => {
+  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const cleanExt = ['jpg', 'jpeg', 'png', 'webp', 'avif'].includes(ext) ? ext : 'jpg';
+  const fileName = `${idPrefix}_${Date.now()}.${cleanExt}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('empleados-fotos')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(`Error al subir fotografía a Supabase Storage: ${uploadError.message}`);
+  }
+
+  const { data } = supabase.storage
+    .from('empleados-fotos')
+    .getPublicUrl(fileName);
+
+  if (!data?.publicUrl) {
+    throw new Error('No se pudo obtener la URL pública de la fotografía subida.');
+  }
+
+  return data.publicUrl;
+};
+
+/**
+ * Helper para eliminar fotografía anterior de un empleado del storage si existía en 'empleados-fotos'
+ */
+const deleteEmployeePhotoFromStorage = async (photoUrl?: string | null) => {
+  if (!photoUrl || !photoUrl.includes('/empleados-fotos/')) return;
+  try {
+    const rawPath = photoUrl.split('/empleados-fotos/')[1]?.split('?')[0];
+    if (rawPath) {
+      const decodedPath = decodeURIComponent(rawPath);
+      await supabase.storage.from('empleados-fotos').remove([decodedPath]);
+    }
+  } catch (err) {
+    console.warn('Error al limpiar fotografía anterior del storage:', err);
+  }
+};
+
 export const ColaboradoresView: React.FC = () => {
   const {
     employees,
@@ -178,6 +225,9 @@ export const ColaboradoresView: React.FC = () => {
   const [newCommissionPct, setNewCommissionPct] = useState(40);
   const [newSelectedSkills, setNewSelectedSkills] = useState<string[]>([]);
   const [isSavingNew, setIsSavingNew] = useState(false);
+  const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
+  const [newPhotoPreview, setNewPhotoPreview] = useState<string | null>(null);
+  const newPhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   // 2. Edit Employee Modal
   const [editEmp, setEditEmp] = useState<Employee | null>(null);
@@ -193,6 +243,11 @@ export const ColaboradoresView: React.FC = () => {
   const [editCommissionPct, setEditCommissionPct] = useState(40);
   const [editSelectedSkills, setEditSelectedSkills] = useState<string[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [editExistingPhotoUrl, setEditExistingPhotoUrl] = useState<string | null>(null);
+  const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const editPhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   // 3. Delete Confirmation Modal
   const [deleteEmpTarget, setDeleteEmpTarget] = useState<Employee | null>(null);
@@ -469,7 +524,7 @@ export const ColaboradoresView: React.FC = () => {
       let currentY = 138 * scale;
       const avatarRadius = 36 * scale;
       let avatarLoaded = false;
-      const avatarSrc = badgeEmp.avatar || badgeEmp.avatar_url;
+      const avatarSrc = badgeEmp.foto_url || badgeEmp.avatar_url || badgeEmp.avatar;
 
       if (allowExternalAvatar && avatarSrc) {
         try {
@@ -671,6 +726,45 @@ export const ColaboradoresView: React.FC = () => {
     setEditShiftEnd(emp.shift_end || '18:00');
     setEditCommissionPct(emp.commission_percentage ?? 40);
     setEditSelectedSkills(emp.skills || []);
+
+    // Inicializar estado de fotografía de perfil para edición
+    setEditExistingPhotoUrl(emp.foto_url || emp.avatar_url || emp.avatar || null);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(null);
+    setEditPhotoRemoved(false);
+  };
+
+  // Manejador de selección de foto para Nuevo Empleado
+  const handleNewPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La fotografía seleccionada supera los 5MB permitidos.');
+      return;
+    }
+    setNewPhotoFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNewPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Manejador de selección de foto para Editar Empleado
+  const handleEditPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La fotografía seleccionada supera los 5MB permitidos.');
+      return;
+    }
+    setEditPhotoFile(file);
+    setEditPhotoRemoved(false);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   // Open Leave Modal
@@ -715,6 +809,23 @@ export const ColaboradoresView: React.FC = () => {
 
     setIsSavingNew(true);
     try {
+      let uploadedPhotoUrl: string | undefined = undefined;
+
+      // 1. Subir fotografía al Storage bucket si se adjuntó archivo
+      if (newPhotoFile) {
+        const uniquePrefix = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        uploadedPhotoUrl = await uploadEmployeePhoto(newPhotoFile, uniquePrefix);
+      }
+
+      const defaultAvatar =
+        newType === 'barbero'
+          ? 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&q=80'
+          : newType === 'spa'
+          ? 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80'
+          : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80';
+
+      const finalAvatar = uploadedPhotoUrl || defaultAvatar;
+
       const created = await addEmployee({
         first_name: newFirstName.trim(),
         last_name: newLastName.trim(),
@@ -729,12 +840,9 @@ export const ColaboradoresView: React.FC = () => {
         commission_percentage: Number(newCommissionPct),
         active: true,
         skills: newType === 'recepcionista' ? [] : newSelectedSkills,
-        avatar:
-          newType === 'barbero'
-            ? 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&q=80'
-            : newType === 'spa'
-            ? 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80'
-            : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80',
+        foto_url: uploadedPhotoUrl || undefined,
+        avatar_url: finalAvatar,
+        avatar: finalAvatar,
       });
 
       if (created) {
@@ -747,9 +855,14 @@ export const ColaboradoresView: React.FC = () => {
         setNewSelectedSkills([]);
         setNewHandlesReception(false);
         setNewType('barbero');
+        setNewPhotoFile(null);
+        setNewPhotoPreview(null);
       } else {
         alert('Hubo un error al guardar el colaborador.');
       }
+    } catch (err: any) {
+      console.error('Error al crear colaborador:', err);
+      alert(`Error al registrar colaborador: ${err?.message || 'Error inesperado'}`);
     } finally {
       setIsSavingNew(false);
     }
@@ -774,6 +887,32 @@ export const ColaboradoresView: React.FC = () => {
 
     setIsSavingEdit(true);
     try {
+      let finalFotoUrl: string | null | undefined = editEmp.foto_url || editEmp.avatar_url;
+
+      // 1. Si seleccionó nueva foto, subirla y limpiar la anterior de storage
+      if (editPhotoFile) {
+        const uploadedUrl = await uploadEmployeePhoto(editPhotoFile, editEmp.id);
+        if (editExistingPhotoUrl && editExistingPhotoUrl !== uploadedUrl) {
+          await deleteEmployeePhotoFromStorage(editExistingPhotoUrl);
+        }
+        finalFotoUrl = uploadedUrl;
+      } else if (editPhotoRemoved) {
+        // 2. Si marcó eliminar foto, limpiar del storage y remover URL
+        if (editExistingPhotoUrl) {
+          await deleteEmployeePhotoFromStorage(editExistingPhotoUrl);
+        }
+        finalFotoUrl = null;
+      }
+
+      const defaultAvatar =
+        editType === 'barbero'
+          ? 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&q=80'
+          : editType === 'spa'
+          ? 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80'
+          : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80';
+
+      const finalAvatar = finalFotoUrl === null ? defaultAvatar : (finalFotoUrl || defaultAvatar);
+
       const success = await updateEmployee({
         ...editEmp,
         first_name: editFirstName.trim(),
@@ -788,13 +927,22 @@ export const ColaboradoresView: React.FC = () => {
         shift_end: editShiftEnd,
         commission_percentage: Number(editCommissionPct),
         skills: editType === 'recepcionista' ? [] : editSelectedSkills,
+        foto_url: finalFotoUrl === null ? undefined : (finalFotoUrl || undefined),
+        avatar_url: finalAvatar,
+        avatar: finalAvatar,
       });
 
       if (success) {
         setEditEmp(null);
+        setEditPhotoFile(null);
+        setEditPhotoPreview(null);
+        setEditPhotoRemoved(false);
       } else {
         alert('Error al actualizar el colaborador.');
       }
+    } catch (err: any) {
+      console.error('Error al actualizar colaborador:', err);
+      alert(`Error al actualizar colaborador: ${err?.message || 'Error inesperado'}`);
     } finally {
       setIsSavingEdit(false);
     }
@@ -805,12 +953,19 @@ export const ColaboradoresView: React.FC = () => {
     if (!isAdmin || !deleteEmpTarget) return;
     setIsDeleting(true);
     try {
+      const photoToDelete = deleteEmpTarget.foto_url || deleteEmpTarget.avatar_url;
       const ok = await deleteEmployee(deleteEmpTarget.id);
       if (ok) {
+        if (photoToDelete) {
+          await deleteEmployeePhotoFromStorage(photoToDelete);
+        }
         setDeleteEmpTarget(null);
       } else {
         alert('No se pudo eliminar el colaborador.');
       }
+    } catch (err: any) {
+      console.error('Error al eliminar colaborador:', err);
+      alert(`No se pudo eliminar el colaborador: ${err?.message || 'Error inesperado'}`);
     } finally {
       setIsDeleting(false);
     }
@@ -1154,12 +1309,30 @@ export const ColaboradoresView: React.FC = () => {
                 {/* Card Header: Avatar & Info */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <img
-                      src={emp.avatar || emp.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80'}
-                      alt={emp.full_name}
-                      className="w-14 h-14 rounded-xl object-cover border border-[#C8A45C]/30 shrink-0"
-                      referrerPolicy="no-referrer"
-                    />
+                    {emp.foto_url || emp.avatar_url || emp.avatar ? (
+                      <img
+                        src={emp.foto_url || emp.avatar_url || emp.avatar}
+                        alt={emp.full_name}
+                        className="w-14 h-14 rounded-xl object-cover border border-[#C8A45C]/30 shrink-0 shadow-md"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                          const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      className="w-14 h-14 rounded-xl bg-[#1e1e1e] border border-[#C8A45C]/30 items-center justify-center text-[#E6C875] font-serif-luxury text-base font-bold shrink-0 shadow-inner"
+                      style={{ display: emp.foto_url || emp.avatar_url || emp.avatar ? 'none' : 'flex' }}
+                    >
+                      {emp.full_name
+                        .split(' ')
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join('')
+                        .toUpperCase()}
+                    </div>
                     <div>
                       <h3 className="font-serif-luxury text-sm font-bold text-white leading-tight">
                         {emp.full_name}
@@ -1448,6 +1621,80 @@ export const ColaboradoresView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Sección de Fotografía de Perfil */}
+              <div className="bg-[#181818] border border-neutral-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-white font-medium text-xs flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-[#C8A45C]" />
+                    <span>Fotografía de Perfil</span>
+                  </label>
+                  <span className="text-[10px] text-neutral-400">JPG, PNG, WEBP (Máx. 5MB)</span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* Vista Previa */}
+                  <div className="relative group shrink-0">
+                    {newPhotoPreview ? (
+                      <img
+                        src={newPhotoPreview}
+                        alt="Vista previa"
+                        className="w-20 h-20 rounded-2xl object-cover border-2 border-[#C8A45C] shadow-lg shadow-[#C8A45C]/10"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-2xl bg-neutral-900 border border-dashed border-neutral-700 flex flex-col items-center justify-center text-neutral-500 gap-1">
+                        <Camera className="w-6 h-6 text-neutral-400" />
+                        <span className="text-[9px] font-mono">Sin foto</span>
+                      </div>
+                    )}
+
+                    {newPhotoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewPhotoFile(null);
+                          setNewPhotoPreview(null);
+                          if (newPhotoInputRef.current) newPhotoInputRef.current.value = '';
+                        }}
+                        className="absolute -top-1.5 -right-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full p-1 shadow-md transition cursor-pointer"
+                        title="Eliminar fotografía seleccionada"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Acciones y Recomendaciones */}
+                  <div className="flex-1 space-y-2 text-center sm:text-left">
+                    <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+                      <input
+                        ref={newPhotoInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/avif"
+                        className="hidden"
+                        onChange={handleNewPhotoChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => newPhotoInputRef.current?.click()}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#242424] hover:bg-[#2c2c2c] border border-neutral-700 hover:border-[#C8A45C]/60 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-[#C8A45C]" />
+                        <span>{newPhotoPreview ? 'Cambiar fotografía' : 'Subir fotografía'}</span>
+                      </button>
+                      {newPhotoPreview && (
+                        <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Foto lista para subir
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-neutral-400 leading-snug">
+                      La fotografía se almacenará en Supabase Storage, se mostrará en las listas del sistema y se incluirá en la credencial descargable (Fotocheck QR).
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Nombres & Apellidos */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -1656,10 +1903,13 @@ export const ColaboradoresView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSavingNew}
-                  className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow-lg flex items-center gap-2 cursor-pointer"
+                  className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isSavingNew ? (
-                    <span>Guardando...</span>
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      <span>{newPhotoFile ? 'Subiendo foto y guardando...' : 'Guardando...'}</span>
+                    </>
                   ) : (
                     <>
                       <Check className="w-4 h-4" />
@@ -1745,6 +1995,133 @@ export const ColaboradoresView: React.FC = () => {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Sección de Fotografía de Perfil (Edición) */}
+              <div className="bg-[#181818] border border-neutral-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-white font-medium text-xs flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-[#C8A45C]" />
+                    <span>Fotografía de Perfil</span>
+                  </label>
+                  <span className="text-[10px] text-neutral-400">JPG, PNG, WEBP (Máx. 5MB)</span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  {/* Vista Previa */}
+                  <div className="relative group shrink-0">
+                    {editPhotoPreview ? (
+                      <img
+                        src={editPhotoPreview}
+                        alt="Nueva foto"
+                        className="w-20 h-20 rounded-2xl object-cover border-2 border-emerald-500 shadow-lg shadow-emerald-500/10"
+                      />
+                    ) : !editPhotoRemoved && editExistingPhotoUrl ? (
+                      <img
+                        src={editExistingPhotoUrl}
+                        alt="Foto actual"
+                        className="w-20 h-20 rounded-2xl object-cover border-2 border-[#C8A45C] shadow-lg shadow-[#C8A45C]/10"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-2xl bg-neutral-900 border border-dashed border-neutral-700 flex flex-col items-center justify-center text-neutral-500 gap-1">
+                        <Camera className="w-6 h-6 text-neutral-400" />
+                        <span className="text-[9px] font-mono">Sin foto</span>
+                      </div>
+                    )}
+
+                    {/* Badge indicator */}
+                    {editPhotoPreview ? (
+                      <span className="absolute -bottom-1.5 -right-1.5 bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
+                        Nueva
+                      </span>
+                    ) : !editPhotoRemoved && editExistingPhotoUrl ? (
+                      <span className="absolute -bottom-1.5 -right-1.5 bg-[#C8A45C] text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
+                        Actual
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Acciones y Controles */}
+                  <div className="flex-1 space-y-2 text-center sm:text-left">
+                    <div className="flex flex-wrap items-center gap-2 justify-center sm:justify-start">
+                      <input
+                        ref={editPhotoInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/avif"
+                        className="hidden"
+                        onChange={handleEditPhotoChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => editPhotoInputRef.current?.click()}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#242424] hover:bg-[#2c2c2c] border border-neutral-700 hover:border-[#C8A45C]/60 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-[#C8A45C]" />
+                        <span>
+                          {editPhotoPreview || (!editPhotoRemoved && editExistingPhotoUrl)
+                            ? 'Reemplazar fotografía'
+                            : 'Subir fotografía'}
+                        </span>
+                      </button>
+
+                      {/* Cancelar previsualización de nueva foto */}
+                      {editPhotoPreview && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditPhotoFile(null);
+                            setEditPhotoPreview(null);
+                            if (editPhotoInputRef.current) editPhotoInputRef.current.value = '';
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Deshacer</span>
+                        </button>
+                      )}
+
+                      {/* Quitar foto actual */}
+                      {!editPhotoPreview && !editPhotoRemoved && editExistingPhotoUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditPhotoRemoved(true)}
+                          className="px-2.5 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Quitar foto</span>
+                        </button>
+                      )}
+
+                      {/* Restaurar foto previa */}
+                      {editPhotoRemoved && (
+                        <button
+                          type="button"
+                          onClick={() => setEditPhotoRemoved(false)}
+                          className="px-2.5 py-1.5 rounded-xl bg-[#C8A45C]/20 hover:bg-[#C8A45C]/30 border border-[#C8A45C]/40 text-[#E6C875] text-xs flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <span>Restaurar foto anterior</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-neutral-400 leading-snug">
+                      {editPhotoPreview ? (
+                        <span className="text-emerald-400 font-medium">
+                          Nueva imagen seleccionada. Al guardar los cambios, se subirá a Supabase Storage y se eliminará la foto anterior para no dejar archivos huérfanos.
+                        </span>
+                      ) : editPhotoRemoved ? (
+                        <span className="text-amber-400 font-medium">
+                          Fotografía marcada para eliminación. Se borrará del Storage al guardar.
+                        </span>
+                      ) : editExistingPhotoUrl ? (
+                        <span>Fotografía almacenada en Supabase Storage (bucket <code>empleados-fotos</code>). Puedes reemplazarla o quitarla en cualquier momento.</span>
+                      ) : (
+                        <span>Este colaborador no tiene fotografía personalizada cargada actualmente.</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -1952,10 +2329,13 @@ export const ColaboradoresView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSavingEdit}
-                  className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow-lg flex items-center gap-2 cursor-pointer"
+                  className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {isSavingEdit ? (
-                    <span>Guardando cambios...</span>
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      <span>{editPhotoFile ? 'Subiendo foto y actualizando...' : 'Guardando cambios...'}</span>
+                    </>
                   ) : (
                     <>
                       <Check className="w-4 h-4" />
@@ -2049,9 +2429,9 @@ export const ColaboradoresView: React.FC = () => {
 
                 {/* Avatar o Monograma */}
                 <div className="flex justify-center">
-                  {badgeEmp.avatar || badgeEmp.avatar_url ? (
+                  {badgeEmp.foto_url || badgeEmp.avatar_url || badgeEmp.avatar ? (
                     <img
-                      src={badgeEmp.avatar || badgeEmp.avatar_url}
+                      src={badgeEmp.foto_url || badgeEmp.avatar_url || badgeEmp.avatar}
                       alt={badgeEmp.full_name}
                       className="w-20 h-20 rounded-full object-cover border-2 border-[#C8A45C] shadow-lg"
                       referrerPolicy="no-referrer"
@@ -2482,7 +2862,7 @@ export const ColaboradoresView: React.FC = () => {
               <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
                 <div className="flex items-center gap-3">
                   <img
-                    src={appointmentsEmp.avatar || appointmentsEmp.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80'}
+                    src={appointmentsEmp.foto_url || appointmentsEmp.avatar_url || appointmentsEmp.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80'}
                     alt={appointmentsEmp.full_name}
                     className="w-12 h-12 rounded-xl object-cover border border-[#C8A45C]/40"
                     referrerPolicy="no-referrer"
