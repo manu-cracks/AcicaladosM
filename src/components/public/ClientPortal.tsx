@@ -16,6 +16,7 @@ import {
   Clock,
   ArrowRight,
   Loader2,
+  LayoutDashboard,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -204,17 +205,47 @@ export const ClientPortal: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 bg-[#161616] border border-neutral-800 p-2.5 rounded-xl self-start sm:self-auto">
-          <img
-            src={currentUser.avatar}
-            alt={currentUser.name}
-            className="w-10 h-10 rounded-lg object-cover border border-[#C8A45C]/40"
-            referrerPolicy="no-referrer"
-          />
-          <div>
-            <span className="text-xs font-bold text-white block">{currentUser.name}</span>
-            <span className="text-[10px] text-[#C8A45C] font-semibold uppercase">Cliente Acicalados</span>
+        <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
+          <div className="flex items-center gap-3 bg-[#161616] border border-neutral-800 p-2.5 rounded-xl">
+            <img
+              src={currentUser.avatar}
+              alt={currentUser.name}
+              className="w-10 h-10 rounded-lg object-cover border border-[#C8A45C]/40"
+              referrerPolicy="no-referrer"
+            />
+            <div>
+              <span className="text-xs font-bold text-white block">{currentUser.name}</span>
+              <span className="text-[10px] text-[#C8A45C] font-semibold uppercase">
+                {currentUser.role === 'VESTUARIO_ADMIN' || currentUser.email?.toLowerCase() === 'vepeja4602@bullbaby.com'
+                  ? 'Admin Vestuario'
+                  : currentUser.role === 'admin'
+                  ? 'Administrador'
+                  : currentUser.role === 'recepcionista'
+                  ? 'Recepción'
+                  : 'Cliente Acicalados'}
+              </span>
+            </div>
           </div>
+
+          {(currentUser.role === 'VESTUARIO_ADMIN' ||
+            currentUser.role === 'admin' ||
+            currentUser.role === 'recepcionista' ||
+            currentUser.email?.toLowerCase() === 'vepeja4602@bullbaby.com') && (
+            <button
+              type="button"
+              onClick={() =>
+                setActiveView(
+                  currentUser.role === 'VESTUARIO_ADMIN' || currentUser.email?.toLowerCase() === 'vepeja4602@bullbaby.com'
+                    ? '/dashboard/vestuario'
+                    : '/dashboard'
+                )
+              }
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-[#C8A45C]/15 hover:bg-[#C8A45C]/25 text-[#E6C875] hover:text-white border border-[#C8A45C]/40 rounded-xl text-xs font-bold transition shadow cursor-pointer"
+            >
+              <LayoutDashboard className="w-4 h-4 text-[#C8A45C]" />
+              <span>Panel de Gestión</span>
+            </button>
+          )}
         </div>
       </div>
 

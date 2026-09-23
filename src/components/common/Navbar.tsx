@@ -97,7 +97,16 @@ export const Navbar: React.FC = () => {
     signOut();
   };
 
-  const isStaffRole = currentRole === 'admin' || currentRole === 'recepcionista' || currentRole === 'empleado';
+  const isVestuarioAdmin =
+    currentRole === 'VESTUARIO_ADMIN' ||
+    currentUser?.role === 'VESTUARIO_ADMIN' ||
+    currentUser?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+  const isStaffRole =
+    currentRole === 'admin' ||
+    currentRole === 'recepcionista' ||
+    currentRole === 'empleado' ||
+    isVestuarioAdmin;
   const isAuthenticated = currentRole !== 'anon' && currentRole !== 'anonimo';
 
   // Client display name fallback
@@ -282,10 +291,14 @@ export const Navbar: React.FC = () => {
                   <>
                     <div className="px-4 py-2.5 border-b border-[#C8A45C]/20 mb-1">
                       <p className="text-[10px] text-neutral-400 uppercase tracking-widest font-semibold">
-                        {currentRole === 'admin'
+                        {isVestuarioAdmin
+                          ? 'Admin Vestuario'
+                          : currentRole === 'admin'
                           ? 'Administrador'
                           : currentRole === 'recepcionista'
                           ? 'Recepción'
+                          : currentRole === 'empleado'
+                          ? 'Colaborador'
                           : 'Cliente Autenticado'}
                       </p>
                       <p className="text-sm font-semibold text-[#C8A45C] truncate mt-0.5">
@@ -293,15 +306,15 @@ export const Navbar: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* Administrador / Recepcionista: Panel de Control */}
+                    {/* Administrador / Recepcionista / Vestuario: Panel de Gestión */}
                     {isStaffRole && (
                       <button
                         type="button"
-                        onClick={() => handleNavClick('/dashboard')}
+                        onClick={() => handleNavClick(isVestuarioAdmin ? '/dashboard/vestuario' : '/dashboard')}
                         className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-[#C8A45C] bg-[#C8A45C]/10 hover:bg-[#C8A45C]/20 hover:text-white transition-colors cursor-pointer group/item font-semibold border-b border-[#C8A45C]/20 mb-1"
                       >
                         <LayoutDashboard className="w-4 h-4 text-[#C8A45C] group-hover/item:scale-110 transition-transform shrink-0" />
-                        <span>Panel de Control</span>
+                        <span>Panel de Gestión</span>
                       </button>
                     )}
 
@@ -470,7 +483,9 @@ export const Navbar: React.FC = () => {
                   </div>
                   <div className="min-w-0 text-left">
                     <span className="text-[10px] text-neutral-400 uppercase tracking-widest block font-semibold leading-tight">
-                      {isStaffRole
+                      {isVestuarioAdmin
+                        ? 'Admin Vestuario'
+                        : isStaffRole
                         ? currentRole === 'admin'
                           ? 'Administrador'
                           : 'Recepción'
@@ -501,6 +516,21 @@ export const Navbar: React.FC = () => {
 
               {/* Secciones Principales de Navegación */}
               <div className="space-y-2">
+                {isStaffRole && (
+                  <div className="mb-2">
+                    <button
+                      type="button"
+                      onClick={() => handleNavClick(isVestuarioAdmin ? '/dashboard/vestuario' : '/dashboard')}
+                      className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm transition-all duration-200 cursor-pointer bg-[#C8A45C]/15 text-[#E6C875] border border-[#C8A45C]/40 font-bold shadow-md shadow-black/40 hover:bg-[#C8A45C]/25"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <LayoutDashboard className="w-4 h-4 text-[#C8A45C]" />
+                        <span className="tracking-wide">Panel de Gestión</span>
+                      </div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#E6C875] shadow-[0_0_8px_#E6C875]" />
+                    </button>
+                  </div>
+                )}
                 <span className="text-[10px] uppercase font-bold tracking-widest text-[#C8A45C]/80 px-2 py-0.5 block text-left">
                   Navegación Principal
                 </span>
