@@ -33,7 +33,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   onSuccess,
 }) => {
   const { wardrobe, dressRentals, addDressRental, currentRole } = useApp();
-  const isAdmin = currentRole === 'admin';
+  const isAdmin = currentRole === 'admin' || currentRole === 'VESTUARIO_ADMIN';
   const isRecepcionista = currentRole === 'recepcionista';
 
   // Referencias para controlar el desplazamiento (scroll)

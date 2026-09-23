@@ -37,22 +37,32 @@ import { DashboardSkeleton } from './components/dashboard/DashboardSkeleton';
 import { MapPin, Phone, ShieldCheck, Scissors, Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { activeView, setActiveView, currentRole, isAuthLoading, isDataLoading } = useApp();
+  const { activeView, setActiveView, currentRole, currentUser, isAuthLoading, isDataLoading } = useApp();
   const mainContentRef = React.useRef<HTMLElement>(null);
 
   const isDashboard = activeView.startsWith('/dashboard');
   const isAuthView = activeView === '/auth/login' || activeView === '/auth/callback';
 
   // Check RBAC permission for dashboard
-  const isPublicRole = currentRole === 'anonimo' || currentRole === 'cliente' || currentRole === 'anon';
-  const isStaffRole = currentRole === 'admin' || currentRole === 'recepcionista';
+  const isVestuarioAdmin =
+    currentRole === 'VESTUARIO_ADMIN' ||
+    currentUser?.role === 'VESTUARIO_ADMIN' ||
+    currentUser?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
 
-  // Redirección inmediata: bloquear a clientes de /dashboard/* y enviarlos a /mi-cuenta SOLO cuando la autenticación finalizó
+  const isPublicRole = currentRole === 'anonimo' || currentRole === 'cliente' || currentRole === 'anon';
+  const isStaffRole = currentRole === 'admin' || currentRole === 'recepcionista' || isVestuarioAdmin;
+
+  // Redirección inmediata:
+  // 1. Bloquear a clientes de /dashboard/* y enviarlos a /mi-cuenta
+  // 2. Proteger a VESTUARIO_ADMIN redirigiendo cualquier acceso a módulos prohibidos hacia /dashboard/vestuario
   React.useEffect(() => {
-    if (!isAuthLoading && isDashboard && isPublicRole) {
+    if (isAuthLoading) return;
+    if (isDashboard && isPublicRole) {
       setActiveView('/mi-cuenta');
+    } else if (isVestuarioAdmin && isDashboard && activeView !== '/dashboard/vestuario') {
+      setActiveView('/dashboard/vestuario');
     }
-  }, [isAuthLoading, isDashboard, isPublicRole, setActiveView]);
+  }, [isAuthLoading, isDashboard, isPublicRole, isVestuarioAdmin, activeView, setActiveView]);
 
   // Reset scroll to top when changing dashboard views
   React.useEffect(() => {
@@ -119,6 +129,8 @@ const AppContent: React.FC = () => {
               </div>
             ) : isDataLoading ? (
               <DashboardSkeleton />
+            ) : isVestuarioAdmin ? (
+              <VestuarioManager />
             ) : (
               <>
                 {activeView === '/dashboard' && <DashboardHome />}

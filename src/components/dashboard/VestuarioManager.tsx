@@ -134,8 +134,9 @@ export const VestuarioManager: React.FC = () => {
     return <DashboardSkeleton />;
   }
 
-  // Permisos: Administrador o Recepcionista
-  const isAdmin = currentRole === 'admin';
+  // Permisos: Administrador General, Administrador de Vestuario o Recepcionista
+  const isVestuarioAdmin = currentRole === 'VESTUARIO_ADMIN';
+  const isAdmin = currentRole === 'admin' || isVestuarioAdmin;
   const isRecepcionista = currentRole === 'recepcionista';
   const isAuthorized = isAdmin || isRecepcionista;
 

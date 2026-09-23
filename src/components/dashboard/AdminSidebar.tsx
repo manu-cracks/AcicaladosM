@@ -83,6 +83,17 @@ export const AdminSidebar: React.FC = () => {
     },
   ];
 
+  const isVestuarioAdmin =
+    currentRole === 'VESTUARIO_ADMIN' ||
+    currentUser?.role === 'VESTUARIO_ADMIN' ||
+    currentUser?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+  const visibleMenuItems = isVestuarioAdmin
+    ? menuItems.filter((item) => item.view === '/dashboard/vestuario')
+    : menuItems;
+
+  const homeView = isVestuarioAdmin ? '/dashboard/vestuario' : '/dashboard';
+
   const handleNavigate = (view: string) => {
     setActiveView(view);
     setMobileDrawerOpen(false);
@@ -94,7 +105,13 @@ export const AdminSidebar: React.FC = () => {
   };
 
   // Role display badge in sobrio style
-  const roleDisplay = currentRole === 'admin' ? 'Admin' : currentRole === 'recepcionista' ? 'Recepción' : 'Admin';
+  const roleDisplay = isVestuarioAdmin
+    ? 'Admin Vestuario'
+    : currentRole === 'admin'
+    ? 'Admin'
+    : currentRole === 'recepcionista'
+    ? 'Recepción'
+    : 'Admin';
 
   return (
     <>
@@ -148,7 +165,7 @@ export const AdminSidebar: React.FC = () => {
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={() => handleNavigate('/dashboard')}
+              onClick={() => handleNavigate(homeView)}
               className="flex items-center gap-3 text-left group cursor-pointer focus:outline-none"
             >
               {/* Emblema dorado del logo */}
@@ -183,9 +200,9 @@ export const AdminSidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. Lista de Módulos (Exactamente los 11 nombres) */}
+        {/* 2. Lista de Módulos (Exactamente los 11 nombres para admin, solo Vestuario para VESTUARIO_ADMIN) */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const isActive = activeView === item.view;
             return (
               <button

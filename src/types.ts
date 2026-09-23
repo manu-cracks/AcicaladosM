@@ -5,7 +5,7 @@
  * Zona Horaria: America/Lima (UTC-5)
  */
 
-export type UserRole = 'admin' | 'recepcionista' | 'empleado' | 'cliente' | 'anon' | 'anonimo';
+export type UserRole = 'admin' | 'recepcionista' | 'empleado' | 'cliente' | 'anon' | 'anonimo' | 'VESTUARIO_ADMIN';
 
 export type BusinessCategory = 'barberia' | 'spa' | 'mixto';
 

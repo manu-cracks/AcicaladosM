@@ -246,6 +246,17 @@ const getInitialView = (): string => {
     if (path.length > 1 && path.endsWith('/')) {
       path = path.slice(0, -1);
     }
+    const cachedRole = getCachedRole();
+    const cachedUser = getCachedUser();
+    const isVestuarioAdmin =
+      cachedRole === 'VESTUARIO_ADMIN' ||
+      cachedUser?.role === 'VESTUARIO_ADMIN' ||
+      cachedUser?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+    if (isVestuarioAdmin && path.startsWith('/dashboard') && path !== '/dashboard/vestuario') {
+      return '/dashboard/vestuario';
+    }
+
     if (
       path === '/auth/login' ||
       path === '/auth/callback' ||
@@ -282,22 +293,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const activeView = activeViewState;
   const setActiveView = useCallback((view: string) => {
-    setActiveViewState(view);
-    if (typeof window !== 'undefined' && window.location.pathname !== view) {
-      window.history.pushState(null, '', view);
+    const isVestuarioAdmin =
+      currentRole === 'VESTUARIO_ADMIN' ||
+      currentUserOverride?.role === 'VESTUARIO_ADMIN' ||
+      currentUserOverride?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+    let targetView = view;
+    if (isVestuarioAdmin && targetView.startsWith('/dashboard') && targetView !== '/dashboard/vestuario') {
+      targetView = '/dashboard/vestuario';
     }
-  }, []);
+
+    setActiveViewState(targetView);
+    if (typeof window !== 'undefined' && window.location.pathname !== targetView) {
+      window.history.pushState(null, '', targetView);
+    }
+  }, [currentRole, currentUserOverride]);
 
   // Sincronizar navegación con el historial del navegador
   useEffect(() => {
     const handlePopState = () => {
       if (typeof window !== 'undefined') {
-        setActiveViewState(window.location.pathname || '/');
+        let path = window.location.pathname || '/';
+        const isVestuarioAdmin =
+          currentRole === 'VESTUARIO_ADMIN' ||
+          currentUserOverride?.role === 'VESTUARIO_ADMIN' ||
+          currentUserOverride?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+        if (isVestuarioAdmin && path.startsWith('/dashboard') && path !== '/dashboard/vestuario') {
+          path = '/dashboard/vestuario';
+          window.history.replaceState(null, '', path);
+        }
+        setActiveViewState(path);
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [currentRole, currentUserOverride]);
 
   // Protección de rutas: redirigir a clientes y no autenticados fuera de /dashboard SOLO cuando la autenticación no esté cargando
   useEffect(() => {
@@ -308,8 +339,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (currentRole === 'cliente' || currentRole === 'anonimo' || currentRole === 'anon')
     ) {
       setActiveView('/mi-cuenta');
+      return;
     }
-  }, [activeViewState, currentRole, isAuthLoading, setActiveView]);
+
+    // Protección estricta para VESTUARIO_ADMIN: único acceso permitido dentro del dashboard es /dashboard/vestuario
+    const isVestuarioAdmin =
+      currentRole === 'VESTUARIO_ADMIN' ||
+      currentUserOverride?.role === 'VESTUARIO_ADMIN' ||
+      currentUserOverride?.email?.toLowerCase() === 'vepeja4602@bullbaby.com';
+
+    if (
+      isVestuarioAdmin &&
+      activeViewState.startsWith('/dashboard') &&
+      activeViewState !== '/dashboard/vestuario'
+    ) {
+      setActiveView('/dashboard/vestuario');
+    }
+  }, [activeViewState, currentRole, currentUserOverride, isAuthLoading, setActiveView]);
   const [isDataLoading, setIsDataLoading] = useState<boolean>(true);
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -540,7 +586,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .maybeSingle();
         const role = userProfile?.role || 'cliente';
         effectiveRole = role;
-        if (role === 'cliente') {
+        if (role === 'VESTUARIO_ADMIN') {
+          // VESTUARIO_ADMIN no tiene acceso a reservas generales de barbería/spa
+          bookingsQuery = bookingsQuery.eq('user_id', '00000000-0000-0000-0000-000000000000');
+        } else if (role === 'cliente') {
           if (currentAuthUser.email) {
             bookingsQuery = bookingsQuery.or(`user_id.eq.${currentAuthUser.id},client_email.eq.${currentAuthUser.email}`);
           } else {
@@ -644,148 +693,153 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
 
-      // 8. Ventas de Mostrador
-      let ventasQuery = supabase
-        .from('ventas_mostrador')
-        .select('*')
-        .order('fecha', { ascending: false });
+      // 8. Ventas de Mostrador (Exclusivo para admin y recepcionista; denegado para VESTUARIO_ADMIN y clientes)
+      if (effectiveRole === 'admin' || effectiveRole === 'recepcionista') {
+        let ventasQuery = supabase
+          .from('ventas_mostrador')
+          .select('*')
+          .order('fecha', { ascending: false });
 
-      // Restricción para Recepcionista: Solo consultar ventas del día de Hoy (00:00:00 a 23:59:59 America/Lima)
-      if (effectiveRole === 'recepcionista') {
-        const todayStr = getTodayDateString();
-        const startOfDay = `${todayStr}T00:00:00-05:00`;
-        const endOfDay = `${todayStr}T23:59:59.999-05:00`;
-        ventasQuery = ventasQuery.gte('fecha', startOfDay).lte('fecha', endOfDay);
+        // Restricción para Recepcionista: Solo consultar ventas del día de Hoy (00:00:00 a 23:59:59 America/Lima)
+        if (effectiveRole === 'recepcionista') {
+          const todayStr = getTodayDateString();
+          const startOfDay = `${todayStr}T00:00:00-05:00`;
+          const endOfDay = `${todayStr}T23:59:59.999-05:00`;
+          ventasQuery = ventasQuery.gte('fecha', startOfDay).lte('fecha', endOfDay);
+        }
+
+        const { data: dbVentas, error: dbVentasErr } = await ventasQuery;
+        if (!dbVentasErr && dbVentas) {
+          setVentasMostrador(
+            dbVentas.map((v: any) => {
+              const isMixto = v.metodo_pago?.toLowerCase() === 'mixto';
+              const mEfectivo = v.monto_efectivo != null ? Number(v.monto_efectivo) : undefined;
+              const mYape = v.monto_yape != null ? Number(v.monto_yape) : undefined;
+              const mTransf = v.monto_transferencia != null ? Number(v.monto_transferencia) : undefined;
+              return {
+                id: v.id,
+                ticket_number: v.ticket_number || `TK-${v.id.substring(0, 5).toUpperCase()}`,
+                client_name: v.cliente_nombre,
+                product_name: v.producto_nombre,
+                quantity: v.cantidad,
+                unit_price_cents: Math.round(Number(v.precio_unitario) * 100),
+                total_price_cents: Math.round(Number(v.total) * 100),
+                subtotal: v.subtotal != null ? Number(v.subtotal) : undefined,
+                subtotal_cents: v.subtotal != null ? Math.round(Number(v.subtotal) * 100) : undefined,
+                monto_descuento: v.monto_descuento != null ? Number(v.monto_descuento) : 0,
+                discount_cents: v.monto_descuento != null ? Math.round(Number(v.monto_descuento) * 100) : 0,
+                detalles_items: v.detalles_items || undefined,
+                payment_method: isMixto ? 'MIXTO' : (v.metodo_pago?.toLowerCase() || 'efectivo') as any,
+                notes: v.notas || undefined,
+                created_at: v.fecha || v.created_at,
+                monto_efectivo: mEfectivo,
+                monto_yape: mYape,
+                monto_transferencia: mTransf,
+                cash_cents: mEfectivo != null ? Math.round(mEfectivo * 100) : undefined,
+                yape_cents: mYape != null ? Math.round(mYape * 100) : undefined,
+                transfer_cents: mTransf != null ? Math.round(mTransf * 100) : undefined,
+                detalles_pago: v.detalles_pago || undefined,
+              };
+            })
+          );
+        }
       }
 
-      const { data: dbVentas, error: dbVentasErr } = await ventasQuery;
-      if (!dbVentasErr && dbVentas) {
-        setVentasMostrador(
-          dbVentas.map((v: any) => {
-            const isMixto = v.metodo_pago?.toLowerCase() === 'mixto';
-            const mEfectivo = v.monto_efectivo != null ? Number(v.monto_efectivo) : undefined;
-            const mYape = v.monto_yape != null ? Number(v.monto_yape) : undefined;
-            const mTransf = v.monto_transferencia != null ? Number(v.monto_transferencia) : undefined;
-            return {
-              id: v.id,
-              ticket_number: v.ticket_number || `TK-${v.id.substring(0, 5).toUpperCase()}`,
-              client_name: v.cliente_nombre,
-              product_name: v.producto_nombre,
-              quantity: v.cantidad,
-              unit_price_cents: Math.round(Number(v.precio_unitario) * 100),
-              total_price_cents: Math.round(Number(v.total) * 100),
-              subtotal: v.subtotal != null ? Number(v.subtotal) : undefined,
-              subtotal_cents: v.subtotal != null ? Math.round(Number(v.subtotal) * 100) : undefined,
-              monto_descuento: v.monto_descuento != null ? Number(v.monto_descuento) : 0,
-              discount_cents: v.monto_descuento != null ? Math.round(Number(v.monto_descuento) * 100) : 0,
-              detalles_items: v.detalles_items || undefined,
-              payment_method: isMixto ? 'MIXTO' : (v.metodo_pago?.toLowerCase() || 'efectivo') as any,
-              notes: v.notas || undefined,
-              created_at: v.fecha || v.created_at,
-              monto_efectivo: mEfectivo,
-              monto_yape: mYape,
-              monto_transferencia: mTransf,
-              cash_cents: mEfectivo != null ? Math.round(mEfectivo * 100) : undefined,
-              yape_cents: mYape != null ? Math.round(mYape * 100) : undefined,
-              transfer_cents: mTransf != null ? Math.round(mTransf * 100) : undefined,
-              detalles_pago: v.detalles_pago || undefined,
-            };
-          })
-        );
+      // 9. Egresos (Exclusivo para admin y recepcionista; denegado para VESTUARIO_ADMIN)
+      if (effectiveRole === 'admin' || effectiveRole === 'recepcionista') {
+        const { data: dbExpenses } = await supabase
+          .from('expenses')
+          .select('*')
+          .order('expense_date', { ascending: false });
+        if (dbExpenses) {
+          setExpenses(
+            dbExpenses.map((e: any) => ({
+              id: e.id,
+              description: e.description,
+              category: e.category,
+              amount_cents: e.amount_cents,
+              payment_method: e.payment_method === 'cash' ? 'efectivo' : e.payment_method,
+              beneficiary: e.supplier || '',
+              voucher_url: e.receipt_url || undefined,
+              date: e.expense_date,
+              voided: e.status === 'voided',
+              voided_reason: e.void_reason || undefined,
+              voided_by: e.voided_by || undefined,
+              created_at: e.created_at || e.expense_date,
+            }))
+          );
+        }
       }
 
-      // 9. Egresos
-      const { data: dbExpenses } = await supabase
-        .from('expenses')
-        .select('*')
-        .order('expense_date', { ascending: false });
-      if (dbExpenses) {
-        setExpenses(
-          dbExpenses.map((e: any) => ({
-            id: e.id,
-            description: e.description,
-            category: e.category,
-            amount_cents: e.amount_cents,
-            payment_method: e.payment_method === 'cash' ? 'efectivo' : e.payment_method,
-            beneficiary: e.supplier || '',
-            voucher_url: e.receipt_url || undefined,
-            date: e.expense_date,
-            voided: e.status === 'voided',
-            voided_reason: e.void_reason || undefined,
-            voided_by: e.voided_by || undefined,
-            created_at: e.created_at || e.expense_date,
-          }))
-        );
-      }
+      // 10. Configuración de Asistencia & 11. Registros de Asistencia (Solo admin, recepcionista, empleado)
+      if (effectiveRole === 'admin' || effectiveRole === 'recepcionista' || effectiveRole === 'empleado') {
+        const { data: dbAttSettings } = await supabase
+          .from('attendance_settings')
+          .select('*')
+          .limit(1)
+          .maybeSingle();
+        if (dbAttSettings) {
+          setAttendanceSettings({
+            id: dbAttSettings.id,
+            shift_entry_time: dbAttSettings.shift_entry_time || '09:00',
+            shift_exit_time: dbAttSettings.shift_exit_time || '19:00',
+            entry_tolerance_minutes: Number(dbAttSettings.entry_tolerance_minutes ?? 15),
+            exit_tolerance_minutes: Number(dbAttSettings.exit_tolerance_minutes ?? 15),
+          });
+        }
 
-      // 10. Configuración de Asistencia
-      const { data: dbAttSettings } = await supabase
-        .from('attendance_settings')
-        .select('*')
-        .limit(1)
-        .maybeSingle();
-      if (dbAttSettings) {
-        setAttendanceSettings({
-          id: dbAttSettings.id,
-          shift_entry_time: dbAttSettings.shift_entry_time || '09:00',
-          shift_exit_time: dbAttSettings.shift_exit_time || '19:00',
-          entry_tolerance_minutes: Number(dbAttSettings.entry_tolerance_minutes ?? 15),
-          exit_tolerance_minutes: Number(dbAttSettings.exit_tolerance_minutes ?? 15),
-        });
-      }
+        const { data: dbAttendances } = await supabase
+          .from('employee_attendances')
+          .select('*')
+          .order('date', { ascending: false });
+        if (dbAttendances) {
+          setAttendance(
+            dbAttendances.map((a: any) => {
+              const empName = empMap.get(a.employee_id) || 'Colaborador';
+              const rawIn = a.check_in || '';
+              const rawOut = a.check_out || '';
+              const checkInFormatted = rawIn.includes('T')
+                ? new Date(rawIn).toLocaleTimeString('es-PE', {
+                    timeZone: 'America/Lima',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  })
+                : rawIn.substring(0, 5) || '09:00';
+              const checkOutFormatted = rawOut
+                ? (rawOut.includes('T')
+                    ? new Date(rawOut).toLocaleTimeString('es-PE', {
+                        timeZone: 'America/Lima',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      })
+                    : rawOut.substring(0, 5))
+                : null;
 
-      // 11. Registros de Asistencia
-      const { data: dbAttendances } = await supabase
-        .from('employee_attendances')
-        .select('*')
-        .order('date', { ascending: false });
-      if (dbAttendances) {
-        setAttendance(
-          dbAttendances.map((a: any) => {
-            const empName = empMap.get(a.employee_id) || 'Colaborador';
-            const rawIn = a.check_in || '';
-            const rawOut = a.check_out || '';
-            const checkInFormatted = rawIn.includes('T')
-              ? new Date(rawIn).toLocaleTimeString('es-PE', {
-                  timeZone: 'America/Lima',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-                })
-              : rawIn.substring(0, 5) || '09:00';
-            const checkOutFormatted = rawOut
-              ? (rawOut.includes('T')
-                  ? new Date(rawOut).toLocaleTimeString('es-PE', {
-                      timeZone: 'America/Lima',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    })
-                  : rawOut.substring(0, 5))
-              : null;
-
-            return {
-              id: a.id,
-              employee_id: a.employee_id,
-              employee_name: empName,
-              employee_type: (a.employee_type || 'barberia') as any,
-              date: a.date,
-              check_in: checkInFormatted,
-              check_out: checkOutFormatted,
-              worked_minutes: Number(a.worked_minutes || 0),
-              bonus_minutes: Number(a.bonus_minutes || 0),
-              bonus_calculation_type: a.bonus_calculation_type || 'auto',
-              status: (a.status || 'presente') as any,
-              tardy_minutes: Number(a.tardy_minutes || 0),
-              overtime_minutes: Number(a.overtime_minutes || a.bonus_minutes || 0),
-              justification_note: a.justification_note || undefined,
-              justification_document_url: a.justification_document_url || undefined,
-              exit_time: a.exit_time || a.check_out || null,
-              exit_type: a.exit_type || null,
-              exit_reason: a.exit_reason || a.exit_justification || null,
-            };
-          })
-        );
+              return {
+                id: a.id,
+                employee_id: a.employee_id,
+                employee_name: empName,
+                employee_type: (a.employee_type || 'barberia') as any,
+                date: a.date,
+                check_in: checkInFormatted,
+                check_out: checkOutFormatted,
+                worked_minutes: Number(a.worked_minutes || 0),
+                bonus_minutes: Number(a.bonus_minutes || 0),
+                bonus_calculation_type: a.bonus_calculation_type || 'auto',
+                status: (a.status || 'presente') as any,
+                tardy_minutes: Number(a.tardy_minutes || 0),
+                overtime_minutes: Number(a.overtime_minutes || a.bonus_minutes || 0),
+                justification_note: a.justification_note || undefined,
+                justification_document_url: a.justification_document_url || undefined,
+                exit_time: a.exit_time || a.check_out || null,
+                exit_type: a.exit_type || null,
+                exit_reason: a.exit_reason || a.exit_justification || null,
+              };
+            })
+          );
+        }
       }
 
       setLastSyncTimestamp(new Date());
