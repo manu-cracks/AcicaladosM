@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { formatSoles, getBookingCollectedAmountCents, getBookingServicesWithCollectedCents } from '../../types';
+import { formatSoles, getBookingCollectedAmountCents, getBookingServicesWithCollectedCents, ServiceAuditItem } from '../../types';
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
+import { supabase } from '../../lib/supabase/client';
 import { jsPDF } from 'jspdf';
 import {
   Calendar,
@@ -25,11 +26,28 @@ import {
   Clock,
   Shirt,
   Percent,
+  User,
+  Search,
+  FileText,
+  ShieldCheck,
 } from 'lucide-react';
 import { DashboardSkeleton } from './DashboardSkeleton';
 
 export const ReportesView: React.FC = () => {
-  const { bookings, ventasMostrador, expenses, employees, services, wardrobe, isDataLoading } = useApp();
+  const {
+    bookings,
+    ventasMostrador,
+    expenses,
+    employees,
+    services,
+    wardrobe,
+    isDataLoading,
+    currentRole,
+    currentUser,
+    lastSyncTimestamp,
+  } = useApp();
+
+  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
 
   if (isDataLoading) {
     return <DashboardSkeleton />;
@@ -40,6 +58,12 @@ export const ReportesView: React.FC = () => {
   const [isQuickReportModalOpen, setIsQuickReportModalOpen] = useState<boolean>(false);
   const [copiedSuccess, setCopiedSuccess] = useState<boolean>(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
+
+  // Estados para Tabla de Auditoría (Exclusivo ADMIN)
+  const [auditServices, setAuditServices] = useState<ServiceAuditItem[]>([]);
+  const [isLoadingAudit, setIsLoadingAudit] = useState<boolean>(false);
+  const [auditAreaFilter, setAuditAreaFilter] = useState<'TODOS' | 'SPA' | 'BARBERÍA'>('TODOS');
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
 
   // Formateador dd/mm/aaaa
   const formattedDateLima = useMemo(() => {
@@ -234,6 +258,113 @@ export const ReportesView: React.FC = () => {
       })
       .sort((a, b) => b.totalCents - a.totalCents);
   }, [employees, dayBookings]);
+
+  // Consulta RPC a Supabase get_services_audit_breakdown con fallback local reactivo
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    let isMounted = true;
+    const fetchAudit = async () => {
+      setIsLoadingAudit(true);
+      try {
+        const { data, error } = await supabase.rpc('get_services_audit_breakdown', {
+          p_date: selectedDate,
+        });
+
+        if (!error && data && isMounted) {
+          setAuditServices(data as ServiceAuditItem[]);
+          setIsLoadingAudit(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('[ReportesView] Fallback local para auditoría de servicios:', err);
+      }
+
+      // Fallback local desde dayBookings si RPC no responde
+      if (isMounted) {
+        const fallbackItems: ServiceAuditItem[] = dayBookings.flatMap((b) => {
+          return (b.services || []).map((srv) => {
+            const catalogItem = services.find(
+              (s) => s.id === srv.service_id || s.name === srv.service_name
+            );
+            const isSpa =
+              catalogItem?.category === 'spa' ||
+              srv.service_name.toLowerCase().includes('spa') ||
+              srv.service_name.toLowerCase().includes('masaje') ||
+              srv.service_name.toLowerCase().includes('facial') ||
+              srv.service_name.toLowerCase().includes('acrilic') ||
+              srv.service_name.toLowerCase().includes('exfolia') ||
+              srv.service_name.toLowerCase().includes('uña') ||
+              srv.service_name.toLowerCase().includes('manicure') ||
+              srv.service_name.toLowerCase().includes('pedicure');
+
+            const assignedEmp = employees.find(
+              (e) =>
+                e.id === srv.employee_id ||
+                e.full_name?.toLowerCase() === srv.employee_name?.toLowerCase()
+            );
+            const empName = assignedEmp?.full_name || srv.employee_name || 'Especialista';
+
+            const srvStart = srv.start_time || srv.hora_inicio || b.start_time || '10:00';
+            const srvEnd = srv.end_time || srv.hora_fin || b.end_time || '11:00';
+
+            return {
+              service_item_id: srv.id,
+              service_id: srv.service_id || null,
+              service_name: srv.service_name,
+              area: isSpa ? 'SPA' : 'BARBERÍA',
+              booking_id: b.id,
+              booking_code: b.code,
+              client_name: b.client_name,
+              price_cents: srv.price_cents,
+              employee_id: srv.employee_id || null,
+              employee_name: empName,
+              booking_date: b.date,
+              start_time: srvStart,
+              end_time: srvEnd,
+              hora_rango: `${srvStart} - ${srvEnd}`,
+              completed_timestamp: b.completed_at || b.confirmed_at || b.created_at,
+              payment_method: (b as any).payment_method || 'efectivo',
+              payment_status: b.payment_status,
+            };
+          });
+        });
+
+        setAuditServices(fallbackItems);
+        setIsLoadingAudit(false);
+      }
+    };
+
+    fetchAudit();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDate, isAdmin, lastSyncTimestamp, dayBookings, services, employees]);
+
+  // Filtrado reactivo de auditoría por área y buscador de texto
+  const filteredAuditServices = useMemo(() => {
+    return auditServices.filter((item) => {
+      // 1. Filtro de área
+      if (auditAreaFilter !== 'TODOS') {
+        const areaUpper = item.area.toUpperCase();
+        if (auditAreaFilter === 'SPA' && !areaUpper.includes('SPA')) return false;
+        if (auditAreaFilter === 'BARBERÍA' && !areaUpper.includes('BARBER')) return false;
+      }
+
+      // 2. Buscador de texto
+      if (auditSearchQuery.trim()) {
+        const q = auditSearchQuery.toLowerCase().trim();
+        const matchName = item.service_name.toLowerCase().includes(q);
+        const matchEmp = item.employee_name.toLowerCase().includes(q);
+        const matchClient = item.client_name.toLowerCase().includes(q);
+        const matchCode = item.booking_code.toLowerCase().includes(q);
+        if (!matchName && !matchEmp && !matchClient && !matchCode) return false;
+      }
+
+      return true;
+    });
+  }, [auditServices, auditAreaFilter, auditSearchQuery]);
 
   // 4. Generación del Texto Estructurado "Reporte del Día"
   const formatSolesText = (cents: number): string => `S/ ${(cents / 100).toFixed(2)}`;
@@ -948,6 +1079,213 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
           </div>
         </div>
       </div>
+
+      {/* 4. Tabla: Desglose de Servicios por Módulo (Auditoría) - Exclusivo ADMIN */}
+      {isAdmin && (
+        <div className="bg-[#141414] border border-neutral-800 rounded-3xl p-5 sm:p-7 space-y-6 shadow-2xl">
+          {/* Cabecera y Controles */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-neutral-800/80 pb-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#C8A45C]/15 border border-[#C8A45C]/30 text-[#C8A45C] flex items-center justify-center">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <h3 className="font-serif-luxury text-lg sm:text-xl font-bold text-white tracking-wide">
+                  Desglose de Servicios por Módulo (Auditoría)
+                </h3>
+              </div>
+              <p className="text-xs text-neutral-400">
+                Historial detallado de cada servicio atendido, precio cobrado, especialista y canal de pago.
+              </p>
+            </div>
+
+            {/* Filtros de Área (Pills) y Buscador */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Selector de Área */}
+              <div className="flex items-center bg-[#181818] border border-neutral-800 rounded-xl p-1 text-xs">
+                {(['TODOS', 'SPA', 'BARBERÍA'] as const).map((area) => (
+                  <button
+                    key={area}
+                    type="button"
+                    onClick={() => setAuditAreaFilter(area)}
+                    className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer text-xs ${
+                      auditAreaFilter === area
+                        ? 'bg-[#C8A45C] text-black shadow'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    {area}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input Buscador */}
+              <div className="relative min-w-[260px] sm:min-w-[320px]">
+                <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={auditSearchQuery}
+                  onChange={(e) => setAuditSearchQuery(e.target.value)}
+                  placeholder="Filtrar servicios por nombre, especialista, cliente o código..."
+                  className="w-full bg-[#181818] border border-neutral-800 text-white placeholder-neutral-500 text-xs rounded-xl pl-9 pr-8 py-2 outline-none focus:border-[#C8A45C] focus:ring-1 focus:ring-[#C8A45C] transition shadow-inner"
+                />
+                {auditSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setAuditSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white text-xs p-0.5 rounded cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla con Scroll Vertical y Cabecera Fija */}
+          <div className="rounded-2xl border border-neutral-800/80 overflow-hidden bg-[#101010]/80 backdrop-blur-sm">
+            <div className="max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-[#181818] text-neutral-400 font-semibold border-b border-neutral-800 uppercase text-[10px] tracking-wider z-10 shadow-sm">
+                  <tr>
+                    <th className="py-3 px-4 sm:px-5">Nombre del Servicio</th>
+                    <th className="py-3 px-4 sm:px-5 text-right">Precio Cobrado</th>
+                    <th className="py-3 px-4 sm:px-5">Personal Asignado</th>
+                    <th className="py-3 px-4 sm:px-5">Fecha Exacta</th>
+                    <th className="py-3 px-4 sm:px-5 text-center">Método(s) de Pago</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-800/50">
+                  {isLoadingAudit ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-neutral-400 space-y-2">
+                        <div className="w-6 h-6 border-2 border-[#C8A45C] border-t-transparent rounded-full animate-spin mx-auto" />
+                        <span className="text-xs">Cargando desglose de auditoría...</span>
+                      </td>
+                    </tr>
+                  ) : filteredAuditServices.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-neutral-500 space-y-2">
+                        <FileText className="w-8 h-8 mx-auto opacity-30 text-[#C8A45C]" />
+                        <p className="text-xs font-medium">No se encontraron servicios atendidos para los filtros seleccionados.</p>
+                        <p className="text-[10px] text-neutral-600">
+                          Intenta cambiando la fecha de consulta o el criterio de búsqueda.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAuditServices.map((item) => {
+                      const isSpa = item.area === 'SPA' || item.area.toLowerCase().includes('spa');
+                      const methodLower = (item.payment_method || '').toLowerCase();
+
+                      return (
+                        <tr
+                          key={item.service_item_id}
+                          className="hover:bg-[#161616] transition-colors duration-150"
+                        >
+                          {/* 1. Nombre del Servicio */}
+                          <td className="py-3.5 px-4 sm:px-5">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                                    isSpa
+                                      ? 'bg-purple-950/60 text-purple-300 border-purple-800/40'
+                                      : 'bg-[#C8A45C]/15 text-[#E6C875] border-[#C8A45C]/35'
+                                  }`}
+                                >
+                                  {isSpa ? 'SPA' : 'BARBERÍA'}
+                                </span>
+                                <span className="font-bold text-white text-xs sm:text-sm">
+                                  {item.service_name}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-neutral-400 block pl-0.5">
+                                Cita: #{item.booking_code} - {item.client_name}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 2. Precio Cobrado */}
+                          <td className="py-3.5 px-4 sm:px-5 text-right whitespace-nowrap">
+                            <span className="font-bold text-emerald-400 text-sm block">
+                              {formatSoles(item.price_cents)}
+                            </span>
+                            <span className="text-[10px] text-neutral-500 uppercase font-semibold">
+                              {item.payment_status === 'total' ? 'Pagado Total' : 'Adelanto / Parcial'}
+                            </span>
+                          </td>
+
+                          {/* 3. Personal Asignado */}
+                          <td className="py-3.5 px-4 sm:px-5 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-neutral-800 border border-neutral-700 text-[#C8A45C] flex items-center justify-center">
+                                <User className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-white font-medium text-xs">
+                                {item.employee_name}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 4. Fecha Exacta */}
+                          <td className="py-3.5 px-4 sm:px-5 whitespace-nowrap">
+                            <div className="space-y-0.5">
+                              <span className="text-neutral-300 font-medium block">
+                                {item.booking_date}
+                              </span>
+                              <span className="text-[11px] text-neutral-400 flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-[#C8A45C]" />
+                                <span>{item.hora_rango}</span>
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 5. Método(s) de Pago */}
+                          <td className="py-3.5 px-4 sm:px-5 text-center whitespace-nowrap">
+                            {methodLower.includes('yape') ? (
+                              <span className="px-2.5 py-1 rounded-full bg-purple-950/70 text-purple-300 border border-purple-800/50 text-[10px] font-bold uppercase tracking-wider">
+                                YAPE
+                              </span>
+                            ) : methodLower.includes('efectivo') || methodLower.includes('cash') ? (
+                              <span className="px-2.5 py-1 rounded-full bg-emerald-950/70 text-emerald-300 border border-emerald-800/50 text-[10px] font-bold uppercase tracking-wider">
+                                EFECTIVO
+                              </span>
+                            ) : methodLower.includes('transf') ? (
+                              <span className="px-2.5 py-1 rounded-full bg-blue-950/70 text-blue-300 border border-blue-800/50 text-[10px] font-bold uppercase tracking-wider">
+                                TRANSFERENCIA
+                              </span>
+                            ) : methodLower.includes('mixto') ? (
+                              <span className="px-2.5 py-1 rounded-full bg-orange-950/70 text-orange-300 border border-orange-800/50 text-[10px] font-bold uppercase tracking-wider">
+                                MIXTO
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full bg-amber-950/70 text-amber-300 border border-amber-800/50 text-[10px] font-bold uppercase tracking-wider">
+                                {item.payment_method.toUpperCase()}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer de Resumen del DataGrid */}
+            <div className="bg-[#141414] border-t border-neutral-800/80 px-5 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-neutral-400">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Auditoría de servicios para la fecha seleccionada ({formattedDateLima})</span>
+              </span>
+              <span className="font-semibold text-white">
+                Total de servicios listados: <span className="text-[#E6C875] font-bold">{filteredAuditServices.length}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 5. MODAL: "Reporte del Día" (Resumen Rápido para WhatsApp o Copiar) */}
       {isQuickReportModalOpen && (

@@ -237,6 +237,26 @@ export interface EmployeePerformanceItem {
   total_revenue_cents: number;
 }
 
+export interface ServiceAuditItem {
+  service_item_id: string;
+  service_id: string | null;
+  service_name: string;
+  area: 'SPA' | 'BARBERÍA' | string;
+  booking_id: string;
+  booking_code: string;
+  client_name: string;
+  price_cents: number;
+  employee_id: string | null;
+  employee_name: string;
+  booking_date: string;
+  start_time: string;
+  end_time: string;
+  hora_rango: string;
+  completed_timestamp: string | null;
+  payment_method: string;
+  payment_status: string;
+}
+
 export type PaymentStatus = 'sin_pago' | 'parcial' | 'total';
 
 export interface Booking {
