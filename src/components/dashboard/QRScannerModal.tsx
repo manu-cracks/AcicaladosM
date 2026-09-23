@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { useApp } from '../../context/AppContext';
 import { Employee, EmployeeAttendance, UserRole } from '../../types';
+import { AttendanceExitModal } from './AttendanceExitModal';
+import { getLimaTimeString, getTodayDateString } from '../../data/initialData';
 import {
   X,
   Camera,
@@ -34,7 +36,15 @@ interface ScanResultState {
 }
 
 export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, userRole }) => {
-  const { employees, scanAttendanceQR, currentRole, currentUser } = useApp();
+  const {
+    employees,
+    attendance,
+    scanAttendanceQR,
+    resolveEmployeeFromCode,
+    registerAttendanceExit,
+    currentRole,
+    currentUser,
+  } = useApp();
 
   // Control RBAC: rol del usuario actual (admin vs recepcionista)
   const effectiveRole: UserRole = userRole || currentRole || currentUser?.role || 'recepcionista';
@@ -50,12 +60,17 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
 
   const [scanResult, setScanResult] = useState<ScanResultState | null>(null);
   const [manualSearch, setManualSearch] = useState<string>('');
+  const [pendingExit, setPendingExit] = useState<{
+    employee: Employee;
+    attendanceRecord: EmployeeAttendance;
+  } | null>(null);
 
   // Asegurar que al abrir el modal la vista por defecto sea SIEMPRE 'camera'
   useEffect(() => {
     if (isOpen) {
       setActiveTab('camera');
       setScanResult(null);
+      setPendingExit(null);
     }
   }, [isOpen]);
 
@@ -117,27 +132,129 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
     }
   }, []);
 
-  // Handle scanned raw QR code text
-  const handleDecodedQR = useCallback((rawCode: string) => {
-    if (!rawCode || rawCode === lastScannedCodeRef.current) {
-      return;
-    }
-    lastScannedCodeRef.current = rawCode;
-
-    const result = scanAttendanceQR(rawCode);
-    setScanResult(result);
-    playBeep(result.success);
-
-    // Cooldown before next scan
+  // Manejador de cierre del modal de salida
+  const handleCloseExitModal = useCallback(() => {
+    setPendingExit(null);
+    setIsScanning(true);
     if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
     cooldownTimerRef.current = setTimeout(() => {
       lastScannedCodeRef.current = null;
-    }, 4000);
-  }, [playBeep, scanAttendanceQR]);
+    }, 3000);
+  }, []);
+
+  // Manejador de confirmación de salida (Definitiva o Emergencia)
+  const handleConfirmExitModal = useCallback(
+    async ({
+      exitType,
+      exitReason,
+    }: {
+      exitType: 'definitiva' | 'emergencia';
+      exitReason?: string;
+    }) => {
+      if (!pendingExit) return;
+      const { employee, attendanceRecord } = pendingExit;
+
+      const exitResult = await registerAttendanceExit({
+        employeeId: employee.id,
+        attendanceId: attendanceRecord.id,
+        exitType,
+        exitReason,
+      });
+
+      setScanResult({
+        success: true,
+        message: exitResult.message,
+        employee,
+        type: 'check_out',
+        record: exitResult.record,
+        punctuality: exitResult.overtimeMinutes > 0 ? 'horas_extra' : 'puntual',
+        minutes: exitResult.overtimeMinutes,
+      });
+
+      playBeep(true);
+      setPendingExit(null);
+      setIsScanning(true);
+
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = setTimeout(() => {
+        lastScannedCodeRef.current = null;
+      }, 4000);
+    },
+    [pendingExit, playBeep, registerAttendanceExit]
+  );
+
+  // Interceptación de lectura QR: evalúa entrada vs salida (Definitiva vs Emergencia)
+  const handleDecodedQR = useCallback(
+    (rawCode: string) => {
+      if (!rawCode || rawCode === lastScannedCodeRef.current || pendingExit) {
+        return;
+      }
+      lastScannedCodeRef.current = rawCode;
+
+      // 1. Identificar colaborador
+      const emp = resolveEmployeeFromCode(rawCode);
+      if (!emp) {
+        setScanResult({
+          success: false,
+          message: 'Credencial QR no reconocida en el sistema de colaboradores.',
+        });
+        playBeep(false);
+        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = setTimeout(() => {
+          lastScannedCodeRef.current = null;
+        }, 4000);
+        return;
+      }
+
+      // 2. Evaluar estado de asistencia para el día de hoy
+      const today = getTodayDateString();
+      const currentAtt = attendance.find(
+        (a) => a.employee_id === emp.id && a.date === today
+      );
+
+      // CASO A: No tiene entrada hoy -> Ejecuta flujo de ingreso normal existente
+      if (!currentAtt) {
+        const result = scanAttendanceQR(rawCode);
+        setScanResult(result);
+        playBeep(result.success);
+
+        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+        cooldownTimerRef.current = setTimeout(() => {
+          lastScannedCodeRef.current = null;
+        }, 4000);
+        return;
+      }
+
+      // CASO B: Ya tiene entrada y le falta salida -> Detiene guardado automático y abre modal de salida
+      if (!currentAtt.check_out) {
+        setIsScanning(false);
+        setPendingExit({
+          employee: emp,
+          attendanceRecord: currentAtt,
+        });
+        return;
+      }
+
+      // CASO C: Ya completó su jornada (entrada y salida)
+      setScanResult({
+        success: false,
+        message: `${emp.full_name} ya completó su jornada de hoy (Entrada: ${currentAtt.check_in}, Salida: ${currentAtt.check_out}).`,
+        employee: emp,
+        record: currentAtt,
+      });
+      playBeep(false);
+
+      if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = setTimeout(() => {
+        lastScannedCodeRef.current = null;
+      }, 4000);
+    },
+    [attendance, pendingExit, playBeep, resolveEmployeeFromCode, scanAttendanceQR]
+  );
 
   // QR Scanning Loop using canvas + jsQR
   const scanFrame = useCallback(() => {
-    if (!isScanning) return;
+    if (!isScanning || !!pendingExit) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
@@ -159,10 +276,19 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
       }
     }
 
-    if (isScanning && isOpen && activeTab === 'camera') {
+    if (isScanning && !pendingExit && isOpen && activeTab === 'camera') {
       animationFrameRef.current = requestAnimationFrame(scanFrame);
     }
-  }, [activeTab, handleDecodedQR, isOpen, isScanning]);
+  }, [activeTab, handleDecodedQR, isOpen, isScanning, pendingExit]);
+
+  // Reanudar loop de escaneo cuando se reactive isScanning y no haya modal de salida
+  useEffect(() => {
+    if (isOpen && activeTab === 'camera' && isScanning && !pendingExit) {
+      if (!animationFrameRef.current) {
+        animationFrameRef.current = requestAnimationFrame(scanFrame);
+      }
+    }
+  }, [isOpen, activeTab, isScanning, pendingExit, scanFrame]);
 
   // Start camera stream
   const startCamera = useCallback(async () => {
@@ -620,6 +746,18 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
           </button>
         </div>
       </div>
+
+      {/* MODAL: Confirmación de Salida (Definitiva vs. Emergencia) */}
+      {pendingExit && (
+        <AttendanceExitModal
+          isOpen={!!pendingExit}
+          onClose={handleCloseExitModal}
+          employee={pendingExit.employee}
+          attendanceRecord={pendingExit.attendanceRecord}
+          currentLimaTime={getLimaTimeString()}
+          onConfirmExit={handleConfirmExitModal}
+        />
+      )}
     </div>
   );
 };

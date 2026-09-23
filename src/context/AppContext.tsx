@@ -154,7 +154,22 @@ interface AppContextType {
     record?: EmployeeAttendance;
     punctuality?: 'puntual' | 'tardanza' | 'horas_extra';
     minutes?: number;
+    requiresExitModal?: boolean;
   };
+  resolveEmployeeFromCode: (rawCode: string) => Employee | undefined;
+  registerAttendanceExit: (params: {
+    employeeId: string;
+    attendanceId: string;
+    exitType: 'definitiva' | 'emergencia';
+    exitReason?: string;
+  }) => Promise<{
+    success: boolean;
+    message: string;
+    overtimeMinutes: number;
+    workedMinutes: number;
+    workedDisplay: string;
+    record?: EmployeeAttendance;
+  }>;
   registerAttendancePunch: (employeeId: string, punchType: 'check_in' | 'check_out') => void;
   manualAdjustBonus: (attendanceId: string, newBonusMinutes: number, reason: string) => void;
   submitJustification: (attendanceId: string, note: string, docUrl?: string) => void;
@@ -751,6 +766,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               overtime_minutes: Number(a.overtime_minutes || a.bonus_minutes || 0),
               justification_note: a.justification_note || undefined,
               justification_document_url: a.justification_document_url || undefined,
+              exit_time: a.exit_time || a.check_out || null,
+              exit_type: a.exit_type || null,
+              exit_reason: a.exit_reason || a.exit_justification || null,
             };
           })
         );
@@ -2083,19 +2101,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pulseRealtime();
   }, [pulseRealtime]);
 
-  // Check-In / Check-Out QR Scanner con cálculo de puntualidad y horas extra
-  const scanAttendanceQR = useCallback(
-    (
-      qrCode: string
-    ): {
-      success: boolean;
-      message: string;
-      employee?: Employee;
-      type?: 'check_in' | 'check_out';
-      record?: EmployeeAttendance;
-      punctuality?: 'puntual' | 'tardanza' | 'horas_extra';
-      minutes?: number;
-    } => {
+  // Resolver colaborador a partir del código QR escaneado, ID o DNI
+  const resolveEmployeeFromCode = useCallback(
+    (qrCode: string): Employee | undefined => {
       const cleanQr = (qrCode || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
       let emp = employees.find(
         (e) =>
@@ -2123,6 +2131,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             (e.dni && cleanQr.includes(e.dni))
         );
       }
+      return emp;
+    },
+    [employees]
+  );
+
+  // Check-In / Check-Out QR Scanner con cálculo de puntualidad y horas extra
+  const scanAttendanceQR = useCallback(
+    (
+      qrCode: string
+    ): {
+      success: boolean;
+      message: string;
+      employee?: Employee;
+      type?: 'check_in' | 'check_out';
+      record?: EmployeeAttendance;
+      punctuality?: 'puntual' | 'tardanza' | 'horas_extra';
+      minutes?: number;
+      requiresExitModal?: boolean;
+    } => {
+      const emp = resolveEmployeeFromCode(qrCode);
 
       if (!emp) {
         return {
@@ -2218,54 +2246,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // CASO 2: SALIDA (Check-Out)
+      // CASO 2: SALIDA (Check-Out) -> Detener guardado automático y requerir confirmación (Definitiva vs Emergencia)
       if (currentAttendance && !currentAttendance.check_out) {
-        const [inH, inM] = (currentAttendance.check_in || '09:00')
-          .split(':')
-          .map(Number);
-        const inMinutes = inH * 60 + inM;
-        const workedMinutes = Math.max(0, nowMinutes - inMinutes);
-
-        const hasOvertime = nowMinutes > overtimeThreshold;
-        const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - exitMinutes) : 0;
-        const punctuality = hasOvertime ? 'horas_extra' : 'puntual';
-
-        const updatedAtt: EmployeeAttendance = {
-          ...currentAttendance,
-          check_out: nowLima,
-          worked_minutes: workedMinutes,
-          overtime_minutes: overtimeMinutes,
-          bonus_minutes: overtimeMinutes,
-          bonus_calculation_type: 'auto',
-        };
-
-        setAttendance((prev) =>
-          prev.map((a) => (a.id === currentAttendance.id ? updatedAtt : a))
-        );
-        pulseRealtime();
-
-        supabase
-          .from('employee_attendances')
-          .update({
-            check_out: isoNow,
-            overtime_minutes: overtimeMinutes,
-            bonus_minutes: overtimeMinutes,
-            bonus_calculation_type: 'auto',
-          })
-          .eq('id', currentAttendance.id)
-          .then();
-
-        const workedHoursStr = `${Math.floor(workedMinutes / 60)}h ${workedMinutes % 60}m`;
         return {
           success: true,
-          message: hasOvertime
-            ? `¡Salida registrada a las ${nowLima}! Jornada: ${workedHoursStr}. Horas extra a favor: +${overtimeMinutes} min (${(overtimeMinutes / 60).toFixed(1)}h).`
-            : `¡Salida registrada a las ${nowLima}! Jornada cumplida: ${workedHoursStr}.`,
+          message: `${emp.full_name} ya cuenta con entrada hoy. Se requiere confirmar el tipo de salida (Definitiva o Emergencia).`,
           employee: emp,
           type: 'check_out',
-          record: updatedAtt,
-          punctuality,
-          minutes: overtimeMinutes,
+          record: currentAttendance,
+          requiresExitModal: true,
         };
       }
 
@@ -2277,7 +2266,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         record: currentAttendance,
       };
     },
-    [attendance, attendanceSettings, employees, pulseRealtime]
+    [attendance, attendanceSettings, resolveEmployeeFromCode, pulseRealtime]
+  );
+
+  // Registro de salida con selección de modalidad (Definitiva vs. Emergencia)
+  const registerAttendanceExit = useCallback(
+    async ({
+      employeeId,
+      attendanceId,
+      exitType,
+      exitReason,
+    }: {
+      employeeId: string;
+      attendanceId: string;
+      exitType: 'definitiva' | 'emergencia';
+      exitReason?: string;
+    }) => {
+      const today = getTodayDateString();
+      const nowLima = new Date().toLocaleTimeString('es-PE', {
+        timeZone: 'America/Lima',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      const isoNow = new Date().toISOString();
+      const [nowH, nowM] = nowLima.split(':').map(Number);
+      const nowMinutes = nowH * 60 + nowM;
+
+      const [exitH, exitM] = (attendanceSettings.shift_exit_time || '19:00')
+        .split(':')
+        .map(Number);
+      const exitMinutes = exitH * 60 + exitM;
+      const exitTolerance = attendanceSettings.exit_tolerance_minutes ?? 15;
+      const overtimeThreshold = exitMinutes + exitTolerance;
+
+      const currentAttendance = attendance.find(
+        (a) => a.id === attendanceId || (a.employee_id === employeeId && a.date === today)
+      );
+
+      const inTime = currentAttendance?.check_in || attendanceSettings.shift_entry_time || '09:00';
+      const [inH, inM] = inTime.split(':').map(Number);
+      const inMinutes = inH * 60 + inM;
+      const workedMinutes = Math.max(0, nowMinutes - inMinutes);
+
+      const hasOvertime = nowMinutes > overtimeThreshold;
+      const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - exitMinutes) : 0;
+      const workedHoursStr = `${Math.floor(workedMinutes / 60)}h ${workedMinutes % 60}m`;
+      const cleanReason = exitType === 'emergencia' ? (exitReason || '').trim() : null;
+
+      const updatedAtt: EmployeeAttendance = {
+        ...(currentAttendance || {
+          id: attendanceId,
+          employee_id: employeeId,
+          employee_name: '',
+          employee_type: 'barberia' as any,
+          date: today,
+          check_in: inTime,
+          status: 'presente',
+          bonus_calculation_type: 'auto',
+          bonus_minutes: overtimeMinutes,
+        }),
+        check_out: nowLima,
+        exit_time: isoNow,
+        exit_type: exitType,
+        exit_reason: cleanReason,
+        worked_minutes: workedMinutes,
+        overtime_minutes: overtimeMinutes,
+        bonus_minutes: overtimeMinutes,
+        bonus_calculation_type: 'auto',
+      };
+
+      setAttendance((prev) =>
+        prev.map((a) =>
+          a.id === attendanceId || (a.employee_id === employeeId && a.date === today)
+            ? updatedAtt
+            : a
+        )
+      );
+      pulseRealtime();
+
+      try {
+        await supabase
+          .from('employee_attendances')
+          .update({
+            check_out: isoNow,
+            exit_time: isoNow,
+            exit_type: exitType,
+            exit_reason: cleanReason,
+            exit_justification: cleanReason,
+            overtime_minutes: overtimeMinutes,
+            bonus_minutes: overtimeMinutes,
+            bonus_calculation_type: 'auto',
+            updated_at: isoNow,
+          })
+          .eq('id', attendanceId);
+      } catch (err) {
+        console.error('Error al actualizar salida en Supabase:', err);
+      }
+
+      return {
+        success: true,
+        message:
+          exitType === 'emergencia'
+            ? `¡Salida de Emergencia registrada a las ${nowLima}! Motivo: ${cleanReason || 'No especificado'}. Jornada cumplida: ${workedHoursStr}.`
+            : hasOvertime
+            ? `¡Salida Definitiva registrada a las ${nowLima}! Jornada: ${workedHoursStr}. Horas extra a favor: +${overtimeMinutes} min (${(overtimeMinutes / 60).toFixed(1)}h).`
+            : `¡Salida Definitiva registrada exitosamente a las ${nowLima}! Jornada cumplida: ${workedHoursStr}.`,
+        overtimeMinutes,
+        workedMinutes,
+        workedDisplay: workedHoursStr,
+        record: updatedAtt,
+      };
+    },
+    [attendance, attendanceSettings, pulseRealtime]
   );
 
   const registerAttendancePunch = useCallback(
@@ -3346,6 +3447,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addEmployeeLeave,
         deleteEmployeeBlock,
         scanAttendanceQR,
+        resolveEmployeeFromCode,
+        registerAttendanceExit,
         registerAttendancePunch,
         manualAdjustBonus,
         submitJustification,

@@ -494,9 +494,25 @@ export const AsistenciaView: React.FC = () => {
                       {/* Hora de Salida */}
                       <td className="py-3.5 px-3">
                         {rec.check_out ? (
-                          <div className="flex items-center gap-1.5 font-mono text-sm font-bold text-white">
-                            <Clock className="w-3.5 h-3.5 text-blue-400" />
-                            <span>{rec.check_out}</span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 font-mono text-sm font-bold text-white">
+                              <Clock className="w-3.5 h-3.5 text-blue-400" />
+                              <span>{rec.check_out}</span>
+                            </div>
+                            {rec.exit_type === 'emergencia' ? (
+                              <div
+                                title={rec.exit_reason ? `Motivo: ${rec.exit_reason}` : 'Salida de emergencia justificada'}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold cursor-help"
+                              >
+                                <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-rose-400" />
+                                <span>Emergencia</span>
+                              </div>
+                            ) : rec.exit_type === 'definitiva' ? (
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[10px] font-semibold">
+                                <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-blue-400" />
+                                <span>Definitiva</span>
+                              </div>
+                            ) : null}
                           </div>
                         ) : (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 inline-flex items-center gap-1">

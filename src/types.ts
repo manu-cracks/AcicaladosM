@@ -167,6 +167,9 @@ export interface EmployeeAttendance {
   overtime_minutes?: number;
   justification_note?: string;
   justification_document_url?: string;
+  exit_time?: string | null;
+  exit_type?: 'definitiva' | 'emergencia' | null;
+  exit_reason?: string | null;
 }
 
 export interface EmployeeBlock {

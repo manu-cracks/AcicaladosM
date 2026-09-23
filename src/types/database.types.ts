@@ -629,6 +629,9 @@ export type Database = {
           employee_id: string
           entry_justification: string | null
           exit_justification: string | null
+          exit_reason: string | null
+          exit_time: string | null
+          exit_type: string | null
           id: string
           is_on_leave: boolean | null
           leave_reason: string | null
@@ -655,6 +658,9 @@ export type Database = {
           employee_id: string
           entry_justification?: string | null
           exit_justification?: string | null
+          exit_reason?: string | null
+          exit_time?: string | null
+          exit_type?: string | null
           id?: string
           is_on_leave?: boolean | null
           leave_reason?: string | null
@@ -681,6 +687,9 @@ export type Database = {
           employee_id?: string
           entry_justification?: string | null
           exit_justification?: string | null
+          exit_reason?: string | null
+          exit_time?: string | null
+          exit_type?: string | null
           id?: string
           is_on_leave?: boolean | null
           leave_reason?: string | null
