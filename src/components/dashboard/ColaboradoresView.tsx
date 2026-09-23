@@ -35,10 +35,13 @@ import {
   Download,
   Loader2,
   Printer,
-  Camera
+  Camera,
+  Trophy,
+  TrendingUp
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../../lib/supabase/client';
+import { EmployeePerformancePanel } from './EmployeePerformancePanel';
 import {
   sanitizePhone,
   sanitizeDni,
@@ -205,6 +208,9 @@ export const ColaboradoresView: React.FC = () => {
 
   const isAdmin = currentRole === 'admin';
   const isRecepcionista = currentRole === 'recepcionista';
+
+  // Navigation tab state (Admin only)
+  const [mainTab, setMainTab] = useState<'directorio' | 'rendimiento'>('directorio');
 
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -1169,7 +1175,49 @@ export const ColaboradoresView: React.FC = () => {
         )}
       </div>
 
-      {/* RECEPTIONIST NOTICE BANNER */}
+      {/* PESTAÑAS PRINCIPALES (ADMIN ONLY: Directorio vs Rendimiento) */}
+      {isAdmin && (
+        <div className="flex items-center gap-2 border-b border-neutral-800 pb-1">
+          <button
+            type="button"
+            onClick={() => setMainTab('directorio')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border ${
+              mainTab === 'directorio'
+                ? 'bg-[#1e1e1e] text-white border-[#C8A45C]/60 shadow-md font-bold'
+                : 'text-neutral-400 hover:text-white border-transparent hover:bg-neutral-900/60'
+            }`}
+          >
+            <Users className={`w-4 h-4 ${mainTab === 'directorio' ? 'text-[#C8A45C]' : 'text-neutral-500'}`} />
+            <span>Directorio de Colaboradores</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-neutral-800 text-neutral-300">
+              {employees.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMainTab('rendimiento')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border ${
+              mainTab === 'rendimiento'
+                ? 'bg-[#1e1e1e] text-[#E6C875] border-[#C8A45C] shadow-md shadow-[#C8A45C]/10 font-bold'
+                : 'text-neutral-400 hover:text-[#E6C875] border-transparent hover:bg-neutral-900/60'
+            }`}
+          >
+            <Trophy className={`w-4 h-4 ${mainTab === 'rendimiento' ? 'text-[#C8A45C]' : 'text-neutral-500'}`} />
+            <span>Panel de Rendimiento (Top)</span>
+            <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40">
+              Top Staff
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* CONTENIDO PRINCIPAL: RENDIMIENTO (ADMIN) VS DIRECTORIO OPERATIVO */}
+      {isAdmin && mainTab === 'rendimiento' ? (
+        <EmployeePerformancePanel />
+      ) : (
+        <>
+          {/* RECEPTIONIST NOTICE BANNER */}
       {isRecepcionista && (
         <div className="bg-blue-950/30 border border-blue-800/40 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs text-blue-200">
           <div className="flex items-center gap-3">
@@ -1544,6 +1592,8 @@ export const ColaboradoresView: React.FC = () => {
             Prueba ajustando los términos de búsqueda o el filtro de área.
           </p>
         </div>
+      )}
+        </>
       )}
 
       {/* ========================================================================= */}

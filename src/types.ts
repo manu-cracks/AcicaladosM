@@ -224,6 +224,19 @@ export interface EmployeeAppointmentItem {
   status?: string;
 }
 
+export interface EmployeePerformanceItem {
+  employee_id: string;
+  employee_name: string;
+  foto_url: string | null;
+  avatar_url: string | null;
+  employee_type: string;
+  is_active: boolean;
+  total_jobs: number;
+  presencial_jobs: number;
+  online_jobs: number;
+  total_revenue_cents: number;
+}
+
 export type PaymentStatus = 'sin_pago' | 'parcial' | 'total';
 
 export interface Booking {

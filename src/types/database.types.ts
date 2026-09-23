@@ -1620,6 +1620,21 @@ export type Database = {
     }
     Functions: {
       expire_stale_bookings: { Args: never; Returns: undefined }
+      get_employee_performance_ranking: {
+        Args: { p_end_date?: string; p_start_date?: string }
+        Returns: {
+          avatar_url: string | null
+          employee_id: string
+          employee_name: string
+          employee_type: string
+          foto_url: string | null
+          is_active: boolean
+          online_jobs: number
+          presencial_jobs: number
+          total_jobs: number
+          total_revenue_cents: number
+        }[]
+      }
       get_employee_agenda: {
         Args: { p_date?: string; p_employee_id: string }
         Returns: {
