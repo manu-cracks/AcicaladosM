@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import { Employee, Service, EmployeeBlock, EmployeeAppointmentItem } from '../../types';
@@ -31,7 +31,10 @@ import {
   Sparkle,
   Briefcase,
   AlertCircle,
-  Info
+  Info,
+  Download,
+  Loader2,
+  Printer
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../../lib/supabase/client';
@@ -196,8 +199,10 @@ export const ColaboradoresView: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // 4. QR Fotocheck Modal
+  const fotocheckRef = useRef<HTMLDivElement | null>(null);
   const [badgeEmp, setBadgeEmp] = useState<Employee | null>(null);
   const [qrUrl, setQrUrl] = useState('');
+  const [isDownloadingBadge, setIsDownloadingBadge] = useState(false);
 
   // 5. Leave / Absence Modal
   const [leaveEmp, setLeaveEmp] = useState<Employee | null>(null);
@@ -380,6 +385,273 @@ export const ColaboradoresView: React.FC = () => {
       setQrUrl(dataUrl);
     } catch (err) {
       console.error('Error generating QR:', err);
+    }
+  };
+
+  // Download Fotocheck as PNG Image using Native Canvas
+  const handleDownloadBadge = async () => {
+    if (!badgeEmp || !qrUrl || !isAdmin) return;
+    setIsDownloadingBadge(true);
+
+    const generateBadgeCanvas = async (allowExternalAvatar: boolean) => {
+      const canvas = document.createElement('canvas');
+      const scale = 2; // 2x Retina high-resolution
+      const cardWidth = 420 * scale; // 840px
+      const cardHeight = 650 * scale; // 1300px
+      canvas.width = cardWidth;
+      canvas.height = cardHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No se pudo inicializar el contexto de canvas');
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // 1. Recorte y esquinas redondeadas
+      const cornerRadius = 32 * scale;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(0, 0, cardWidth, cardHeight, cornerRadius);
+      ctx.clip();
+
+      // Fondo degradado oscuro de lujo (#161616 a #080808)
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, cardHeight);
+      bgGrad.addColorStop(0, '#161616');
+      bgGrad.addColorStop(0.5, '#0e0e0e');
+      bgGrad.addColorStop(1, '#080808');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, cardWidth, cardHeight);
+
+      // Resplandor radial dorado suave
+      const radialGlow = ctx.createRadialGradient(
+        cardWidth / 2,
+        cardHeight * 0.3,
+        10,
+        cardWidth / 2,
+        cardHeight * 0.3,
+        cardWidth * 0.75
+      );
+      radialGlow.addColorStop(0, 'rgba(200, 164, 92, 0.14)');
+      radialGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = radialGlow;
+      ctx.fillRect(0, 0, cardWidth, cardHeight);
+
+      // 2. Línea dorada superior
+      const topBarGrad = ctx.createLinearGradient(0, 0, cardWidth, 0);
+      topBarGrad.addColorStop(0, '#C8A45C');
+      topBarGrad.addColorStop(0.5, '#F3E5AB');
+      topBarGrad.addColorStop(1, '#C8A45C');
+      ctx.fillStyle = topBarGrad;
+      ctx.fillRect(0, 0, cardWidth, 7 * scale);
+
+      // 3. Cabecera de Marca: ACICALADOS
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${10 * scale}px "Inter", "system-ui", sans-serif`;
+      ctx.fillStyle = '#C8A45C';
+      ctx.fillText('ESTUDIO DE BELLEZA & SPA', cardWidth / 2, 40 * scale);
+
+      ctx.font = `bold ${26 * scale}px "Cinzel", "Playfair Display", "Georgia", serif`;
+      ctx.fillStyle = '#E6C875';
+      ctx.fillText('ACICALADOS', cardWidth / 2, 68 * scale);
+
+      ctx.font = `bold ${9.5 * scale}px "Inter", "system-ui", sans-serif`;
+      ctx.fillStyle = '#A39268';
+      ctx.fillText('VIP STAFF • CREDENCIAL OFICIAL', cardWidth / 2, 85 * scale);
+
+      // Línea divisoria dorada
+      ctx.strokeStyle = 'rgba(200, 164, 92, 0.4)';
+      ctx.lineWidth = 1 * scale;
+      ctx.beginPath();
+      ctx.moveTo(50 * scale, 98 * scale);
+      ctx.lineTo(cardWidth - 50 * scale, 98 * scale);
+      ctx.stroke();
+
+      // 4. Avatar / Monograma del colaborador
+      let currentY = 138 * scale;
+      const avatarRadius = 36 * scale;
+      let avatarLoaded = false;
+      const avatarSrc = badgeEmp.avatar || badgeEmp.avatar_url;
+
+      if (allowExternalAvatar && avatarSrc) {
+        try {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          await new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = avatarSrc;
+          });
+          if (img.complete && img.naturalWidth > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cardWidth / 2, currentY, avatarRadius, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(
+              img,
+              cardWidth / 2 - avatarRadius,
+              currentY - avatarRadius,
+              avatarRadius * 2,
+              avatarRadius * 2
+            );
+            ctx.restore();
+
+            ctx.strokeStyle = '#C8A45C';
+            ctx.lineWidth = 2.5 * scale;
+            ctx.beginPath();
+            ctx.arc(cardWidth / 2, currentY, avatarRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            avatarLoaded = true;
+          }
+        } catch {
+          avatarLoaded = false;
+        }
+      }
+
+      if (!avatarLoaded) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cardWidth / 2, currentY, avatarRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#1c1c1c';
+        ctx.fill();
+        ctx.strokeStyle = '#C8A45C';
+        ctx.lineWidth = 2 * scale;
+        ctx.stroke();
+
+        ctx.fillStyle = '#E6C875';
+        ctx.font = `bold ${22 * scale}px "Inter", sans-serif`;
+        const initials = badgeEmp.full_name
+          .split(' ')
+          .map((n) => n[0])
+          .slice(0, 2)
+          .join('')
+          .toUpperCase();
+        ctx.fillText(initials, cardWidth / 2, currentY + 7 * scale);
+        ctx.restore();
+      }
+
+      currentY += avatarRadius + 26 * scale;
+
+      // 5. Nombre Completo
+      ctx.font = `bold ${20 * scale}px "Cinzel", "Playfair Display", "Georgia", serif`;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(badgeEmp.full_name, cardWidth / 2, currentY);
+
+      currentY += 23 * scale;
+
+      // 6. Insignia de Rol / Ocupación y DNI
+      const roleMeta = getRoleMeta(badgeEmp.type);
+      const roleText = (roleMeta.badgeLabel || badgeEmp.type || 'COLABORADOR').toUpperCase();
+      ctx.font = `bold ${10.5 * scale}px "Inter", sans-serif`;
+      const roleMetrics = ctx.measureText(roleText);
+      const badgeW = roleMetrics.width + 24 * scale;
+      const badgeH = 22 * scale;
+
+      ctx.fillStyle = 'rgba(200, 164, 92, 0.16)';
+      ctx.strokeStyle = 'rgba(200, 164, 92, 0.6)';
+      ctx.lineWidth = 1 * scale;
+      ctx.beginPath();
+      ctx.roundRect(cardWidth / 2 - badgeW / 2, currentY - 15 * scale, badgeW, badgeH, 6 * scale);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#E6C875';
+      ctx.fillText(roleText, cardWidth / 2, currentY);
+
+      currentY += 22 * scale;
+      ctx.font = `${11 * scale}px "Courier New", monospace`;
+      ctx.fillStyle = '#A3A3A3';
+      ctx.fillText(`DNI: ${badgeEmp.dni || 'PASS'}`, cardWidth / 2, currentY);
+
+      currentY += 25 * scale;
+
+      // 7. Contenedor del Código QR (blanco nítido con marco dorado)
+      const qrBoxSize = 195 * scale;
+      const qrBoxX = cardWidth / 2 - qrBoxSize / 2;
+      const qrBoxY = currentY;
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.strokeStyle = '#C8A45C';
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath();
+      ctx.roundRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize, 16 * scale);
+      ctx.fill();
+      ctx.stroke();
+
+      // Dibujar imagen QR
+      const qrImg = new Image();
+      await new Promise<void>((resolve, reject) => {
+        qrImg.onload = () => resolve();
+        qrImg.onerror = () => reject(new Error('No se pudo cargar el QR generado'));
+        qrImg.src = qrUrl;
+      });
+
+      const qrPadding = 12 * scale;
+      ctx.drawImage(
+        qrImg,
+        qrBoxX + qrPadding,
+        qrBoxY + qrPadding,
+        qrBoxSize - qrPadding * 2,
+        qrBoxSize - qrPadding * 2
+      );
+
+      currentY += qrBoxSize + 22 * scale;
+
+      // 8. Código de Identificación y Leyenda
+      const shortId = badgeEmp.id.length >= 8 ? badgeEmp.id.substring(0, 8).toUpperCase() : badgeEmp.id.toUpperCase();
+      ctx.font = `bold ${10.5 * scale}px "Courier New", monospace`;
+      ctx.fillStyle = '#D4AF37';
+      ctx.fillText(`CÓDIGO: ACICALADOS-EMP-${shortId}`, cardWidth / 2, currentY);
+
+      currentY += 17 * scale;
+      ctx.font = `${9 * scale}px "Inter", sans-serif`;
+      ctx.fillStyle = '#737373';
+      ctx.fillText('Válido para lector biométrico de asistencia y turnos', cardWidth / 2, currentY);
+
+      // 9. Borde dorado exterior perimetral
+      ctx.restore();
+      ctx.strokeStyle = '#C8A45C';
+      ctx.lineWidth = 3 * scale;
+      ctx.beginPath();
+      ctx.roundRect(
+        1.5 * scale,
+        1.5 * scale,
+        cardWidth - 3 * scale,
+        cardHeight - 3 * scale,
+        cornerRadius
+      );
+      ctx.stroke();
+
+      return canvas;
+    };
+
+    try {
+      let canvas: HTMLCanvasElement;
+      let downloadUrl = '';
+
+      try {
+        canvas = await generateBadgeCanvas(true);
+        downloadUrl = canvas.toDataURL('image/png');
+      } catch {
+        // En caso de bloqueo CORS por imagen externa, reintentar con monograma vectorial seguro
+        canvas = await generateBadgeCanvas(false);
+        downloadUrl = canvas.toDataURL('image/png');
+      }
+
+      const cleanName = (badgeEmp.full_name || 'Empleado')
+        .trim()
+        .replace(/\s+/g, '_')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+      const link = document.createElement('a');
+      link.download = `Fotocheck_${cleanName}.png`;
+      link.href = downloadUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Error al descargar el fotocheck:', err);
+    } finally {
+      setIsDownloadingBadge(false);
     }
   };
 
@@ -1749,62 +2021,129 @@ export const ColaboradoresView: React.FC = () => {
         const RoleIcon = roleMeta.icon;
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
-            <div className="bg-[#0f0f0f] border-2 border-[#C8A45C]/60 rounded-3xl max-w-sm w-full p-6 space-y-6 shadow-2xl text-center relative overflow-hidden">
-              {/* Top luxury badge line */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#C8A45C] via-[#F3E5AB] to-[#C8A45C]" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
+            <div className="max-w-sm w-full my-6 space-y-4 text-center">
+              {/* Contenedor Fotocheck con Referencia para Captura y Estética de Credencial */}
+              <div
+                ref={fotocheckRef}
+                id="fotocheck-card"
+                className="bg-gradient-to-b from-[#161616] via-[#0e0e0e] to-[#080808] border-2 border-[#C8A45C] rounded-3xl p-6 space-y-4 shadow-2xl relative overflow-hidden text-center"
+              >
+                {/* Top luxury badge line */}
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#C8A45C] via-[#F3E5AB] to-[#C8A45C]" />
 
-              <div className="space-y-1.5 pt-2">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-[#C8A45C] block">
-                  Acicalados VIP Staff • Fotocheck
-                </span>
-                <h3 className="font-serif-luxury text-xl font-bold text-white">
-                  {badgeEmp.full_name}
-                </h3>
-                <div className="flex items-center justify-center gap-2">
-                  <span className={`text-[10px] uppercase tracking-wider font-bold px-2.5 py-0.5 rounded border flex items-center gap-1 ${roleMeta.colorClasses.badge}`}>
-                    <RoleIcon className="w-3 h-3" />
-                    <span>{roleMeta.badgeLabel}</span>
+                <div className="space-y-1 pt-1">
+                  <span className="text-[9px] uppercase font-bold tracking-[0.25em] text-[#C8A45C] block">
+                    Estudio de Belleza & Spa
                   </span>
-                  <span className="text-xs text-neutral-400 font-mono">
-                    DNI: {badgeEmp.dni || 'PASS'}
+                  <h2 className="font-serif-luxury text-2xl font-bold tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#D4AF37] via-[#F3E5AB] to-[#C8A45C]">
+                    ACICALADOS
+                  </h2>
+                  <span className="text-[9px] uppercase font-mono tracking-widest text-neutral-400 block">
+                    VIP Staff • Credencial Oficial
                   </span>
                 </div>
-                <p className="text-[11px] text-neutral-400">
-                  {roleMeta.areaDesc}
-                </p>
+
+                {/* Golden Divider */}
+                <div className="w-20 h-0.5 bg-gradient-to-r from-transparent via-[#C8A45C]/60 to-transparent mx-auto" />
+
+                {/* Avatar o Monograma */}
+                <div className="flex justify-center">
+                  {badgeEmp.avatar || badgeEmp.avatar_url ? (
+                    <img
+                      src={badgeEmp.avatar || badgeEmp.avatar_url}
+                      alt={badgeEmp.full_name}
+                      className="w-20 h-20 rounded-full object-cover border-2 border-[#C8A45C] shadow-lg"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-[#181818] border-2 border-[#C8A45C] flex items-center justify-center text-[#E6C875] text-xl font-bold font-serif-luxury shadow-lg">
+                      {badgeEmp.full_name
+                        .split(' ')
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join('')
+                        .toUpperCase()}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="font-serif-luxury text-xl font-bold text-white">
+                    {badgeEmp.full_name}
+                  </h3>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className={`text-[10px] uppercase tracking-wider font-bold px-2.5 py-0.5 rounded border flex items-center gap-1 ${roleMeta.colorClasses.badge}`}>
+                      <RoleIcon className="w-3 h-3" />
+                      <span>{roleMeta.badgeLabel}</span>
+                    </span>
+                    <span className="text-xs text-neutral-400 font-mono">
+                      DNI: {badgeEmp.dni || 'PASS'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400">
+                    {roleMeta.areaDesc}
+                  </p>
+                </div>
+
+                {/* QR Container */}
+                <div className="relative mx-auto w-48 h-48 bg-white p-3 rounded-2xl shadow-xl flex items-center justify-center border-2 border-[#C8A45C]/60">
+                  {qrUrl ? (
+                    <img src={qrUrl} alt="QR Fotocheck" className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-xs text-black font-mono">Generando QR...</span>
+                  )}
+                </div>
+
+                <div className="text-[11px] text-neutral-400 bg-black/40 p-2.5 rounded-xl border border-neutral-800 space-y-0.5 font-mono">
+                  <p className="text-[#E6C875] font-semibold tracking-wider">
+                    CÓDIGO: ACICALADOS-EMP-{badgeEmp.id.length >= 8 ? badgeEmp.id.substring(0, 8).toUpperCase() : badgeEmp.id.toUpperCase()}
+                  </p>
+                  <p className="text-[9px] text-neutral-500 font-sans">
+                    Válido para lector biométrico de asistencia y turnos
+                  </p>
+                </div>
               </div>
 
-              <div className="relative mx-auto w-48 h-48 bg-white p-3 rounded-2xl shadow-xl flex items-center justify-center border-2 border-[#C8A45C]/40">
-                {qrUrl ? (
-                  <img src={qrUrl} alt="QR Fotocheck" className="w-full h-full object-contain" />
-                ) : (
-                  <span className="text-xs text-black">Generando QR...</span>
-                )}
-              </div>
-
-              <div className="text-[11px] text-neutral-400 bg-[#161616] p-2.5 rounded-xl border border-neutral-800 space-y-0.5">
-                <p className="text-white font-medium">Credencial Oficial de Asistencia</p>
-                <p className="text-[10px] text-neutral-500">
-                  Válido para lector biométrico de turnos y marcaciones del módulo de Asistencia.
-                </p>
-              </div>
-
-              <div className="flex justify-center gap-2 pt-2">
+              {/* Botones de Acción (Admin Only) */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setBadgeEmp(null)}
-                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white cursor-pointer"
+                  disabled={isDownloadingBadge}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition cursor-pointer"
                 >
                   Cerrar
                 </button>
+
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow-lg shadow-[#C8A45C]/20 flex items-center gap-1.5 cursor-pointer"
+                  disabled={isDownloadingBadge}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 text-[#E6C875] border border-[#C8A45C]/40 flex items-center justify-center gap-1.5 transition cursor-pointer"
                 >
-                  <QrCode className="w-3.5 h-3.5" />
+                  <Printer className="w-3.5 h-3.5 text-[#C8A45C]" />
                   <span>Imprimir Carnet</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadBadge}
+                  disabled={isDownloadingBadge}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-[#D4AF37] via-[#E6C875] to-[#C8A45C] hover:brightness-110 text-black shadow-lg shadow-[#C8A45C]/20 flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                  title="Descargar Fotocheck en formato PNG"
+                >
+                  {isDownloadingBadge ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                      <span>Generando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5 text-black" />
+                      <span>Descargar Fotocheck</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
