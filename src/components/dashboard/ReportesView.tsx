@@ -20,6 +20,7 @@ import {
   Award,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   FileSpreadsheet,
   CalendarCheck,
@@ -53,8 +54,9 @@ export const ReportesView: React.FC = () => {
     return <DashboardSkeleton />;
   }
 
-  // 1. Selector y Control de Fecha Dinámica (Zona Horaria America/Lima)
+  // 1. Selector y Control de Fecha Dinámica (Zona Horaria America/Lima) y Filtro de Especialista
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayDateString());
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [isQuickReportModalOpen, setIsQuickReportModalOpen] = useState<boolean>(false);
   const [copiedSuccess, setCopiedSuccess] = useState<boolean>(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
@@ -64,6 +66,66 @@ export const ReportesView: React.FC = () => {
   const [isLoadingAudit, setIsLoadingAudit] = useState<boolean>(false);
   const [auditAreaFilter, setAuditAreaFilter] = useState<'TODOS' | 'SPA' | 'BARBERÍA'>('TODOS');
   const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+
+  // Regla de Negocio: Menú desplegable DEBE mostrar únicamente a empleados de Spa o Barbería.
+  // Prohibido incluir recepcionistas o administrativos.
+  const eligibleSpecialists = useMemo(() => {
+    return employees.filter((emp) => {
+      if (!emp.active) return false;
+      const roleStr = (emp.role || '').toLowerCase().trim();
+      const typeStr = (emp.type || '').toLowerCase().trim();
+
+      // Prohibición estricta de recepcionistas y administrativos
+      if (
+        roleStr === 'recepcionista' ||
+        roleStr === 'recepcion' ||
+        roleStr === 'admin' ||
+        roleStr === 'administrador' ||
+        typeStr === 'recepcionista' ||
+        typeStr === 'recepcion' ||
+        typeStr === 'admin' ||
+        typeStr === 'administrador'
+      ) {
+        return false;
+      }
+
+      // Debe ser de área Spa o Barbería
+      const isSpa =
+        typeStr === 'spa' ||
+        typeStr === 'terapeuta_spa' ||
+        typeStr === 'cosmiatra' ||
+        typeStr === 'masajista' ||
+        typeStr === 'estilista';
+
+      const isBarberia =
+        typeStr === 'barberia' ||
+        typeStr === 'barbero';
+
+      return isSpa || isBarberia;
+    });
+  }, [employees]);
+
+  // Especialista seleccionado actualmente
+  const selectedEmployee = useMemo(() => {
+    if (!selectedEmployeeId) return null;
+    return eligibleSpecialists.find((e) => e.id === selectedEmployeeId) || null;
+  }, [eligibleSpecialists, selectedEmployeeId]);
+
+  // Área del especialista ('spa' o 'barberia')
+  const selectedEmployeeArea = useMemo<'spa' | 'barberia' | null>(() => {
+    if (!selectedEmployee) return null;
+    const typeStr = (selectedEmployee.type || '').toLowerCase().trim();
+    if (
+      typeStr === 'spa' ||
+      typeStr === 'terapeuta_spa' ||
+      typeStr === 'cosmiatra' ||
+      typeStr === 'masajista' ||
+      typeStr === 'estilista'
+    ) {
+      return 'spa';
+    }
+    return 'barberia';
+  }, [selectedEmployee]);
 
   // Formateador dd/mm/aaaa
   const formattedDateLima = useMemo(() => {
@@ -113,6 +175,7 @@ export const ReportesView: React.FC = () => {
   }, [dayBookings]);
 
   // Ingresos por Barbería y por Spa (Regla estricta: solo dinero real efectivamente cobrado)
+  // Admite parámetro opcional de filtrado por especialista (employee_id)
   const { barberiaCents, spaCents, barberiaCount, spaCount } = useMemo(() => {
     let bCents = 0;
     let sCents = 0;
@@ -122,6 +185,18 @@ export const ReportesView: React.FC = () => {
     dayBookings.forEach((b) => {
       const servicesWithCollected = getBookingServicesWithCollectedCents(b);
       servicesWithCollected.forEach((srv) => {
+        // Filtrado por empleado si fue seleccionado
+        if (selectedEmployee) {
+          const matchesId = srv.employee_id === selectedEmployee.id;
+          const matchesName =
+            Boolean(srv.employee_name) &&
+            srv.employee_name.toLowerCase().trim() === selectedEmployee.full_name.toLowerCase().trim();
+
+          if (!matchesId && !matchesName) {
+            return;
+          }
+        }
+
         const catalogItem = services.find(
           (s) => s.id === srv.service_id || s.name === srv.service_name
         );
@@ -132,7 +207,13 @@ export const ReportesView: React.FC = () => {
           srv.service_name.toLowerCase().includes('facial') ||
           srv.service_name.toLowerCase().includes('exfolia');
 
-        if (isSpa) {
+        if (selectedEmployeeArea === 'spa') {
+          sCents += srv.collected_cents;
+          sCount += 1;
+        } else if (selectedEmployeeArea === 'barberia') {
+          bCents += srv.collected_cents;
+          bCount += 1;
+        } else if (isSpa) {
           sCents += srv.collected_cents;
           sCount += 1;
         } else {
@@ -148,7 +229,7 @@ export const ReportesView: React.FC = () => {
       barberiaCount: bCount,
       spaCount: sCount,
     };
-  }, [dayBookings, services]);
+  }, [dayBookings, services, selectedEmployee, selectedEmployeeArea]);
 
   // Ingresos por Ventas de Mostrador en esa fecha (excluyendo anuladas)
   const dayVentas = useMemo(() => {
@@ -269,6 +350,7 @@ export const ReportesView: React.FC = () => {
       try {
         const { data, error } = await supabase.rpc('get_services_audit_breakdown', {
           p_date: selectedDate,
+          p_employee_id: selectedEmployeeId || null,
         });
 
         if (!error && data && isMounted) {
@@ -282,7 +364,7 @@ export const ReportesView: React.FC = () => {
 
       // Fallback local desde dayBookings si RPC no responde
       if (isMounted) {
-        const fallbackItems: ServiceAuditItem[] = dayBookings.flatMap((b) => {
+        let fallbackItems: ServiceAuditItem[] = dayBookings.flatMap((b) => {
           return (b.services || []).map((srv) => {
             const catalogItem = services.find(
               (s) => s.id === srv.service_id || s.name === srv.service_name
@@ -330,6 +412,15 @@ export const ReportesView: React.FC = () => {
           });
         });
 
+        if (selectedEmployee) {
+          fallbackItems = fallbackItems.filter(
+            (item) =>
+              item.employee_id === selectedEmployee.id ||
+              (item.employee_name &&
+                item.employee_name.toLowerCase().trim() === selectedEmployee.full_name.toLowerCase().trim())
+          );
+        }
+
         setAuditServices(fallbackItems);
         setIsLoadingAudit(false);
       }
@@ -340,7 +431,7 @@ export const ReportesView: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedDate, isAdmin, lastSyncTimestamp, dayBookings, services, employees]);
+  }, [selectedDate, selectedEmployeeId, isAdmin, lastSyncTimestamp, dayBookings, services, employees, selectedEmployee]);
 
   // Filtrado reactivo de auditoría por área y buscador de texto
   const filteredAuditServices = useMemo(() => {
@@ -753,7 +844,7 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
         </div>
       </div>
 
-      {/* Barra Selectora de Fecha Interactiva */}
+      {/* Barra Selectora de Fecha Interactiva y Filtro por Empleado */}
       <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
@@ -811,156 +902,287 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
               Ayer
             </button>
           </div>
+
+          {/* Separador estético */}
+          <div className="h-6 w-px bg-neutral-800 hidden md:block" />
+
+          {/* Filtro por Empleado (Exclusivo Spa y Barbería) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+              <User className="w-4 h-4 text-[#C8A45C]" />
+              <span className="hidden sm:inline">Filtrar por Empleado:</span>
+            </span>
+            <div className="relative">
+              <select
+                id="filter-employee-select"
+                value={selectedEmployeeId}
+                onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                className="bg-[#1C1C1C] border border-[#C8A45C]/40 hover:border-[#C8A45C] text-white font-medium text-xs sm:text-sm rounded-xl pl-3.5 pr-8 py-1.5 outline-none focus:border-[#C8A45C] focus:ring-1 focus:ring-[#C8A45C] transition cursor-pointer shadow-inner appearance-none"
+              >
+                <option value="" className="bg-[#1C1C1C] text-neutral-300">
+                  Todos los especialistas
+                </option>
+                {eligibleSpecialists.map((emp) => {
+                  const areaLabel =
+                    emp.type?.toLowerCase() === 'spa' ||
+                    emp.type?.toLowerCase() === 'terapeuta_spa' ||
+                    emp.type?.toLowerCase() === 'cosmiatra'
+                      ? 'Spa'
+                      : 'Barbería';
+                  return (
+                    <option key={emp.id} value={emp.id} className="bg-[#1C1C1C] text-white">
+                      [{areaLabel}] {emp.full_name}
+                    </option>
+                  );
+                })}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-[#C8A45C] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+
+            {selectedEmployeeId && (
+              <button
+                type="button"
+                onClick={() => setSelectedEmployeeId('')}
+                className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 transition cursor-pointer"
+                title="Limpiar filtro de especialista"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Indicador de Fecha Activa y Contexto */}
-        <div className="flex items-center gap-2 text-xs text-neutral-400">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-400">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Reporte sincronizado para:</span>
+          <span>Reporte:</span>
           <span className="font-bold text-[#E6C875] bg-[#C8A45C]/10 px-2.5 py-0.5 rounded-full border border-[#C8A45C]/25">
             {formattedDateLima}
           </span>
+          {selectedEmployee && (
+            <span className="font-semibold text-purple-300 bg-purple-950/50 px-2.5 py-0.5 rounded-full border border-purple-800/40">
+              {selectedEmployee.full_name} ({selectedEmployeeArea === 'spa' ? 'Spa' : 'Barbería'})
+            </span>
+          )}
         </div>
       </div>
 
-      {/* 2. Tarjetas y Métricas del Día Seleccionado (7 Métricas) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-        {/* Métrica 1: Total Ingresos Cobrados */}
-        <div className="bg-gradient-to-br from-[#1A1A1A] to-[#121212] border border-[#C8A45C]/45 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-[#C8A45C]/10 rounded-full blur-2xl group-hover:bg-[#C8A45C]/20 transition-all pointer-events-none" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-              Total Ingresos Cobrados
+      {/* 2. Tarjetas y Métricas del Día Seleccionado (Renderizado Condicional Dinámico) */}
+      {selectedEmployee ? (
+        <div className="max-w-md mx-auto w-full space-y-3 transition-all duration-300 animate-fadeIn">
+          {/* Indicador de filtro activo con botón de restablecer */}
+          <div className="flex items-center justify-between text-xs text-neutral-400 bg-[#161616] border border-[#C8A45C]/25 rounded-xl px-4 py-2.5 shadow-sm">
+            <span className="flex items-center gap-2">
+              <User className="w-4 h-4 text-[#C8A45C]" />
+              <span>
+                Métricas filtradas para:{' '}
+                <strong className="text-white font-semibold">{selectedEmployee.full_name}</strong>
+              </span>
             </span>
-            <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/20 text-[#C8A45C] flex items-center justify-center">
-              <DollarSign className="w-4 h-4" />
-            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedEmployeeId('')}
+              className="text-[#C8A45C] hover:text-[#E6C875] text-xs font-semibold hover:underline flex items-center gap-1 cursor-pointer transition"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Ver todas</span>
+            </button>
           </div>
-          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] block">
-            {formatSoles(totalIngresosCents)}
-          </span>
-          <span className="text-[11px] text-neutral-400 block">
-            Recaudado real (Servicios + Ventas)
-          </span>
-        </div>
 
-        {/* Métrica 2: Ingresos por Spa */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Ingresos por Spa
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-purple-950/40 text-purple-400 border border-purple-800/40 flex items-center justify-center">
-              <Sparkles className="w-4 h-4" />
+          {/* Caso B: Empleado de Spa seleccionado -> Única tarjeta visible: Ingresos por Spa */}
+          {selectedEmployeeArea === 'spa' && (
+            <div className="bg-gradient-to-br from-[#1C1528] to-[#121212] border-2 border-purple-500/60 rounded-2xl p-6 space-y-3 shadow-2xl relative overflow-hidden transition group">
+              <div className="absolute top-0 right-0 w-36 h-36 bg-purple-500/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-purple-300 uppercase tracking-wider block">
+                    Ingresos por Spa
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    Especialista: <span className="text-white font-medium">{selectedEmployee.full_name}</span>
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-purple-950/60 text-purple-400 border border-purple-800/60 flex items-center justify-center shadow">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+              </div>
+              <span className="font-serif-luxury text-3xl sm:text-4xl font-bold text-purple-200 block">
+                {formatSoles(spaCents)}
+              </span>
+              <div className="flex items-center justify-between text-xs text-neutral-400 border-t border-purple-900/30 pt-3 mt-1">
+                <span>{spaCount} servicio(s) atendido(s) en la fecha</span>
+                <span className="text-[11px] text-emerald-400 font-medium">Recaudación real cobrada</span>
+              </div>
             </div>
-          </div>
-          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-purple-300 block">
-            {formatSoles(spaCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500 block">
-            {spaCount} servicio(s) de estética y spa
-          </span>
-        </div>
+          )}
 
-        {/* Métrica 3: Ingresos por Barbería */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Ingresos por Barbería
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-950/40 text-blue-400 border border-blue-800/40 flex items-center justify-center">
-              <Scissors className="w-4 h-4" />
+          {/* Caso C: Empleado de Barbería seleccionado -> Única tarjeta visible: Ingresos por Barbería */}
+          {selectedEmployeeArea === 'barberia' && (
+            <div className="bg-gradient-to-br from-[#1E1B15] to-[#121212] border-2 border-[#C8A45C]/60 rounded-2xl p-6 space-y-3 shadow-2xl relative overflow-hidden transition group">
+              <div className="absolute top-0 right-0 w-36 h-36 bg-[#C8A45C]/15 rounded-full blur-3xl pointer-events-none" />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-[#E6C875] uppercase tracking-wider block">
+                    Ingresos por Barbería
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    Especialista: <span className="text-white font-medium">{selectedEmployee.full_name}</span>
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-blue-950/60 text-blue-400 border border-blue-800/60 flex items-center justify-center shadow">
+                  <Scissors className="w-5 h-5" />
+                </div>
+              </div>
+              <span className="font-serif-luxury text-3xl sm:text-4xl font-bold text-blue-200 block">
+                {formatSoles(barberiaCents)}
+              </span>
+              <div className="flex items-center justify-between text-xs text-neutral-400 border-t border-neutral-800 pt-3 mt-1">
+                <span>{barberiaCount} corte(s) y perfilado(s) en la fecha</span>
+                <span className="text-[11px] text-emerald-400 font-medium">Recaudación real cobrada</span>
+              </div>
             </div>
-          </div>
-          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-blue-300 block">
-            {formatSoles(barberiaCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500 block">
-            {barberiaCount} corte(s) y perfilado(s)
-          </span>
+          )}
         </div>
+      ) : (
+        /* Caso A: Sin selección / "Todos": Muestra todas las 7 tarjetas tal y como están actualmente */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 transition-all duration-300">
+          {/* Métrica 1: Total Ingresos Cobrados */}
+          <div className="bg-gradient-to-br from-[#1A1A1A] to-[#121212] border border-[#C8A45C]/45 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#C8A45C]/10 rounded-full blur-2xl group-hover:bg-[#C8A45C]/20 transition-all pointer-events-none" />
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
+                Total Ingresos Cobrados
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/20 text-[#C8A45C] flex items-center justify-center">
+                <DollarSign className="w-4 h-4" />
+              </div>
+            </div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] block">
+              {formatSoles(totalIngresosCents)}
+            </span>
+            <span className="text-[11px] text-neutral-400 block">
+              Recaudado real (Servicios + Ventas)
+            </span>
+          </div>
 
-        {/* Métrica 4: Ingresos por Ventas de Mostrador */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Ingresos por Ventas
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-950/40 text-amber-400 border border-amber-800/40 flex items-center justify-center">
-              <ShoppingBag className="w-4 h-4" />
+          {/* Métrica 2: Ingresos por Spa */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Ingresos por Spa
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-purple-950/40 text-purple-400 border border-purple-800/40 flex items-center justify-center">
+                <Sparkles className="w-4 h-4" />
+              </div>
             </div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-purple-300 block">
+              {formatSoles(spaCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 block">
+              {spaCount} servicio(s) de estética y spa
+            </span>
           </div>
-          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-amber-300 block">
-            {formatSoles(ventasCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500 block">
-            {dayVentas.length} venta(s) de productos en mostrador
-          </span>
-        </div>
 
-        {/* Métrica 5: Egresos Operativos */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-red-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Egresos Operativos
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-red-950/40 text-red-400 border border-red-800/40 flex items-center justify-center">
-              <TrendingDown className="w-4 h-4" />
+          {/* Métrica 3: Ingresos por Barbería */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Ingresos por Barbería
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-blue-950/40 text-blue-400 border border-blue-800/40 flex items-center justify-center">
+                <Scissors className="w-4 h-4" />
+              </div>
             </div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-blue-300 block">
+              {formatSoles(barberiaCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 block">
+              {barberiaCount} corte(s) y perfilado(s)
+            </span>
           </div>
-          <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-red-400 block">
-            {formatSoles(egresosCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500 block">
-            {dayExpenses.length} compras / gastos de caja chica
-          </span>
-        </div>
 
-        {/* Métrica 6: Ganancia Neta */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-emerald-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Ganancia Neta
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
+          {/* Métrica 4: Ingresos por Ventas de Mostrador */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Ingresos por Ventas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-amber-950/40 text-amber-400 border border-amber-800/40 flex items-center justify-center">
+                <ShoppingBag className="w-4 h-4" />
+              </div>
             </div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-amber-300 block">
+              {formatSoles(ventasCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 block">
+              {dayVentas.length} venta(s) de productos en mostrador
+            </span>
           </div>
-          <span
-            className={`font-serif-luxury text-2xl sm:text-3xl font-bold block ${
-              gananciaNetaCents >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatSoles(gananciaNetaCents)}
-          </span>
-          <span className="text-[11px] text-neutral-500 block">
-            Cálculo: Total Ingresos - Total Egresos
-          </span>
-        </div>
 
-        {/* Métrica 7: Total de Atenciones */}
-        <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition sm:col-span-2 lg:col-span-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              Total de Atenciones del Día
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/20 text-[#C8A45C] flex items-center justify-center">
-              <CalendarCheck className="w-4 h-4" />
+          {/* Métrica 5: Egresos Operativos */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-red-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Egresos Operativos
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-red-950/40 text-red-400 border border-red-800/40 flex items-center justify-center">
+                <TrendingDown className="w-4 h-4" />
+              </div>
             </div>
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white block">
-              {totalAtenciones}
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-red-400 block">
+              {formatSoles(egresosCents)}
             </span>
-            <span className="text-xs text-neutral-400">
-              servicio(s) en {dayBookings.length} cita(s) del día
+            <span className="text-[11px] text-neutral-500 block">
+              {dayExpenses.length} compras / gastos de caja chica
             </span>
           </div>
-          <span className="text-[11px] text-neutral-500 block">
-            Atenciones confirmadas y concluidas durante la jornada
-          </span>
+
+          {/* Métrica 6: Ganancia Neta */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-emerald-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Ganancia Neta
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+            </div>
+            <span
+              className={`font-serif-luxury text-2xl sm:text-3xl font-bold block ${
+                gananciaNetaCents >= 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}
+            >
+              {formatSoles(gananciaNetaCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 block">
+              Cálculo: Total Ingresos - Total Egresos
+            </span>
+          </div>
+
+          {/* Métrica 7: Total de Atenciones */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition sm:col-span-2 lg:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Total de Atenciones del Día
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/20 text-[#C8A45C] flex items-center justify-center">
+                <CalendarCheck className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white block">
+                {totalAtenciones}
+              </span>
+              <span className="text-xs text-neutral-400">
+                servicio(s) en {dayBookings.length} cita(s) del día
+              </span>
+            </div>
+            <span className="text-[11px] text-neutral-500 block">
+              Atenciones confirmadas y concluidas durante la jornada
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 3. Tablas Analíticas: Top de Servicios y Producción por Especialista */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
