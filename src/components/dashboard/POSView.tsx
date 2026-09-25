@@ -96,7 +96,6 @@ export const POSView: React.FC = () => {
   const {
     products,
     ventasMostrador,
-    registerCounterSale,
     deleteVentaMostrador,
     openTicketModal,
     currentRole,
@@ -1870,9 +1869,9 @@ export const POSView: React.FC = () => {
                         {currentRole === 'admin' && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               if (window.confirm(`¿Deseas eliminar la venta #${v.ticket_number}?`)) {
-                                deleteVentaMostrador(v.id);
+                                if (!await deleteVentaMostrador(v.id)) return;
                                 setHistorySales((prev) => prev.filter((item) => item.id !== v.id));
                               }
                             }}

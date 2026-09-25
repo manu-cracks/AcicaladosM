@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
 import { ShoppingBag, X, Plus, Minus, Trash2, MessageSquare, ArrowRight } from 'lucide-react';
 
 export const CartDrawer: React.FC = () => {
   // QA-010: usar paymentSettings para número de WhatsApp (fuente única)
-  const { cart, isCartOpen, setIsCartOpen, removeFromCart, updateCartQuantity, clearCart, paymentSettings } = useApp();
+  const { cart, isCartOpen, setIsCartOpen, removeFromCart, updateCartQuantity, clearCart, paymentSettings, whatsappNumber, revalidateCart } = useApp();
 
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checking, setChecking] = useState(false);
   if (!isCartOpen) return null;
 
   const totalCents = cart.reduce(
@@ -14,7 +16,14 @@ export const CartDrawer: React.FC = () => {
     0
   );
 
-  const handleWhatsAppCheckout = () => {
+  const handleWhatsAppCheckout = async () => {
+    if (checking) return;
+    setChecking(true);
+    setCheckoutError('');
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    try {
+      if (!await revalidateCart()) { popup?.close(); setCheckoutError('Actualizamos cantidades o precios según el catálogo. Revisa tu carrito y vuelve a continuar.'); return; }
     const lines = cart.map(
       (item) => `• ${item.quantity}x ${item.product.name} (${formatSoles(item.product.price_cents * item.quantity)})`
     );
@@ -22,8 +31,11 @@ export const CartDrawer: React.FC = () => {
       `¡Hola Acicalados! Quisiera realizar un pedido de la tienda online:\n\n${lines.join('\n')}\n\n*Total a pagar:* ${formatSoles(totalCents)}\n\n¿Tienen disponibilidad para envío o recojo en el local?`
     );
     // QA-010: número dinámico desde paymentSettings
-    const whatsappPhone = paymentSettings?.yape_phone?.replace(/\s+/g, '') || '997766828';
-    window.open(`https://wa.me/51${whatsappPhone}?text=${text}`, '_blank');
+    const whatsappPhone = whatsappNumber;
+    if (popup) popup.location.href = `https://wa.me/${whatsappPhone}?text=${text}`;
+    else setCheckoutError('Permite ventanas emergentes y vuelve a continuar.');
+    } catch (err) { popup?.close(); setCheckoutError(err instanceof Error ? err.message : 'No se pudo verificar el stock.'); }
+    finally { setChecking(false); }
   };
 
   return (
@@ -34,7 +46,7 @@ export const CartDrawer: React.FC = () => {
         onClick={() => setIsCartOpen(false)}
       />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10">
         <div className="w-screen max-w-md bg-[#141414] border-l border-[#C8A45C]/20 shadow-2xl flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-5 border-b border-neutral-800 bg-[#1A1A1A]">
@@ -60,6 +72,7 @@ export const CartDrawer: React.FC = () => {
             </button>
           </div>
 
+          {checkoutError && <p role="alert" className="px-5 pt-3 text-xs text-amber-300">{checkoutError}</p>}
           {/* Cart Items List */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
             {cart.length === 0 ? (
@@ -97,6 +110,8 @@ export const CartDrawer: React.FC = () => {
                       <div className="flex items-center gap-1.5 bg-black/40 border border-neutral-800 rounded-md p-0.5">
                         <button
                           type="button"
+                          disabled={checking}
+                          aria-label={`Disminuir ${item.product.name}`}
                           onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
                           className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white rounded hover:bg-neutral-800"
                         >
@@ -107,6 +122,8 @@ export const CartDrawer: React.FC = () => {
                         </span>
                         <button
                           type="button"
+                          disabled={checking || item.quantity >= item.product.stock}
+                          aria-label={`Aumentar ${item.product.name}`}
                           onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
                           className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white rounded hover:bg-neutral-800"
                         >
@@ -116,6 +133,7 @@ export const CartDrawer: React.FC = () => {
 
                       <button
                         type="button"
+                        disabled={checking}
                         onClick={() => removeFromCart(item.product.id)}
                         className="text-neutral-500 hover:text-rose-400 p-1 rounded transition"
                         title="Eliminar producto"
@@ -147,19 +165,22 @@ export const CartDrawer: React.FC = () => {
                 </div>
               </div>
 
+              <p className="text-xs text-neutral-400">Consulta sujeta a confirmación de stock por recepción.</p>
               <button
                 id="checkout-whatsapp-btn"
                 type="button"
+                disabled={checking}
                 onClick={handleWhatsAppCheckout}
                 className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>Confirmar Pedido por WhatsApp</span>
+                <span>Consultar Pedido por WhatsApp</span>
                 <ArrowRight className="w-4 h-4 ml-1" />
               </button>
 
               <button
                 type="button"
+                disabled={checking}
                 onClick={clearCart}
                 className="w-full text-center text-[11px] text-neutral-500 hover:text-neutral-300 transition"
               >

@@ -17,6 +17,7 @@ export const PublicShop: React.FC = () => {
   ];
 
   const filtered = products.filter((p) => {
+    if (p.active === false || p.use_type === 'consumo_interno') return false;
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -89,11 +90,12 @@ export const PublicShop: React.FC = () => {
 
           <button
             type="button"
+            disabled={product.stock <= 0}
             onClick={() => addToCart(product, 1)}
             className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black transition flex items-center gap-1.5 shadow cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Añadir</span>
+            <span>{product.stock > 0 ? 'Añadir' : 'Sin stock'}</span>
           </button>
         </div>
       </div>
