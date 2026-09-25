@@ -13,6 +13,9 @@ import { Service, Employee, EmployeeBlock, Booking } from '../types';
  */
 const INACTIVE_BOOKING_STATUSES = new Set([
   'cancelada',
+  'cancelled',
+  'completada',
+  'completed',
   'expirada',
   'anulada',
   'no_show',
@@ -24,6 +27,7 @@ const INACTIVE_BOOKING_STATUSES = new Set([
  * Las reservas canceladas, expiradas, anuladas, no-show o liberadas liberan el horario.
  */
 export function isBookingInactive(booking: Booking): boolean {
+  if (booking.cancelled_at || booking.expired_at || booking.completed_at) return true;
   if (!booking.status) return false;
   return INACTIVE_BOOKING_STATUSES.has(booking.status.toLowerCase());
 }
@@ -55,6 +59,7 @@ export function generateSlots(
     return generateSlots(BUSINESS_HOURS.open, BUSINESS_HOURS.close, intervalMinutes);
   }
 
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return [];
   const slots: string[] = [];
   for (let m = startMin; m < endMin; m += intervalMinutes) {
     slots.push(minutesToTime(m));
@@ -240,13 +245,13 @@ export function isEmployeeBooked(
   if (!bookings || bookings.length === 0) return false;
 
   return bookings.some((b) => {
-    if (b.date !== date) return false;
+    if (b.date !== date || isBookingInactive(b)) return false;
 
     // QA-009: Ignorar reservas que no bloquean disponibilidad
     if (isBookingInactive(b)) return false;
 
     // Verificar si el colaborador está asignado a nivel de algún servicio específico
-    const matchingServices = b.services?.filter((s) => s.employee_id === empId) || [];
+    const matchingServices = b.services?.filter((s) => s.employee_id === empId && !s.liberado_at) || [];
     const isMainAssigned = (b as any).assigned_employee_id === empId;
 
     if (matchingServices.length > 0) {
@@ -259,7 +264,7 @@ export function isEmployeeBooked(
       });
     }
 
-    if (isMainAssigned) {
+    if (isMainAssigned && !b.services?.length) {
       // Fallback solo cuando la asignación fue global sin detalle de servicios
       const bStart = timeToMinutes(b.start_time);
       const bEnd = timeToMinutes(b.end_time);
@@ -284,7 +289,7 @@ export function countUnassignedBookings(
   if (!bookings || bookings.length === 0) return 0;
 
   return bookings.filter((b) => {
-    if (b.date !== date) return false;
+    if (b.date !== date || isBookingInactive(b)) return false;
 
     // QA-009: Ignorar reservas que no bloquean disponibilidad
     if (isBookingInactive(b)) return false;
@@ -369,6 +374,8 @@ export function computeSlotsAvailability(params: {
     const overallEndMin = slotStartMin + totalDuration;
     const overallEndTime = minutesToTime(overallEndMin);
 
+    if (overallEndMin > timeToMinutes(closeTime)) return { time: slotTime, status: 'lleno', statusLabel: 'Lleno', isSelectable: false, totalDurationMinutes: totalDuration, overallEndTime, reason: 'El servicio termina después del cierre' };
+
     // 1. REGLA DE TIEMPO REAL (ZONA HORARIA AMERICA/LIMA UTC-5):
     // Si la fecha es anterior a hoy, o si es hoy y el slot es menor o igual a la hora actual
     if (isSelectedDatePast) {
@@ -417,6 +424,7 @@ export function computeSlotsAvailability(params: {
 
       // Filtrar especialistas que estén libres en la ventana [currentServiceStartMin, srvEndMin)
       const freeSpecialists = eligibleEmps.filter((emp) => {
+        if ((emp.shift_start && currentServiceStartMin < timeToMinutes(emp.shift_start)) || (emp.shift_end && srvEndMin > timeToMinutes(emp.shift_end))) return false;
         // Bloqueos/permisos del colaborador
         const blocked = isEmployeeBlocked(
           emp.id,
@@ -574,9 +582,9 @@ export function checkEmployeeAvailability(params: {
   // 3. Validar citas agendadas que solapen
   let conflictingBookingDetails: { code?: string; start_time: string; end_time: string } | null = null;
   const bookingConflict = (bookings || []).find((b) => {
-    if (b.date !== date) return false;
+    if (b.date !== date || isBookingInactive(b)) return false;
 
-    const matchingServices = b.services?.filter((s) => s.employee_id === employee.id) || [];
+    const matchingServices = b.services?.filter((s) => s.employee_id === employee.id && !s.liberado_at) || [];
     const isMainAssigned = (b as any).assigned_employee_id === employee.id;
 
     if (matchingServices.length > 0) {
@@ -599,7 +607,7 @@ export function checkEmployeeAvailability(params: {
       return false;
     }
 
-    if (isMainAssigned) {
+    if (isMainAssigned && !b.services?.length) {
       const bStart = timeToMinutes(b.start_time);
       const bEnd = timeToMinutes(b.end_time);
       if (startMin < bEnd && endMin > bStart) {

@@ -1,3 +1,4 @@
+import { PendingBookingVouchers } from './PendingBookingVouchers';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents } from '../../types';
@@ -497,6 +498,7 @@ export const ReservasManager: React.FC = () => {
   // Settings Form State
   const [tempAdvancePct, setTempAdvancePct] = useState<number>(paymentSettings.advance_percentage);
   const [tempYapePhone, setTempYapePhone] = useState<string>(paymentSettings.yape_phone);
+  const [tempYapeQr, setTempYapeQr] = useState(paymentSettings.yape_qr_url);
   const [tempYapeHolder, setTempYapeHolder] = useState<string>(paymentSettings.yape_holder);
 
   const todayStr = getTodayDateString();
@@ -586,9 +588,10 @@ export const ReservasManager: React.FC = () => {
   };
 
   // Submit Payment
-  const handleSubmitPayment = (e: React.FormEvent) => {
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const handleSubmitPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedBookingForPayment) return;
+    if (!selectedBookingForPayment || paymentBusy) return;
 
     let amountCents = Math.round(parseFloat(payAmountInput || '0') * 100);
     let cashCents = 0;
@@ -606,7 +609,8 @@ export const ReservasManager: React.FC = () => {
 
     if (amountCents <= 0) return;
 
-    registerBookingPayment(
+    setPaymentBusy(true);
+    const saved = await registerBookingPayment(
       selectedBookingForPayment.id,
       amountCents,
       paymentMethod,
@@ -614,16 +618,17 @@ export const ReservasManager: React.FC = () => {
       yapeCents
     );
 
-    setIsPaymentModalOpen(false);
+    setPaymentBusy(false);
+    if (saved) setIsPaymentModalOpen(false);
   };
 
   // Handle Void Payment (Admin only with audit reason >= 5 chars)
-  const handleVoidPaymentConfirm = (paymentId: string) => {
+  const handleVoidPaymentConfirm = async (paymentId: string) => {
     if (voidReason.trim().length < 5) {
       alert('Debe ingresar un motivo de auditoría de al menos 5 caracteres.');
       return;
     }
-    voidPayment(paymentId, voidReason);
+    if (!await voidPayment(paymentId, voidReason)) return;
     setVoidingPaymentId(null);
     setVoidReason('');
   };
@@ -700,22 +705,24 @@ export const ReservasManager: React.FC = () => {
   };
 
   // Save Settings
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValidPhone(tempYapePhone.trim())) {
       alert(PHONE_ERROR_MESSAGE);
       return;
     }
-    updatePaymentSettings({
+    const saved = await updatePaymentSettings({
       advance_percentage: Number(tempAdvancePct),
       yape_phone: tempYapePhone.trim(),
       yape_holder: tempYapeHolder,
+      yape_qr_url: tempYapeQr.trim(),
     });
-    setIsSettingsModalOpen(false);
+    if (saved) setIsSettingsModalOpen(false);
   };
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+      <PendingBookingVouchers />
       {/* Top Action Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
         <div className="space-y-1">
@@ -723,7 +730,7 @@ export const ReservasManager: React.FC = () => {
             Tablero Maestro de Reservas & Caja
           </h1>
           <p className="text-xs text-neutral-400">
-            Control de citas, cobro de adelantos (25%), liberación anticipada e impresión térmica.
+            Control de citas, cobro de adelantos ({paymentSettings.advance_percentage}%), liberación anticipada e impresión térmica.
           </p>
         </div>
 
@@ -1358,9 +1365,10 @@ export const ReservasManager: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={paymentBusy}
                   className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow"
                 >
-                  Guardar Pago
+                  {paymentBusy ? 'Guardando…' : 'Guardar Pago'}
                 </button>
               </div>
             </form>
@@ -1409,6 +1417,8 @@ export const ReservasManager: React.FC = () => {
                         <span className="uppercase text-[9px] px-1.5 py-0.2 rounded bg-neutral-800 text-neutral-300">
                           {p.payment_method}
                         </span>
+                        {p.status === 'pending' && <span className="text-amber-300">PENDIENTE DE VALIDACIÓN</span>}
+                        {p.status === 'rejected' && <span className="text-rose-300">RECHAZADO</span>}
                         {p.voided && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-900/40 text-red-300 font-bold">
                             ANULADO
@@ -1499,7 +1509,7 @@ export const ReservasManager: React.FC = () => {
                 <label className="text-neutral-300 font-medium">Porcentaje Mínimo de Adelanto (%)</label>
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   max="100"
                   required
                   value={tempAdvancePct}
@@ -1507,7 +1517,7 @@ export const ReservasManager: React.FC = () => {
                   className="w-full bg-[#181818] border border-neutral-800 text-white rounded-xl p-2.5 outline-none font-bold text-sm"
                 />
                 <span className="text-[10px] text-neutral-500">
-                  Por regla oficial es 25%. Al recibir este monto, la cita pasa a confirmada.
+                  El adelanto configurado es {paymentSettings.advance_percentage}%. Al recibir este monto, la cita pasa a confirmada.
                 </span>
               </div>
 
@@ -1541,6 +1551,9 @@ export const ReservasManager: React.FC = () => {
                 />
               </div>
 
+              <label className="block space-y-1"><span>URL del QR Yape verificado por el negocio</span>
+                <input type="url" value={tempYapeQr} onChange={e => setTempYapeQr(e.target.value)} className="w-full bg-neutral-900 rounded-lg p-2" />
+              </label>
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -1551,6 +1564,7 @@ export const ReservasManager: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={paymentBusy}
                   className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow"
                 >
                   Guardar Configuración
@@ -1651,6 +1665,7 @@ export const ReservasManager: React.FC = () => {
                 </button>
                 <button
                   type="submit"
+                  disabled={paymentBusy}
                   className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow cursor-pointer"
                 >
                   Guardar Cambios

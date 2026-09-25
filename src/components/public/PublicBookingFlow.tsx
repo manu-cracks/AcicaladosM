@@ -1,3 +1,4 @@
+import { qaRpc, mapBooking } from '../../lib/qaApi';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Service, formatSoles, BusinessCategory, BookingServiceItem } from '../../types';
@@ -41,9 +42,6 @@ import {
 export const PublicBookingFlow: React.FC = () => {
   const {
     services,
-    employees,
-    employeeBlocks,
-    bookings,
     addBooking,
     currentUser,
     currentRole,
@@ -60,6 +58,22 @@ export const PublicBookingFlow: React.FC = () => {
   const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [bookingDate, setBookingDate] = useState<string>(() => getTodayDateString());
   const [selectedSlot, setSelectedSlot] = useState<string>('');
+
+  const [availability, setAvailability] = useState<any>(null);
+  const [availabilityError, setAvailabilityError] = useState('');
+  useEffect(() => {
+    let active = true;
+    setAvailability(null);
+    const load = () => qaRpc<any>('qa_availability', { p_date: bookingDate }).then(data => {
+      if (active) { setAvailability(data); setAvailabilityError(''); }
+    }).catch(() => { if (active) { setAvailability(null); setAvailabilityError('No se pudo consultar la disponibilidad. Reintentando…'); } });
+    load();
+    const timer = setInterval(load, 30000);
+    return () => { active = false; clearInterval(timer); };
+  }, [bookingDate]);
+  const employees = availability?.employees || [];
+  const employeeBlocks = availability?.blocks || [];
+  const bookings = useMemo(() => (availability?.bookings || []).map(mapBooking), [availability]);
 
   // Real-time ticker for America/Lima (UTC-5)
   const [limaClock, setLimaClock] = useState(() => getLimaDateTime());
@@ -104,7 +118,8 @@ export const PublicBookingFlow: React.FC = () => {
   // Totals
   const totalPriceCents = selectedServices.reduce((acc, s) => acc + s.price_cents, 0);
   const totalDurationMinutes = selectedServices.reduce((acc, s) => acc + (s.duration_minutes || 30), 0);
-  const minAdvanceCents = Math.round((totalPriceCents * paymentSettings.advance_percentage) / 100);
+  const effectiveAdvancePercentage = createdBooking?.advance_percentage ?? paymentSettings.advance_percentage;
+  const minAdvanceCents = Math.round(((createdBooking?.total_price_cents ?? totalPriceCents) * effectiveAdvancePercentage) / 100);
 
   const toggleServiceSelection = (srv: Service) => {
     setSelectedServices((prev) => {
@@ -117,8 +132,8 @@ export const PublicBookingFlow: React.FC = () => {
     });
   };
 
-  const openTime = attendanceSettings?.shift_entry_time || '09:00';
-  const closeTime = attendanceSettings?.shift_exit_time || '21:00';
+  const openTime = availability?.open_time || '09:00';
+  const closeTime = availability?.close_time || '21:00';
 
   // Cálculo estricto de disponibilidad en bloques de 30 minutos y concurrencia por especialista
   const computedSlots: ComputedSlot[] = useMemo(() => {
@@ -212,7 +227,7 @@ export const PublicBookingFlow: React.FC = () => {
       const newBooking = await addBooking({
         client_name: clientName,
         client_phone: clientPhone,
-        client_email: clientEmail || 'cliente@acicalados.pe',
+        client_email: clientEmail || '',
         client_dni: clientDni,
         date: bookingDate,
         start_time: selectedSlot,
@@ -265,7 +280,8 @@ export const PublicBookingFlow: React.FC = () => {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8">
+      {availabilityError && <p role="alert" className="text-amber-300 text-sm">{availabilityError}</p>}
       {/* Step Indicator Header */}
       <div className="text-center space-y-2">
         <span className="text-xs font-bold uppercase tracking-widest text-[#C8A45C]">
@@ -900,7 +916,7 @@ export const PublicBookingFlow: React.FC = () => {
                 <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400">
                   ¡Reserva Registrada Exitosamente!
                 </span>
-                <h3 className="font-serif-luxury text-xl font-bold text-white">
+                <h3 className="font-serif-luxury text-lg sm:text-xl break-all font-bold text-white">
                   Código de Cita: #{createdBooking.code}
                 </h3>
               </div>
@@ -952,8 +968,10 @@ export const PublicBookingFlow: React.FC = () => {
           <PaymentQRWidget
             amountCents={minAdvanceCents}
             bookingCode={createdBooking.code}
+            bookingId={createdBooking.id}
+            clientPhone={createdBooking.client_phone}
             clientName={createdBooking.client_name}
-            title={`Abonar Adelanto Mínimo del ${paymentSettings.advance_percentage}% (${formatSoles(minAdvanceCents)})`}
+            title={`Abonar Adelanto Mínimo del ${effectiveAdvancePercentage}% (${formatSoles(minAdvanceCents)})`}
           />
 
           <div className="text-center pt-4">

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   UserRole,
   Service,
@@ -31,6 +31,8 @@ import {
   getTodayDateString,
   getLimaDateFromTimestamp,
 } from '../data/initialData';
+import { DEFAULT_WHATSAPP_PHONE, advancePercentage, whatsappPhone, reconcileCart, readStoredCart, saveCart } from '../lib/businessRules';
+import { qaRpc, mapBooking } from '../lib/qaApi';
 import { sanitizePhone, sanitizeDni } from '../lib/validators';
 import { supabase } from '../lib/supabase/client';
 import { timeToMinutes, minutesToTime } from '../lib/bookingAvailability';
@@ -76,6 +78,8 @@ interface AppContextType {
 
   // Cart
   cart: CartItem[];
+  whatsappNumber: string;
+  revalidateCart: () => Promise<boolean>;
   addToCart: (product: Product, quantity?: number) => void;
   removeFromCart: (productId: string) => void;
   updateCartQuantity: (productId: string, quantity: number) => void;
@@ -111,8 +115,8 @@ interface AppContextType {
     yapeCents?: number,
     voucherUrl?: string,
     notes?: string
-  ) => void;
-  voidPayment: (paymentId: string, reason: string) => void;
+  ) => Promise<boolean>;
+  voidPayment: (paymentId: string, reason: string) => Promise<boolean>;
   liberateServiceEarly: (bookingId: string, serviceIndex: number) => void;
   reassignBookingService: (bookingId: string, serviceIndex: number, newEmployeeId: string, newEmployeeName: string) => Promise<void>;
   updateBookingServicePrice: (bookingId: string, serviceIndex: number, newPriceCents: number) => Promise<void>;
@@ -120,13 +124,11 @@ interface AppContextType {
   editBooking: (bookingId: string, updates: Partial<Booking>) => Promise<boolean>;
 
   // POS
-  registerVentaMostrador: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
-  registerCounterSale: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
   processPosSaleWithStock: (
     saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
     items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
   ) => Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }>;
-  deleteVentaMostrador: (id: string) => void;
+  deleteVentaMostrador: (id: string) => Promise<boolean>;
 
   // Expenses
   addExpense: (expense: Omit<Expense, 'id' | 'created_at' | 'voided'>) => void;
@@ -178,7 +180,7 @@ interface AppContextType {
   submitJustification: (attendanceId: string, note: string, docUrl?: string) => void;
 
   // Settings
-  updatePaymentSettings: (settings: Partial<PaymentSettings>) => void;
+  updatePaymentSettings: (settings: Partial<PaymentSettings>) => Promise<boolean>;
   updateBonusSettings: (settings: Partial<BonusSettings>) => void;
   updateAttendanceSettings: (settings: Partial<AttendanceSettings>) => Promise<boolean>;
 
@@ -374,6 +376,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bonusSettings, setBonusSettings] = useState<BonusSettings>(INITIAL_BONUS_SETTINGS);
   const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>(INITIAL_ATTENDANCE_SETTINGS);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [whatsappNumber, setWhatsappNumber] = useState(() => whatsappPhone(import.meta.env.VITE_WHATSAPP_PHONE) || DEFAULT_WHATSAPP_PHONE);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const cartRestored = useRef(false);
+  const requests = useRef(new Map<string, string>());
+  const pendingOperations = useRef(new Set<string>());
+  const requestId = (key: string) => {
+    if (!requests.current.has(key)) requests.current.set(key, crypto.randomUUID());
+    return requests.current.get(key)!;
+  };
+  useEffect(() => {
+    if (!catalogLoaded) return;
+    setCart(prev => reconcileCart(cartRestored.current ? prev : readStoredCart(), products));
+    cartRestored.current = true;
+  }, [products, catalogLoaded]);
+  useEffect(() => { if (catalogLoaded && cartRestored.current) saveCart(cart); }, [cart]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [activeTicket, setActiveTicket] = useState<{ type: 'booking' | 'venta'; data: Booking | VentaMostrador } | null>(null);
   const [lightboxImage, setLightboxImage] = useState<LightboxData | null>(null);
@@ -409,6 +427,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .eq('is_active', true)
         .order('sort_order');
       if (dbProducts) {
+        setCatalogLoaded(true);
         setProducts(
           dbProducts.map((p: any) => ({
             id: p.id,
@@ -439,7 +458,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             category: w.category || 'Bodas y Matrimonio',
             rental_price_cents: w.price_cents,
             deposit_cents: w.deposit_cents || 0,
-            status: (w.availability_status || 'disponible') as WardrobeStatus,
+            status: (w.availability_status === 'en_mantenimiento' ? 'mantenimiento' : w.availability_status || 'disponible') as WardrobeStatus,
             active: w.is_active !== undefined ? w.is_active : true,
             size: w.size || 'M',
             color: w.color || 'Variado',
@@ -558,14 +577,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
 
-      // 5. Configuración de Negocio
-      const { data: dbConfig } = await supabase.from('business_config').select('*').limit(1).single();
+      // Public RPC exposes only customer-facing configuration, without broadening table RLS.
+      const { data: dbConfig } = await (supabase as any).rpc('qa_public_config');
       if (dbConfig) {
-        setPaymentSettings((prev) => ({
-          ...prev,
-          advance_percentage: dbConfig.advance_percentage || 25,
-          yape_phone: dbConfig.whatsapp_url?.replace(/\D/g, '') || '987654321',
-        }));
+        setWhatsappNumber(whatsappPhone(dbConfig.whatsapp_url) || whatsappPhone(import.meta.env.VITE_WHATSAPP_PHONE) || DEFAULT_WHATSAPP_PHONE);
+        setPaymentSettings(prev => ({ ...prev, advance_percentage: advancePercentage(dbConfig.advance_percentage),
+          yape_phone: dbConfig.yape_phone || prev.yape_phone, yape_holder: dbConfig.yape_holder || prev.yape_holder,
+          yape_qr_url: dbConfig.yape_qr_url || prev.yape_qr_url }));
       }
 
       // 6. Reservas
@@ -688,6 +706,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             yape_cents: p.yape_amount_cents || 0,
             voucher_url: p.proof_url || undefined,
             created_at: p.created_at,
+            status: p.status,
             voided: p.status === 'voided',
             voided_reason: p.void_reason || undefined,
             voided_by: p.voided_by || undefined,
@@ -880,6 +899,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             payload.table === 'ventas_mostrador' ||
             payload.table === 'expenses' ||
             payload.table === 'wardrobe_items' ||
+            payload.table === 'dress_rentals' ||
+            payload.table === 'business_config' ||
             payload.table === 'employee_attendances' ||
             payload.table === 'attendance_settings'
           ) {
@@ -1054,598 +1075,90 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLightboxImage(null);
   }, []);
 
-  // Cart Functions
-  // QA-008: addToCart ahora respeta el stock disponible del producto
+  // All cart mutations reconcile against the current catalog, including zero stock.
   const addToCart = useCallback((product: Product, quantity = 1) => {
-    const stockLimit = product.stock ?? 999;
-
-    setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
-      if (existing) {
-        const newQty = existing.quantity + quantity;
-        if (newQty > stockLimit) {
-          // QA-008: No exceder el stock disponible
-          if (existing.quantity >= stockLimit) {
-            // Ya está en el límite, no cambiar nada
-            return prev;
-          }
-          // Ajustar al máximo permitido
-          return prev.map((item) =>
-            item.product.id === product.id
-              ? { ...item, quantity: stockLimit }
-              : item
-          );
-        }
-        return prev.map((item) =>
-          item.product.id === product.id
-            ? { ...item, quantity: newQty }
-            : item
-        );
-      }
-      // QA-008: Nuevo producto - respetar stock
-      const clampedQty = Math.min(quantity, stockLimit);
-      if (clampedQty <= 0) return prev;
-      return [...prev, { product, quantity: clampedQty }];
-    });
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) return;
+    setCart(prev => reconcileCart([...prev, { productId: product.id, quantity }], products));
     setIsCartOpen(true);
-  }, []);
-
-  const removeFromCart = useCallback((productId: string) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
-  }, []);
-
-  // QA-008: updateCartQuantity también respeta el stock disponible
+  }, [products]);
+  const removeFromCart = useCallback((productId: string) => setCart(prev => prev.filter(i => i.product.id !== productId)), []);
   const updateCartQuantity = useCallback((productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      removeFromCart(productId);
-      return;
-    }
-    setCart((prev) =>
-      prev.map((item) => {
-        if (item.product.id !== productId) return item;
-        // QA-008: Limitar al stock disponible (si es >= 0)
-        const stockLimit = item.product.stock ?? 999;
-        const clampedQty = stockLimit > 0 ? Math.min(quantity, stockLimit) : quantity;
-        return { ...item, quantity: clampedQty };
-      })
-    );
-  }, [removeFromCart]);
+    if (!Number.isSafeInteger(quantity) || quantity < 0) return;
+    setCart(prev => reconcileCart(prev.map(i => ({ productId: i.product.id, quantity: i.product.id === productId ? quantity : i.quantity })), products));
+  }, [products]);
+  const clearCart = useCallback(() => setCart([]), []);
+  const revalidateCart = useCallback(async () => {
+    const { data, error } = await supabase.from('products').select('*').in('id', cart.map(i => i.product.id));
+    if (error || !data) throw new Error('No se pudo verificar el stock. Inténtalo nuevamente.');
+    const fresh = data.map(p => ({ ...products.find(i => i.id === p.id), ...p, active: p.is_active,
+      use_type: p.use_type, image_url: p.images?.[0] || '' })) as Product[];
+    const next = reconcileCart(cart, fresh);
+    const changed = JSON.stringify(cart.map(i => [i.product.id,i.quantity,i.product.price_cents])) !== JSON.stringify(next.map(i => [i.product.id,i.quantity,i.product.price_cents]));
+    setCart(next);
+    return !changed && next.length > 0;
+  }, [cart, products]);
 
-  const clearCart = useCallback(() => {
-    setCart([]);
-  }, []);
-
-  // BOOKING HANDLERS
-  // QA-002: addBooking ahora es asíncrona y espera confirmación de Supabase antes de retornar.
-  // Retorna el Booking persistido con su ID real de Supabase, o null si falló.
   const addBooking = useCallback(async (bookingData: Omit<Booking, 'id' | 'code' | 'created_at'>): Promise<Booking | null> => {
-    const today = getTodayDateString();
-    const randomCode = `AC-${Math.floor(1000 + Math.random() * 9000)}`;
-    const sanitizedServices = (bookingData.services || []).map((srv) => {
-      const srvStart = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
-      const srvDuration = srv.duration_minutes || 30;
-      const calcEnd = minutesToTime(timeToMinutes(srvStart) + srvDuration);
-      const rawEnd = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcEnd;
-      const effectiveEnd = (timeToMinutes(rawEnd) - timeToMinutes(srvStart) > srvDuration + 5) ? calcEnd : rawEnd;
-      return {
-        ...srv,
-        hora_inicio: srvStart,
-        hora_fin: effectiveEnd,
-        start_time: srvStart,
-        end_time: effectiveEnd,
-        duration_minutes: srvDuration,
-      };
-    });
-
+    const key = 'booking:' + JSON.stringify(bookingData);
+    if (pendingOperations.current.has(key)) return null;
+    pendingOperations.current.add(key);
     try {
-      const names = bookingData.client_name.trim().split(' ');
-      const firstName = names[0] || 'Cliente';
-      const lastName = names.slice(1).join(' ') || 'General';
-
-      // Buscar UUID de empleado si es válido
-      const primaryEmpId = bookingData.services?.[0]?.employee_id;
-      const validEmp = employees.find(
-        (e) => e.id === primaryEmpId || e.full_name === bookingData.services?.[0]?.employee_name
-      );
-      const safeEmployeeId =
-        primaryEmpId && primaryEmpId.includes('-') && primaryEmpId.length === 36
-          ? primaryEmpId
-          : validEmp && validEmp.id.includes('-') && validEmp.id.length === 36
-          ? validEmp.id
-          : null;
-
-      const advanceAmount = bookingData.advance_amount_cents || 0;
-      const advancePercentage = Math.max(1, paymentSettings?.advance_percentage || 25);
-      const totalPrice = bookingData.total_price_cents || 0;
-      const balance = Math.max(0, totalPrice - advanceAmount);
-
-      const authUid =
-        currentUserOverride?.id && currentUserOverride.id.includes('-')
-          ? currentUserOverride.id
-          : (await supabase.auth.getSession()).data.session?.user?.id || null;
-
-      // QA-002: INSERT en Supabase PRIMERO - no mostrar éxito hasta confirmación
-      const { data: insertedBooking, error } = await supabase
-        .from('bookings')
-        .insert({
-          booking_code: randomCode,
-          user_id: authUid,
-          client_first_name: firstName,
-          client_last_name: lastName,
-          client_phone: sanitizePhone(bookingData.client_phone) || null,
-          client_email: bookingData.client_email || null,
-          client_dni: sanitizeDni(bookingData.client_dni) || null,
-          service_type: bookingData.type || 'barberia',
-          booking_date: bookingData.date,
-          start_time: bookingData.start_time,
-          end_time: bookingData.end_time,
-          total_duration_minutes:
-            bookingData.services?.reduce((acc, s) => acc + (s.duration_minutes || 0), 0) || 60,
-          total_price_cents: totalPrice,
-          advance_percentage: advancePercentage,
-          advance_amount_cents: advanceAmount,
-          balance_cents: balance,
-          payment_status:
-            bookingData.payment_status ||
-            (advanceAmount >= totalPrice ? 'total' : advanceAmount > 0 ? 'parcial' : 'sin_pago'),
-          assigned_employee_id: safeEmployeeId,
-          payment_method: (bookingData as any).payment_method || null,
-        })
-        .select()
-        .single();
-
-      if (error || !insertedBooking) {
-        // QA-002: INSERT falló - retornar null, NO crear reserva local ficticia
-        console.error('Error al insertar reserva en Supabase:', error);
-        return null;
-      }
-
-      // INSERT exitoso - insertar servicios
-      if (bookingData.services && bookingData.services.length > 0) {
-        const serviceRows = bookingData.services.map((srv) => {
-          const matchedService = services.find(
-            (s) => s.id === srv.service_id || s.name === srv.service_name
-          );
-          const srvId =
-            matchedService && matchedService.id.includes('-') && matchedService.id.length === 36
-              ? matchedService.id
-              : srv.service_id && srv.service_id.includes('-') && srv.service_id.length === 36
-              ? srv.service_id
-              : null;
-
-          const srvEmp = employees.find(
-            (e) => e.id === srv.employee_id || e.full_name === srv.employee_name
-          );
-          const srvEmpId =
-            srv.employee_id && srv.employee_id.includes('-') && srv.employee_id.length === 36
-              ? srv.employee_id
-              : srvEmp && srvEmp.id.includes('-') && srvEmp.id.length === 36
-              ? srvEmp.id
-              : safeEmployeeId;
-
-          const srvHoraInicio = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
-          const srvDuration = srv.duration_minutes || 30;
-          const calcFin = minutesToTime(timeToMinutes(srvHoraInicio) + srvDuration);
-          const rawFin = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcFin;
-          const srvHoraFin = (timeToMinutes(rawFin) - timeToMinutes(srvHoraInicio) > srvDuration + 5) ? calcFin : rawFin;
-
-          return {
-            booking_id: insertedBooking.id,
-            service_id: srvId,
-            service_name: srv.service_name,
-            service_price_cents: srv.price_cents,
-            duration_minutes: srvDuration,
-            assigned_employee_id: srvEmpId,
-            hora_inicio: srvHoraInicio,
-            hora_fin: srvHoraFin,
-            start_time: srvHoraInicio,
-            end_time: srvHoraFin,
-            status: 'confirmada',
-          };
-        });
-        await supabase.from('booking_services').insert(serviceRows);
-      }
-
-      // Si se registró un pago de adelanto o total al crear la reserva, registrar en payment_logs
-      if (advanceAmount > 0) {
-        const pMethod = (bookingData as any).payment_method || 'efectivo';
-        const cashC = (bookingData as any).cash_cents || (pMethod === 'efectivo' ? advanceAmount : 0);
-        const yapeC = (bookingData as any).yape_cents || (pMethod === 'yape' ? advanceAmount : 0);
-        const pNotes = (bookingData as any).payment_notes || null;
-
-        await supabase.from('payment_logs').insert({
-          booking_id: insertedBooking.id,
-          amount_cents: advanceAmount,
-          payment_method: pMethod,
-          payment_type: advanceAmount >= totalPrice ? 'total' : 'advance',
-          cash_amount_cents: cashC,
-          yape_amount_cents: yapeC,
-          notes: pNotes,
-          status: 'verified',
-        });
-
-        const newLog: PaymentLog = {
-          id: `pay-${Date.now()}`,
-          booking_id: insertedBooking.id,
-          booking_code: insertedBooking.booking_code,
-          amount_cents: advanceAmount,
-          payment_method: pMethod,
-          cash_cents: cashC,
-          yape_cents: yapeC,
-          transfer_cents: (bookingData as any).transfer_cents || 0,
-          notes: pNotes,
-          created_at: `${today}T12:00:00Z`,
-          voided: false,
-        };
-        setPaymentLogs((prev) => [newLog, ...prev]);
-      }
-
-      // QA-002: Construir el objeto local usando el ID real de Supabase (no ficticio)
-      const newBooking: Booking = {
-        ...bookingData,
-        services: sanitizedServices,
-        id: insertedBooking.id,
-        code: insertedBooking.booking_code || randomCode,
-        created_at: insertedBooking.created_at || `${today}T12:00:00Z`,
-      };
-
-      setBookings((prev) => [newBooking, ...prev]);
+      const data = await qaRpc<any>('qa_create_booking', { p_request_id: requestId(key), p_booking: bookingData });
+      const created = mapBooking(data);
+      setBookings(prev => [created, ...prev.filter(b => b.id !== created.id)]);
       pulseRealtime();
-      return newBooking;
-
-    } catch (err) {
-      console.error('Error guardando reserva en Supabase:', err);
-      return null;
-    }
-  }, [paymentSettings.advance_percentage, pulseRealtime, employees, services]);
-
-
-
-  const registerBookingPayment = useCallback(
-    async (
-      bookingId: string,
-      amountCents: number,
-      method: 'yape' | 'efectivo' | 'transferencia' | 'mixto' | string,
-      cashCents = 0,
-      yapeCents = 0,
-      voucherUrl?: string,
-      notes?: string
-    ) => {
-      const today = getTodayDateString();
-      const targetBooking = bookings.find((b) => b.id === bookingId);
-      const prevAdvance = targetBooking?.advance_amount_cents || 0;
-      const totalPrice = targetBooking?.total_price_cents || 0;
-      const newAdvance = prevAdvance + amountCents;
-      const newBalance = Math.max(0, totalPrice - newAdvance);
-
-      let payStatus: Booking['payment_status'] = 'sin_pago';
-      if (newAdvance >= totalPrice && totalPrice > 0) {
-        payStatus = 'total';
-      } else if (newAdvance > 0) {
-        payStatus = 'parcial';
-      }
-
-      setBookings((prev) => {
-        return prev.map((b) => {
-          if (b.id === bookingId) {
-            return {
-              ...b,
-              advance_amount_cents: newAdvance,
-              balance_cents: newBalance,
-              payment_status: payStatus,
-              confirmed_at: b.confirmed_at || (newAdvance > 0 ? `${today}T12:00:00Z` : undefined),
-            };
-          }
-          return b;
-        });
-      });
-
-      const newLog: PaymentLog = {
-        id: `pay-${Date.now()}`,
-        booking_id: bookingId,
-        booking_code: targetBooking?.code || 'AC-0000',
-        amount_cents: amountCents,
-        payment_method: method,
-        cash_cents: cashCents,
-        yape_cents: yapeCents,
-        voucher_url: voucherUrl,
-        notes: notes,
-        created_at: `${today}T12:00:00Z`,
-        voided: false,
-      };
-      setPaymentLogs((prev) => [newLog, ...prev]);
-      pulseRealtime();
-
-      // Guardar log en Supabase y actualizar reserva
-      if (bookingId.includes('-') && bookingId.length === 36) {
-        try {
-          await supabase.from('payment_logs').insert({
-            booking_id: bookingId,
-            amount_cents: amountCents,
-            payment_method: method,
-            cash_amount_cents: cashCents,
-            yape_amount_cents: yapeCents,
-            proof_url: voucherUrl || null,
-            notes: notes || null,
-            status: 'verified',
-          });
-
-          await supabase.from('bookings').update({
-            advance_amount_cents: newAdvance,
-            balance_cents: newBalance,
-            payment_status: payStatus,
-            confirmed_at: newAdvance > 0 ? (targetBooking?.confirmed_at || new Date().toISOString()) : null,
-          }).eq('id', bookingId);
-
-          pulseRealtime();
-        } catch (err) {
-          console.error('Error al registrar pago en Supabase:', err);
-        }
-      }
-    },
-    [bookings, pulseRealtime]
-  );
-
-  const voidPayment = useCallback((paymentId: string, reason: string) => {
-    const payment = paymentLogs.find((p) => p.id === paymentId);
-    if (!payment || payment.voided) return;
-
-    setPaymentLogs((prev) =>
-      prev.map((p) =>
-        p.id === paymentId
-          ? { ...p, voided: true, voided_reason: reason, voided_by: currentUser.name }
-          : p
-      )
-    );
-
-    setBookings((prev) =>
-      prev.map((b) => {
-        if (b.id === payment.booking_id) {
-          const newAdvance = Math.max(0, b.advance_amount_cents - payment.amount_cents);
-          let newPayStatus: Booking['payment_status'] = 'sin_pago';
-          if (newAdvance >= b.total_price_cents && b.total_price_cents > 0) {
-            newPayStatus = 'total';
-          } else if (newAdvance > 0) {
-            newPayStatus = 'parcial';
-          }
-          return {
-            ...b,
-            advance_amount_cents: newAdvance,
-            balance_cents: Math.max(0, b.total_price_cents - newAdvance),
-            payment_status: newPayStatus,
-          };
-        }
-        return b;
-      })
-    );
-    pulseRealtime();
-
-    if (paymentId.includes('-') && paymentId.length === 36) {
-      supabase.from('payment_logs').update({
-        status: 'voided',
-        void_reason: reason,
-        voided_at: new Date().toISOString(),
-      }).eq('id', paymentId).then();
-    }
-  }, [currentUser.name, paymentLogs, pulseRealtime]);
-
-  const liberateServiceEarly = useCallback((bookingId: string, serviceIndex: number) => {
-    const nowIso = new Date().toISOString();
-    const nowTime = new Date().toLocaleTimeString('es-PE', {
-      timeZone: 'America/Lima',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
-    setBookings((prev) =>
-      prev.map((b) => {
-        if (b.id === bookingId) {
-          const updatedServices = [...b.services];
-          if (updatedServices[serviceIndex]) {
-            updatedServices[serviceIndex] = {
-              ...updatedServices[serviceIndex],
-              liberado_at: nowTime,
-            };
-          }
-          return { ...b, services: updatedServices };
-        }
-        return b;
-      })
-    );
-    pulseRealtime();
-
-    if (bookingId.includes('-') && bookingId.length === 36) {
-      supabase
-        .from('booking_services')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .order('created_at')
-        .then(({ data }) => {
-          if (data && data[serviceIndex]) {
-            supabase
-              .from('booking_services')
-              .update({
-                liberado_at: nowIso,
-                status: 'completada',
-              })
-              .eq('id', data[serviceIndex].id)
-              .then(() => {
-                pulseRealtime();
-              });
-          }
-        });
-    }
+      return created;
+    } finally { pendingOperations.current.delete(key); }
   }, [pulseRealtime]);
 
-  const reassignBookingService = useCallback(
-    async (bookingId: string, serviceIndex: number, newEmployeeId: string, newEmployeeName: string) => {
-      // 1. Actualización optimista en estado local de React
-      setBookings((prev) =>
-        prev.map((b) => {
-          if (b.id === bookingId) {
-            const updatedServices = [...(b.services || [])];
-            if (updatedServices[serviceIndex]) {
-              updatedServices[serviceIndex] = {
-                ...updatedServices[serviceIndex],
-                employee_id: newEmployeeId,
-                employee_name: newEmployeeName,
-              };
-            }
-            return {
-              ...b,
-              services: updatedServices,
-              ...(serviceIndex === 0 ? { assigned_employee_id: newEmployeeId } : {}),
-            };
-          }
-          return b;
-        })
-      );
+  const registerBookingPayment = useCallback(async (bookingId: string, amountCents: number, method: string,
+    cashCents = 0, yapeCents = 0, voucherUrl?: string, notes?: string): Promise<boolean> => {
+    const key = JSON.stringify(['payment', bookingId, amountCents, method, cashCents, yapeCents, notes]);
+    if (pendingOperations.current.has(key)) return false;
+    pendingOperations.current.add(key);
+    try {
+      await qaRpc('qa_register_payment', { p_id: requestId(key), p_booking: bookingId, p_amount: amountCents,
+        p_method: method, p_cash: cashCents, p_yape: yapeCents, p_notes: notes || '' });
+      await fetchAllFromSupabase();
+      requests.current.delete(key);
       pulseRealtime();
+      return true;
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'No se pudo registrar el pago.');
+      return false;
+    } finally { pendingOperations.current.delete(key); }
+  }, [fetchAllFromSupabase, pulseRealtime]);
 
-      // 2. Persistencia en Supabase
-      if (bookingId.includes('-') && bookingId.length === 36) {
-        try {
-          const currentBooking = bookings.find((b) => b.id === bookingId);
-          const serviceRow = currentBooking?.services?.[serviceIndex];
-          const serviceRowId = serviceRow?.id;
+  const voidPayment = useCallback(async (paymentId: string, reason: string): Promise<boolean> => {
+    if (pendingOperations.current.has(paymentId)) return false;
+    pendingOperations.current.add(paymentId);
+    try {
+      await qaRpc('qa_void_payment', { p_id: paymentId, p_reason: reason });
+      await fetchAllFromSupabase();
+      return true;
+    } catch (err) { setOperationError(err instanceof Error ? err.message : 'No se pudo anular el pago.'); return false; }
+    finally { pendingOperations.current.delete(paymentId); }
+  }, [fetchAllFromSupabase]);
 
-          if (serviceRowId && serviceRowId.includes('-') && serviceRowId.length === 36) {
-            await supabase
-              .from('booking_services')
-              .update({ assigned_employee_id: newEmployeeId })
-              .eq('id', serviceRowId);
-          } else {
-            const { data: dbServices } = await supabase
-              .from('booking_services')
-              .select('id')
-              .eq('booking_id', bookingId)
-              .order('created_at', { ascending: true });
-
-            if (dbServices && dbServices[serviceIndex]) {
-              await supabase
-                .from('booking_services')
-                .update({ assigned_employee_id: newEmployeeId })
-                .eq('id', dbServices[serviceIndex].id);
-            }
-          }
-
-          if (serviceIndex === 0) {
-            await supabase
-              .from('bookings')
-              .update({ assigned_employee_id: newEmployeeId })
-              .eq('id', bookingId);
-          }
-
-          pulseRealtime();
-        } catch (err) {
-          console.error('Error al reasignar especialista en Supabase:', err);
-        }
-      }
-    },
-    [bookings, pulseRealtime]
-  );
-
-  const updateBookingServicePrice = useCallback(
-    async (bookingId: string, serviceIndex: number, newPriceCents: number) => {
-      // 1. Verificación de rol: solo Administrador
-      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
-      if (!isEffectiveAdmin) {
-        throw new Error('Permiso denegado: Solo el Administrador puede modificar los precios de servicios individuales.');
-      }
-
-      if (newPriceCents < 0 || isNaN(newPriceCents)) {
-        throw new Error('El precio debe ser un número válido mayor o igual a 0.');
-      }
-
-      const targetBooking = bookings.find((b) => b.id === bookingId);
-      if (!targetBooking) {
-        throw new Error('Reserva no encontrada');
-      }
-
-      const updatedServices = [...(targetBooking.services || [])];
-      if (updatedServices[serviceIndex]) {
-        updatedServices[serviceIndex] = {
-          ...updatedServices[serviceIndex],
-          price_cents: newPriceCents,
-        };
-      }
-      const newTotal = updatedServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
-      const advance = targetBooking.advance_amount_cents || 0;
-      const newBalance = Math.max(0, newTotal - advance);
-      const newStatus: PaymentStatus =
-        advance >= newTotal && newTotal > 0
-          ? 'total'
-          : advance > 0
-          ? 'parcial'
-          : 'sin_pago';
-
-      // 2. Actualización optimista inmediata en estado local de React
-      setBookings((prev) =>
-        prev.map((b) => {
-          if (b.id === bookingId) {
-            return {
-              ...b,
-              services: updatedServices,
-              total_price_cents: newTotal,
-              balance_cents: newBalance,
-              payment_status: newStatus,
-            };
-          }
-          return b;
-        })
-      );
-      pulseRealtime();
-
-      // 3. Persistencia en Supabase
-      if (bookingId.includes('-') && bookingId.length === 36) {
-        try {
-          const serviceRow = targetBooking.services?.[serviceIndex];
-          const serviceRowId = serviceRow?.id;
-
-          if (serviceRowId && serviceRowId.includes('-') && serviceRowId.length === 36) {
-            const { error: srvErr } = await supabase
-              .from('booking_services')
-              .update({ service_price_cents: newPriceCents })
-              .eq('id', serviceRowId);
-            if (srvErr) throw srvErr;
-          } else {
-            const { data: dbServices, error: fetchErr } = await supabase
-              .from('booking_services')
-              .select('id')
-              .eq('booking_id', bookingId)
-              .order('created_at', { ascending: true });
-            if (fetchErr) throw fetchErr;
-
-            if (dbServices && dbServices[serviceIndex]) {
-              const { error: updateErr } = await supabase
-                .from('booking_services')
-                .update({ service_price_cents: newPriceCents })
-                .eq('id', dbServices[serviceIndex].id);
-              if (updateErr) throw updateErr;
-            }
-          }
-
-          // Actualizar la cabecera en bookings con los montos recalculados
-          const { error: bookingErr } = await supabase
-            .from('bookings')
-            .update({
-              total_price_cents: newTotal,
-              balance_cents: newBalance,
-              payment_status: newStatus,
-            })
-            .eq('id', bookingId);
-          if (bookingErr) throw bookingErr;
-
-          pulseRealtime();
-        } catch (err: any) {
-          console.error('Error al actualizar precio de servicio en Supabase:', err);
-          throw new Error(err?.message || 'Error al persistir el nuevo precio.');
-        }
-      }
-    },
-    [bookings, currentRole, currentUser, pulseRealtime]
-  );
+  const mutateBookingService = useCallback(async (bookingId: string, index: number, action: string, value = '') => {
+    const serviceId = bookings.find(b => b.id === bookingId)?.services[index]?.id;
+    if (!serviceId) throw new Error('Actualiza las reservas antes de modificar el servicio.');
+    const saved = await qaRpc<any>('qa_update_booking_service', { p_id: serviceId, p_action: action, p_value: value });
+    const booking = mapBooking(saved);
+    setBookings(prev => prev.map(b => b.id === booking.id ? booking : b));
+    pulseRealtime();
+  }, [bookings, pulseRealtime]);
+  const liberateServiceEarly = useCallback(async (id: string, index: number) => {
+    try { await mutateBookingService(id, index, 'release'); }
+    catch (err) { setOperationError(err instanceof Error ? err.message : 'No se pudo liberar el servicio.'); }
+  }, [mutateBookingService]);
+  const reassignBookingService = useCallback(async (id: string, index: number, employeeId: string, _name: string) => {
+    await mutateBookingService(id, index, 'assign', employeeId);
+  }, [mutateBookingService]);
+  const updateBookingServicePrice = useCallback(async (id: string, index: number, price: number) => {
+    if (!Number.isSafeInteger(price) || price < 0) throw new Error('Precio inválido.');
+    await mutateBookingService(id, index, 'price', String(price));
+  }, [mutateBookingService]);
 
   const deleteBooking = useCallback(async (bookingId: string): Promise<boolean> => {
     // 1. Verificación estricta de rol Administrador
@@ -1692,113 +1205,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const editBooking = useCallback(async (bookingId: string, updates: Partial<Booking>): Promise<boolean> => {
     try {
-      setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, ...updates } : b))
-      );
+      const saved = await qaRpc<any>('qa_edit_booking', { p_id: bookingId, p_updates: updates });
+      const booking = mapBooking(saved);
+      setBookings(prev => prev.map(b => b.id === bookingId ? booking : b));
       pulseRealtime();
-
-      if (bookingId.includes('-') && bookingId.length === 36) {
-        const dbUpdates: any = {};
-        if (updates.client_name) {
-          const parts = updates.client_name.trim().split(' ');
-          dbUpdates.client_first_name = parts[0] || '';
-          dbUpdates.client_last_name = parts.slice(1).join(' ') || '';
-        }
-        if (updates.client_phone !== undefined) dbUpdates.client_phone = updates.client_phone;
-        if (updates.client_email !== undefined) dbUpdates.client_email = updates.client_email;
-        if (updates.date !== undefined) dbUpdates.booking_date = updates.date;
-        if (updates.start_time !== undefined) dbUpdates.start_time = updates.start_time;
-        if (updates.end_time !== undefined) dbUpdates.end_time = updates.end_time;
-        if (updates.total_price_cents !== undefined) dbUpdates.total_price_cents = updates.total_price_cents;
-        if (updates.advance_amount_cents !== undefined) {
-          dbUpdates.advance_amount_cents = updates.advance_amount_cents;
-          if (updates.total_price_cents !== undefined) {
-            dbUpdates.balance_cents = Math.max(0, updates.total_price_cents - updates.advance_amount_cents);
-          }
-        }
-
-        const { error } = await supabase.from('bookings').update(dbUpdates).eq('id', bookingId);
-        if (error) {
-          console.error('Error al actualizar reserva en Supabase:', error);
-          fetchAllFromSupabase();
-          throw error;
-        }
-      }
       return true;
-    } catch (err) {
-      console.error('Error en editBooking:', err);
-      return false;
-    }
-  }, [fetchAllFromSupabase, pulseRealtime]);
+    } catch (err) { setOperationError(err instanceof Error ? err.message : 'No se pudo editar la reserva.'); return false; }
+  }, [pulseRealtime]);
 
   // POS HANDLERS
-  const registerVentaMostrador = useCallback(
-    (
-      ventaData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }
-    ): VentaMostrador => {
-      const today = getTodayDateString();
-      const nowIso = new Date().toISOString();
-      const newVenta: VentaMostrador = {
-        ...ventaData,
-        id: `vnt-${Date.now()}`,
-        ticket_number: `TK-${Math.floor(10000 + Math.random() * 90000)}`,
-        created_at: ventaData.created_at || nowIso,
-      };
-
-      setVentasMostrador((prev) => [newVenta, ...prev]);
-
-      // Reducir stock únicamente si corresponde a un producto registrado del catálogo
-      if (ventaData.product_id) {
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === ventaData.product_id
-              ? { ...p, stock: Math.max(0, p.stock - ventaData.quantity) }
-              : p
-          )
-        );
-      }
-
-      pulseRealtime();
-
-      // Guardar venta de mostrador en Supabase (destino autorizado acicaladosMej)
-      const isMixto = ventaData.payment_method?.toLowerCase() === 'mixto';
-      const finalMetodoPago = isMixto ? 'MIXTO' : (ventaData.payment_method.charAt(0).toUpperCase() + ventaData.payment_method.slice(1));
-
-      supabase.from('ventas_mostrador').insert({
-        cliente_nombre: ventaData.client_name,
-        producto_nombre: ventaData.product_name,
-        cantidad: ventaData.quantity,
-        precio_unitario: ventaData.unit_price_cents / 100,
-        total: ventaData.total_price_cents / 100,
-        metodo_pago: finalMetodoPago as any,
-        notas: ventaData.notes || null,
-        ticket_number: newVenta.ticket_number,
-        fecha: newVenta.created_at,
-        created_at: newVenta.created_at,
-        monto_efectivo: ventaData.monto_efectivo ?? (ventaData.cash_cents != null ? ventaData.cash_cents / 100 : null),
-        monto_yape: ventaData.monto_yape ?? (ventaData.yape_cents != null ? ventaData.yape_cents / 100 : null),
-        monto_transferencia: ventaData.monto_transferencia ?? (ventaData.transfer_cents != null ? ventaData.transfer_cents / 100 : null),
-        detalles_pago: ventaData.detalles_pago || null,
-      } as any).then();
-
-      return newVenta;
-    },
-    [pulseRealtime]
-  );
-
-  const deleteVentaMostrador = useCallback((id: string) => {
-    setVentasMostrador((prev) => prev.filter((v) => v.id !== id));
+  const deleteVentaMostrador = useCallback(async (id: string): Promise<boolean> => {
+    const { data, error } = await supabase.from('ventas_mostrador').delete().eq('id', id).select('id').single();
+    if (error || !data) { setOperationError('No se pudo eliminar la venta.'); return false; }
+    setVentasMostrador(prev => prev.filter(v => v.id !== id));
     pulseRealtime();
-    if (id.includes('-') && id.length === 36) {
-      supabase.from('ventas_mostrador').delete().eq('id', id).then();
-    }
+    return true;
   }, [pulseRealtime]);
 
   const processPosSaleWithStock = useCallback(async (
     saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
     items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
   ): Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }> => {
-    const ticketNumber = `TK-${Math.floor(10000 + Math.random() * 90000)}`;
+    const saleKey = JSON.stringify(['sale', { ...saleData, created_at: undefined }, items]);
+    const saleRequestId = requestId(saleKey);
+    const ticketNumber = `TK-${saleRequestId}`;
     const nowIso = new Date().toISOString();
     const createdAt = saleData.created_at || nowIso;
 
@@ -1833,15 +1263,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       total: item.total,
     }));
 
-    const { data, error } = await supabase.rpc('process_pos_sale', {
-      p_sale: pSale,
-      p_items: pItems,
-    });
-
-    if (error) {
-      console.error('Error invocando process_pos_sale en Supabase:', error);
-      throw new Error(error.message || 'Error al procesar la venta');
-    }
+    const data = await qaRpc<any>('qa_process_pos_sale', { p_request_id: saleRequestId, p_sale: pSale, p_items: pItems });
+    if (!data?.sale_id || data?.success === false) throw new Error('El servidor no confirmó la venta.');
+    requests.current.delete(saleKey);
 
     // Descontar stock localmente
     items.forEach((item) => {
@@ -2695,12 +2119,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [pulseRealtime]);
 
   // SETTINGS HANDLERS
-  const updatePaymentSettings = useCallback((newSettings: Partial<PaymentSettings>) => {
-    setPaymentSettings((prev) => ({ ...prev, ...newSettings }));
+  const updatePaymentSettings = useCallback(async (newSettings: Partial<PaymentSettings>): Promise<boolean> => {
+    const settings = { ...newSettings, advance_percentage: advancePercentage(newSettings.advance_percentage) };
+    const { data, error } = await (supabase as any).from('business_config').update(settings).eq('id', 1).select('id').single();
+    if (error || !data) { setOperationError('No se pudo guardar la configuración de pagos.'); return false; }
+    setPaymentSettings(prev => ({ ...prev, ...settings }));
     pulseRealtime();
-    if (newSettings.advance_percentage) {
-      supabase.from('business_config').update({ advance_percentage: newSettings.advance_percentage }).eq('id', 1).then();
-    }
+    return true;
   }, [pulseRealtime]);
 
   const updateBonusSettings = useCallback((newSettings: Partial<BonusSettings>) => {
@@ -2776,11 +2201,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (error) {
         console.error('Error al insertar servicio en Supabase:', error);
-        // Fallback local
-        const newSrv: Service = { ...srvData, description: srvData.description?.trim() || '', id: `srv-${Date.now()}` };
-        setServices((prev) => [...prev, newSrv]);
-        pulseRealtime();
-        return true;
+        return false;
       }
 
       if (data) {
@@ -2800,7 +2221,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pulseRealtime();
         return true;
       }
-      return true;
+      return false;
     } catch (err) {
       console.error('Error adding service:', err);
       return false;
@@ -2813,10 +2234,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...srv,
         description: srv.description?.trim() || '',
       };
-      setServices((prev) => prev.map((s) => (s.id === srv.id ? sanitizedSrv : s)));
-      pulseRealtime();
 
-      if (srv.id.includes('-') && srv.id.length === 36) {
+      if (srv.id.length !== 36) return false;
+      {
         const { error } = await supabase.from('services').update({
           name: srv.name,
           slug: srv.slug,
@@ -2828,13 +2248,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           is_public: srv.active,
           images: srv.image_url ? [srv.image_url] : [],
           updated_at: new Date().toISOString(),
-        }).eq('id', srv.id);
+        }).eq('id', srv.id).select('id').single();
 
         if (error) {
           console.error('Error al actualizar servicio en Supabase:', error);
           return false;
         }
       }
+      setServices((prev) => prev.map((s) => (s.id === srv.id ? sanitizedSrv : s)));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error updating service:', err);
@@ -2844,16 +2266,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteService = useCallback(async (serviceId: string): Promise<boolean> => {
     try {
-      setServices((prev) => prev.filter((s) => s.id !== serviceId));
-      pulseRealtime();
 
-      if (serviceId.includes('-') && serviceId.length === 36) {
-        const { error } = await supabase.from('services').delete().eq('id', serviceId);
+      if (serviceId.length !== 36) return false;
+      {
+        const { error } = await supabase.from('services').delete().eq('id', serviceId).select('id').single();
         if (error) {
           console.error('Error al eliminar servicio en Supabase:', error);
           return false;
         }
       }
+      setServices((prev) => prev.filter((s) => s.id !== serviceId));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error deleting service:', err);
@@ -2864,21 +2287,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleServiceActive = useCallback(async (serviceId: string, currentActive: boolean): Promise<boolean> => {
     try {
       const nextActive = !currentActive;
-      setServices((prev) => prev.map((s) => (s.id === serviceId ? { ...s, active: nextActive } : s)));
-      pulseRealtime();
 
-      if (serviceId.includes('-') && serviceId.length === 36) {
+      if (serviceId.length !== 36) return false;
+      {
         const { error } = await supabase.from('services').update({
           is_active: nextActive,
           is_public: nextActive,
           updated_at: new Date().toISOString(),
-        }).eq('id', serviceId);
+        }).eq('id', serviceId).select('id').single();
 
         if (error) {
           console.error('Error al alternar estado de servicio en Supabase:', error);
           return false;
         }
       }
+      setServices((prev) => prev.map((s) => (s.id === serviceId ? { ...s, active: nextActive } : s)));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error toggling service active:', err);
@@ -2922,16 +2346,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (error) {
         console.error('Error al insertar producto en Supabase:', error);
-        // Fallback reactivo local en caso de restricción o fallo de red
-        const fallbackProd: Product = {
-          ...prodData,
-          slug: insertPayload.slug,
-          id: `prod-${Date.now()}`,
-          active: insertPayload.is_active,
-        };
-        setProducts((prev) => [fallbackProd, ...prev]);
-        pulseRealtime();
-        return true;
+        return false;
       }
 
       if (data) {
@@ -2967,7 +2382,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pulseRealtime();
         return true;
       }
-      return true;
+      return false;
     } catch (err) {
       console.error('Error adding product:', err);
       return false;
@@ -2976,10 +2391,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProduct = useCallback(async (prod: Product): Promise<boolean> => {
     try {
-      setProducts((prev) => prev.map((p) => (p.id === prod.id ? prod : p)));
-      pulseRealtime();
 
-      if (!prod.id.startsWith('prod-')) {
+      if (prod.id.startsWith('prod-')) return false;
+      {
         const { error } = await supabase
           .from('products')
           .update({
@@ -2996,13 +2410,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             is_active: prod.active !== undefined ? prod.active : true,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', prod.id);
+          .eq('id', prod.id).select('id').single();
 
         if (error) {
           console.error('Error al actualizar producto en Supabase:', error);
           return false;
         }
       }
+      setProducts(prev => prev.map(p => p.id === prod.id ? prod : p));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error updating product:', err);
@@ -3013,20 +2429,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteProduct = useCallback(async (id: string): Promise<boolean> => {
     try {
       // Borrado Lógico (Soft Delete): Retirar del catálogo activo local
-      setProducts((prev) => prev.filter((p) => p.id !== id));
-      pulseRealtime();
 
-      if (!id.startsWith('prod-')) {
+      if (id.startsWith('prod-')) return false;
+      {
         // Soft delete en Supabase para proteger la integridad de ventas y movimientos
         const { error } = await supabase
           .from('products')
           .update({ is_active: false, updated_at: new Date().toISOString() })
-          .eq('id', id);
+          .eq('id', id).select('id').single();
         if (error) {
           console.error('Error al realizar soft delete de producto en Supabase:', error);
           return false;
         }
       }
+      setProducts(prev => prev.filter(p => p.id !== id));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error deleting product:', err);
@@ -3044,7 +2461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         category: itemData.category,
         price_cents: itemData.rental_price_cents,
         deposit_cents: itemData.deposit_cents || 0,
-        availability_status: itemData.status || 'disponible',
+        availability_status: itemData.status === 'mantenimiento' ? 'en_mantenimiento' : itemData.status || 'disponible',
         is_active: itemData.active !== undefined ? itemData.active : true,
         images: itemData.image_url ? [itemData.image_url] : [],
       };
@@ -3057,11 +2474,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (error) {
         console.error('Error al insertar prenda de vestuario en Supabase:', error);
-        // Fallback local
-        const newItem: WardrobeItem = { ...itemData, code: codeUpper, id: `ward-${Date.now()}` };
-        setWardrobe((prev) => [...prev, newItem]);
-        pulseRealtime();
-        return true;
+        return false;
       }
 
       if (data) {
@@ -3081,7 +2494,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pulseRealtime();
         return true;
       }
-      return true;
+      return false;
     } catch (err) {
       console.error('Error adding wardrobe item:', err);
       return false;
@@ -3092,10 +2505,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const codeUpper = (item.code || 'A').toUpperCase().trim();
       const updatedItem = { ...item, code: codeUpper };
-      setWardrobe((prev) => prev.map((w) => (w.id === item.id ? updatedItem : w)));
-      pulseRealtime();
 
-      if (!item.id.startsWith('ward-')) {
+      if (item.id.startsWith('ward-')) return false;
+      {
         const { error } = await supabase.from('wardrobe_items').update({
           name: item.name,
           code: codeUpper,
@@ -3103,17 +2515,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           category: item.category,
           price_cents: item.rental_price_cents,
           deposit_cents: item.deposit_cents,
-          availability_status: item.status,
+          availability_status: item.status === 'mantenimiento' ? 'en_mantenimiento' : item.status,
           is_active: item.active !== undefined ? item.active : true,
           images: item.image_url ? [item.image_url] : [],
           updated_at: new Date().toISOString(),
-        }).eq('id', item.id);
+        }).eq('id', item.id).select('id').single();
 
         if (error) {
           console.error('Error al actualizar prenda de vestuario en Supabase:', error);
           return false;
         }
       }
+      setWardrobe((prev) => prev.map((w) => (w.id === item.id ? updatedItem : w)));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error updating wardrobe item:', err);
@@ -3123,16 +2537,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteWardrobeItem = useCallback(async (id: string): Promise<boolean> => {
     try {
-      setWardrobe((prev) => prev.filter((w) => w.id !== id));
-      pulseRealtime();
 
-      if (!id.startsWith('ward-')) {
-        const { error } = await supabase.from('wardrobe_items').delete().eq('id', id);
+      if (id.startsWith('ward-')) return false;
+      {
+        const { error } = await supabase.from('wardrobe_items').delete().eq('id', id).select('id').single();
         if (error) {
           console.error('Error al eliminar prenda en Supabase:', error);
           return false;
         }
       }
+      setWardrobe((prev) => prev.filter((w) => w.id !== id));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error deleting wardrobe item:', err);
@@ -3143,20 +2558,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const toggleWardrobeActive = useCallback(async (id: string, currentActive: boolean): Promise<boolean> => {
     try {
       const nextActive = !currentActive;
-      setWardrobe((prev) => prev.map((w) => (w.id === id ? { ...w, active: nextActive } : w)));
-      pulseRealtime();
 
-      if (id.includes('-') && id.length === 36) {
+      if (id.length !== 36) return false;
+      {
         const { error } = await supabase.from('wardrobe_items').update({
           is_active: nextActive,
           updated_at: new Date().toISOString(),
-        }).eq('id', id);
+        }).eq('id', id).select('id').single();
 
         if (error) {
           console.error('Error al alternar visibilidad de vestuario en Supabase:', error);
           return false;
         }
       }
+      setWardrobe((prev) => prev.map((w) => (w.id === id ? { ...w, active: nextActive } : w)));
+      pulseRealtime();
       return true;
     } catch (err) {
       console.error('Error toggling wardrobe active state:', err);
@@ -3164,284 +2580,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [pulseRealtime]);
 
-  const updateWardrobeStatus = useCallback((id: string, status: WardrobeStatus) => {
-    setWardrobe((prev) => prev.map((w) => (w.id === id ? { ...w, status } : w)));
+  const updateWardrobeStatus = useCallback(async (id: string, status: WardrobeStatus) => {
+    const { error } = await supabase.from('wardrobe_items').update({
+      availability_status: status === 'mantenimiento' ? 'en_mantenimiento' : status,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id).select('id').single();
+    if (error) { setOperationError('No se pudo cambiar el estado de la prenda.'); return; }
+    setWardrobe(prev => prev.map(w => w.id === id ? { ...w, status } : w));
     pulseRealtime();
-
-    if (id.includes('-') && id.length === 36) {
-      supabase.from('wardrobe_items').update({
-        availability_status: status,
-        updated_at: new Date().toISOString(),
-      }).eq('id', id).then();
-    }
   }, [pulseRealtime]);
 
   // ==========================================
   // OPERACIONES DE ALQUILER DE VESTUARIOS (dress_rentals)
   // ==========================================
-  const addDressRental = useCallback(
-    async (
-      data: Omit<DressRental, 'id' | 'ticket_code' | 'created_at' | 'updated_at'>
-    ): Promise<DressRental | null> => {
-      try {
-        // Generar correlativo dinámico según origen
-        const prefix = data.origin === 'web' ? 'W' : 'P';
-        const randomNum = Math.floor(1000 + Math.random() * 9000);
-        const ticketCode = `${prefix}-${randomNum}`;
+  const addDressRental = useCallback(async (data: Omit<DressRental, 'id' | 'ticket_code' | 'created_at' | 'updated_at'>): Promise<DressRental | null> => {
+    const key = 'dress:' + JSON.stringify(data);
+    if (pendingOperations.current.has(key)) return null;
+    pendingOperations.current.add(key);
+    try {
+      // The private upload path binds web vouchers to this request ID.
+      const id = data.origin === 'web' ? data.voucher_url?.split('/')[1] : requestId(key);
+      const created = await qaRpc<DressRental>('qa_create_dress_rental', { p_request_id: id, p_rental: data });
+      setDressRentals(prev => [created, ...prev.filter(r => r.id !== created.id)]);
+      pulseRealtime();
+      return created;
+    } finally { pendingOperations.current.delete(key); }
+  }, [pulseRealtime]);
 
-        // QA-006: Rechazar blob: URLs - solo se aceptan URLs persistentes de Supabase Storage
-        if (data.voucher_url && data.voucher_url.startsWith('blob:')) {
-          throw new Error(
-            'El comprobante no fue guardado correctamente. Por favor carga el comprobante nuevamente.'
-          );
-        }
-
-        // QA-006: Para reservas web, exigir comprobante con URL real
-        if (data.origin === 'web' && !data.voucher_url) {
-          throw new Error('Debes adjuntar el comprobante de pago Yape para confirmar tu reserva online.');
-        }
-
-        const insertPayload = {
-          ticket_code: ticketCode,
-          origin: data.origin,
-          wardrobe_item_id: data.wardrobe_item_id || null,
-          item_code: data.item_code,
-          item_name: data.item_name,
-          item_size: data.item_size || 'M',
-          item_color: data.item_color || 'Variado',
-          client_first_name: data.client_first_name.trim(),
-          client_last_name: data.client_last_name.trim(),
-          client_dni: data.client_dni.trim(),
-          client_phone: data.client_phone.trim(),
-          event_name: data.event_name.trim(),
-          destination: data.destination.trim(),
-          event_date: data.event_date,
-          return_date: data.return_date,
-          status: data.status,
-          rental_price_cents: data.rental_price_cents,
-          advance_cents: data.advance_cents,
-          pending_cents: data.pending_cents,
-          guarantee_cents: data.guarantee_cents,
-          guarantee_returned_cents: data.guarantee_returned_cents || null,
-          penalty_cents: data.penalty_cents || 0,
-          penalty_reason: data.penalty_reason || null,
-          is_immediate_delivery: data.is_immediate_delivery,
-          delivery_date: data.delivery_date || (data.is_immediate_delivery ? new Date().toISOString() : null),
-          actual_return_date: data.actual_return_date || null,
-          voucher_url: data.voucher_url || null,
-          voucher_declared_amount_cents: data.voucher_declared_amount_cents || null,
-          rejection_reason: data.rejection_reason || null,
-          notes: data.notes || null,
-        };
-
-        const { data: dbData, error } = await (supabase as any)
-          .from('dress_rentals')
-          .insert(insertPayload)
-          .select()
-          .single();
-
-        let newRental: DressRental;
-        if (!error && dbData) {
-          const raw: any = dbData;
-          newRental = {
-            id: raw.id,
-            ticket_code: raw.ticket_code,
-            origin: raw.origin as DressRentalOrigin,
-            wardrobe_item_id: raw.wardrobe_item_id,
-            item_code: raw.item_code,
-            item_name: raw.item_name,
-            item_size: raw.item_size || 'M',
-            item_color: raw.item_color || 'Variado',
-            client_first_name: raw.client_first_name,
-            client_last_name: raw.client_last_name,
-            client_dni: raw.client_dni,
-            client_phone: raw.client_phone,
-            event_name: raw.event_name,
-            destination: raw.destination,
-            event_date: raw.event_date,
-            return_date: raw.return_date,
-            status: raw.status as DressRentalStatus,
-            rental_price_cents: raw.rental_price_cents,
-            advance_cents: raw.advance_cents,
-            pending_cents: raw.pending_cents,
-            guarantee_cents: raw.guarantee_cents,
-            guarantee_returned_cents: raw.guarantee_returned_cents,
-            penalty_cents: raw.penalty_cents,
-            penalty_reason: raw.penalty_reason,
-            is_immediate_delivery: raw.is_immediate_delivery,
-            delivery_date: raw.delivery_date,
-            actual_return_date: raw.actual_return_date,
-            voucher_url: raw.voucher_url,
-            voucher_declared_amount_cents: raw.voucher_declared_amount_cents,
-            rejection_reason: raw.rejection_reason,
-            notes: raw.notes,
-            created_at: raw.created_at,
-            updated_at: raw.updated_at,
-          };
-        } else {
-          // QA-005: Si Supabase falla, NO crear registro local ficticio como alquiler "confirmado".
-          // Lanzar el error para que el componente lo capture y muestre al usuario.
-          const errorMessage = (error as any)?.message || 'Error de base de datos al registrar el alquiler';
-          console.error('Error al insertar alquiler de vestuario en Supabase:', error);
-          throw new Error(errorMessage);
-        }
-      } catch (err) {
-        console.error('Error adding dress rental:', err);
-        return null;
-      }
-    },
-    [pulseRealtime]
-  );
-
-  const validateYapeVoucher = useCallback(
-    async (rentalId: string, approved: boolean, reason?: string): Promise<boolean> => {
-      try {
-        const nextStatus: DressRentalStatus = approved ? 'reservado' : 'anulado';
-        const updatePayload: any = {
-          status: nextStatus,
-          updated_at: new Date().toISOString(),
-        };
-        if (!approved && reason) {
-          updatePayload.rejection_reason = reason;
-        }
-
-        setDressRentals((prev) =>
-          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
-        );
-        pulseRealtime();
-
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
-        }
-        return true;
-      } catch (err) {
-        console.error('Error validating Yape voucher:', err);
-        return false;
-      }
-    },
-    [pulseRealtime]
-  );
-
-  const confirmDressDelivery = useCallback(
-    async (
-      rentalId: string,
-      balanceCollectedCents: number,
-      guaranteeCollectedCents: number
-    ): Promise<boolean> => {
-      try {
-        const updatePayload = {
-          status: 'entregado' as DressRentalStatus,
-          pending_cents: 0,
-          guarantee_cents: guaranteeCollectedCents,
-          delivery_date: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        setDressRentals((prev) =>
-          prev.map((r) =>
-            r.id === rentalId
-              ? {
-                  ...r,
-                  ...updatePayload,
-                  advance_cents: r.advance_cents + balanceCollectedCents,
-                }
-              : r
-          )
-        );
-        pulseRealtime();
-
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
-        }
-        return true;
-      } catch (err) {
-        console.error('Error confirming dress delivery:', err);
-        return false;
-      }
-    },
-    [pulseRealtime]
-  );
-
-  const processDressReturn = useCallback(
-    async (
-      rentalId: string,
-      guaranteeReturnedCents: number,
-      penaltyReason?: string
-    ): Promise<boolean> => {
-      try {
-        const existing = dressRentals.find((r) => r.id === rentalId);
-        const originalGuarantee = existing?.guarantee_cents || 0;
-        const penaltyCents = Math.max(0, originalGuarantee - guaranteeReturnedCents);
-
-        const updatePayload = {
-          status: 'finalizado' as DressRentalStatus,
-          guarantee_returned_cents: guaranteeReturnedCents,
-          penalty_cents: penaltyCents,
-          penalty_reason: penaltyReason || null,
-          actual_return_date: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        setDressRentals((prev) =>
-          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
-        );
-        pulseRealtime();
-
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
-        }
-        return true;
-      } catch (err) {
-        console.error('Error processing dress return:', err);
-        return false;
-      }
-    },
-    [dressRentals, pulseRealtime]
-  );
-
-  const cancelDressRental = useCallback(
-    async (rentalId: string, reason?: string): Promise<boolean> => {
-      try {
-        const updatePayload = {
-          status: 'anulado' as DressRentalStatus,
-          rejection_reason: reason || null,
-          updated_at: new Date().toISOString(),
-        };
-
-        setDressRentals((prev) =>
-          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
-        );
-        pulseRealtime();
-
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
-        }
-        return true;
-      } catch (err) {
-        console.error('Error cancelling dress rental:', err);
-        return false;
-      }
-    },
-    [pulseRealtime]
-  );
-
-  const deleteDressRental = useCallback(
-    async (rentalId: string): Promise<boolean> => {
-      try {
-        setDressRentals((prev) => prev.filter((r) => r.id !== rentalId));
-        pulseRealtime();
-
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').delete().eq('id', rentalId);
-        }
-        return true;
-      } catch (err) {
-        console.error('Error deleting dress rental:', err);
-        return false;
-      }
-    },
-    [pulseRealtime]
-  );
+  const transitionDress = useCallback(async (id: string, action: string, amount = 0, guarantee = 0, reason = '') => {
+    if (pendingOperations.current.has(id)) return false;
+    pendingOperations.current.add(id);
+    try {
+      const saved = await qaRpc<DressRental>('qa_transition_dress', { p_id: id, p_action: action, p_amount: amount, p_guarantee: guarantee, p_reason: reason });
+      setDressRentals(prev => prev.map(r => r.id === id ? saved : r));
+      pulseRealtime();
+      return true;
+    } catch (err) {
+      setOperationError(err instanceof Error ? err.message : 'No se pudo guardar el alquiler.');
+      return false;
+    } finally { pendingOperations.current.delete(id); }
+  }, [pulseRealtime]);
+  const validateYapeVoucher = useCallback((id: string, approved: boolean, reason?: string) => transitionDress(id, approved ? 'approve' : 'cancel', 0, 0, reason), [transitionDress]);
+  const confirmDressDelivery = useCallback((id: string, amount: number, guarantee: number) => transitionDress(id, 'deliver', amount, guarantee), [transitionDress]);
+  const processDressReturn = useCallback((id: string, guarantee: number, reason?: string) => transitionDress(id, 'return', 0, guarantee, reason), [transitionDress]);
+  const cancelDressRental = useCallback((id: string, reason?: string) => transitionDress(id, 'cancel', 0, 0, reason), [transitionDress]);
+  const deleteDressRental = useCallback(async (id: string): Promise<boolean> => {
+    const { data, error } = await (supabase as any).from('dress_rentals').delete().eq('id', id).select('id').single();
+    if (error || !data) { setOperationError('No se pudo eliminar el alquiler.'); return false; }
+    setDressRentals(prev => prev.filter(r => r.id !== id));
+    pulseRealtime();
+    return true;
+  }, [pulseRealtime]);
 
   // KPI CALCULATIONS (Reglas oficiales: Section C.1 & C.5 - Filtrado estricto por "Hoy" America/Lima UTC-5)
   const kpis = useMemo(() => {
@@ -3547,6 +2736,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         attendanceSettings,
         updateAttendanceSettings,
         cart,
+        whatsappNumber,
+        revalidateCart,
         addToCart,
         removeFromCart,
         updateCartQuantity,
@@ -3571,8 +2762,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateBookingServicePrice,
         deleteBooking,
         editBooking,
-        registerVentaMostrador,
-        registerCounterSale: registerVentaMostrador,
         processPosSaleWithStock,
         deleteVentaMostrador,
         setProducts,
@@ -3615,6 +2804,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }}
     >
       {children}
+      {operationError && <div role="alert" className="fixed bottom-4 left-4 right-4 z-[200] rounded-xl bg-rose-950 border border-rose-500 p-4 text-white text-sm flex justify-between gap-4">
+        <span>{operationError}</span><button onClick={() => setOperationError(null)}>Cerrar</button>
+      </div>}
     </AppContext.Provider>
   );
 };
