@@ -338,6 +338,8 @@ export interface VentaMostrador {
   detalles_items?: any[];
   notes?: string;
   created_at: string;
+  fecha?: string;
+  voided?: boolean;
 }
 
 export type ExpenseCategory =

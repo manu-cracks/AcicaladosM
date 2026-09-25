@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, getBookingCollectedAmountCents, getBookingServicesWithCollectedCents, ServiceAuditItem } from '../../types';
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
+import { useFinancialSSOT, getServiceCategory } from '../../services/financialSSOT';
 import { supabase } from '../../lib/supabase/client';
 import { jsPDF } from 'jspdf';
 import {
@@ -152,139 +153,31 @@ export const ReportesView: React.FC = () => {
     setSelectedDate(d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' }));
   };
 
-  // 2. Cálculos y Métricas Reactivas para la Fecha Seleccionada
-  // Citas de la fecha (excluyendo canceladas y expiradas)
-  const dayBookings = useMemo(() => {
-    return bookings.filter((b) => {
-      if (
-        b.status === 'cancelada' ||
-        b.status === 'cancelled' ||
-        b.status === 'expirada' ||
-        Boolean(b.cancelled_at) ||
-        Boolean(b.expired_at)
-      ) {
-        return false;
-      }
-      return getLimaDateFromTimestamp(b.date) === selectedDate;
-    });
-  }, [bookings, selectedDate]);
+  // 2. Cálculos y Métricas Reactivas Centralizadas (SSOT)
+  const financialMetrics = useFinancialSSOT(selectedDate, {
+    employeeId: selectedEmployee?.id,
+    employeeArea: selectedEmployeeArea || undefined,
+  });
 
-  // Total de Atenciones de la fecha (conteo de servicios agendados o citas completadas)
+  const {
+    barberiaCents,
+    spaCents,
+    barberiaCount,
+    spaCount,
+    ventasMostradorCents: ventasCents,
+    vestuarioCents,
+    totalEgresosCents: egresosCents,
+    totalIngresosCents,
+    balanceNetoCents: gananciaNetaCents,
+    filteredBookings: dayBookings,
+    filteredVentas: dayVentas,
+    filteredExpenses: dayExpenses,
+  } = financialMetrics;
+
+  // Total de Atenciones de la fecha (conteo de servicios agendados o citas)
   const totalAtenciones = useMemo(() => {
     return dayBookings.reduce((acc, b) => acc + (b.services?.length || 1), 0);
   }, [dayBookings]);
-
-  // Ingresos por Barbería y por Spa (Regla estricta: solo dinero real efectivamente cobrado)
-  // Admite parámetro opcional de filtrado por especialista (employee_id)
-  const { barberiaCents, spaCents, barberiaCount, spaCount } = useMemo(() => {
-    let bCents = 0;
-    let sCents = 0;
-    let bCount = 0;
-    let sCount = 0;
-
-    dayBookings.forEach((b) => {
-      const servicesWithCollected = getBookingServicesWithCollectedCents(b);
-      servicesWithCollected.forEach((srv) => {
-        // Filtrado por empleado si fue seleccionado
-        if (selectedEmployee) {
-          const matchesId = srv.employee_id === selectedEmployee.id;
-          const matchesName =
-            Boolean(srv.employee_name) &&
-            srv.employee_name.toLowerCase().trim() === selectedEmployee.full_name.toLowerCase().trim();
-
-          if (!matchesId && !matchesName) {
-            return;
-          }
-        }
-
-        const catalogItem = services.find(
-          (s) => s.id === srv.service_id || s.name === srv.service_name
-        );
-        const isSpa =
-          catalogItem?.category === 'spa' ||
-          srv.service_name.toLowerCase().includes('spa') ||
-          srv.service_name.toLowerCase().includes('masaje') ||
-          srv.service_name.toLowerCase().includes('facial') ||
-          srv.service_name.toLowerCase().includes('exfolia');
-
-        if (selectedEmployeeArea === 'spa') {
-          sCents += srv.collected_cents;
-          sCount += 1;
-        } else if (selectedEmployeeArea === 'barberia') {
-          bCents += srv.collected_cents;
-          bCount += 1;
-        } else if (isSpa) {
-          sCents += srv.collected_cents;
-          sCount += 1;
-        } else {
-          bCents += srv.collected_cents;
-          bCount += 1;
-        }
-      });
-    });
-
-    return {
-      barberiaCents: bCents,
-      spaCents: sCents,
-      barberiaCount: bCount,
-      spaCount: sCount,
-    };
-  }, [dayBookings, services, selectedEmployee, selectedEmployeeArea]);
-
-  // Ingresos por Ventas de Mostrador en esa fecha (excluyendo anuladas)
-  const dayVentas = useMemo(() => {
-    return ventasMostrador.filter((v: any) => {
-      if (v.voided) return false;
-      const vDate = getLimaDateFromTimestamp(v.created_at || v.fecha);
-      return vDate === selectedDate;
-    });
-  }, [ventasMostrador, selectedDate]);
-
-  const ventasCents = useMemo(() => {
-    return dayVentas.reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
-  }, [dayVentas]);
-
-  // Ingresos por Alquiler de Vestuario / Trajes
-  const vestuarioCents = useMemo(() => {
-    // Si existen reservas específicas de tipo vestuario o catálogo
-    return 0; // Mantenido para modelo extensible
-  }, []);
-
-  // Egresos Operativos de la fecha (excluyendo anulados)
-  const dayExpenses = useMemo(() => {
-    return expenses.filter((e) => {
-      if (e.voided) return false;
-      const statusUpper = (e.status || '').toUpperCase();
-      const estadoUpper = (e.estado || '').toUpperCase();
-      if (
-        statusUpper === 'ANULADO' ||
-        statusUpper === 'ELIMINADO' ||
-        statusUpper === 'INACTIVO' ||
-        statusUpper === 'VOIDED' ||
-        estadoUpper === 'ANULADO' ||
-        estadoUpper === 'ELIMINADO' ||
-        estadoUpper === 'INACTIVO'
-      ) {
-        return false;
-      }
-      const eDate = getLimaDateFromTimestamp(e.date || e.created_at);
-      return eDate === selectedDate;
-    });
-  }, [expenses, selectedDate]);
-
-  const egresosCents = useMemo(() => {
-    return dayExpenses.reduce((acc, e) => acc + e.amount_cents, 0);
-  }, [dayExpenses]);
-
-  // Total Ingresos Cobrados (Recaudado real: Servicios cobrados + Ventas + Vestuario)
-  const totalIngresosCents = useMemo(() => {
-    return barberiaCents + spaCents + ventasCents + vestuarioCents;
-  }, [barberiaCents, spaCents, ventasCents, vestuarioCents]);
-
-  // Ganancia Neta (Cálculo: Total Ingresos Cobrados - Total Egresos)
-  const gananciaNetaCents = useMemo(() => {
-    return totalIngresosCents - egresosCents;
-  }, [totalIngresosCents, egresosCents]);
 
   // 3. Top de Servicios Más Reservados del Día (suma recaudación real por servicio)
   const topServices = useMemo(() => {
@@ -297,19 +190,16 @@ export const ReportesView: React.FC = () => {
       const servicesWithCollected = getBookingServicesWithCollectedCents(b);
       servicesWithCollected.forEach((srv) => {
         const key = srv.service_name;
-        const catalogItem = services.find(
-          (s) => s.id === srv.service_id || s.name === srv.service_name
+        const itemCategory = getServiceCategory(
+          { service_id: srv.service_id, service_name: srv.service_name },
+          services
         );
-        const isSpa =
-          catalogItem?.category === 'spa' ||
-          srv.service_name.toLowerCase().includes('masaje') ||
-          srv.service_name.toLowerCase().includes('facial');
 
         const existing = map.get(key) || {
           name: srv.service_name,
           count: 0,
           totalCents: 0,
-          category: isSpa ? 'spa' : 'barberia',
+          category: itemCategory,
         };
         existing.count += 1;
         existing.totalCents += srv.collected_cents;
@@ -379,19 +269,11 @@ export const ReportesView: React.FC = () => {
       if (isMounted) {
         let fallbackItems: ServiceAuditItem[] = dayBookings.flatMap((b) => {
           return (b.services || []).map((srv) => {
-            const catalogItem = services.find(
-              (s) => s.id === srv.service_id || s.name === srv.service_name
+            const itemCat = getServiceCategory(
+              { service_id: srv.service_id, service_name: srv.service_name },
+              services
             );
-            const isSpa =
-              catalogItem?.category === 'spa' ||
-              srv.service_name.toLowerCase().includes('spa') ||
-              srv.service_name.toLowerCase().includes('masaje') ||
-              srv.service_name.toLowerCase().includes('facial') ||
-              srv.service_name.toLowerCase().includes('acrilic') ||
-              srv.service_name.toLowerCase().includes('exfolia') ||
-              srv.service_name.toLowerCase().includes('uña') ||
-              srv.service_name.toLowerCase().includes('manicure') ||
-              srv.service_name.toLowerCase().includes('pedicure');
+            const isSpa = itemCat === 'spa';
 
             const assignedEmp = employees.find(
               (e) =>

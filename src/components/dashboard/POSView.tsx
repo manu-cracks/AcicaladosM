@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import { formatSoles, VentaMostrador, Product } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
+import { isVentaActive } from '../../services/financialSSOT';
 import { supabase } from '../../lib/supabase/client';
 import {
   Zap,
@@ -856,11 +857,11 @@ export const POSView: React.FC = () => {
     );
   }, [historySales, historySearch]);
 
-  // Resumen del turno recalculado exclusivamente para la fecha seleccionada
+  // Resumen del turno recalculado exclusivamente para la fecha seleccionada vía SSOT
   const turnoTotalCents = useMemo(() => {
-    return historySales.reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
+    return historySales.filter((v) => isVentaActive(v)).reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
   }, [historySales]);
-  const turnoTotalCount = historySales.length;
+  const turnoTotalCount = historySales.filter((v) => isVentaActive(v)).length;
 
   if (isDataLoading) {
     return <DashboardSkeleton />;

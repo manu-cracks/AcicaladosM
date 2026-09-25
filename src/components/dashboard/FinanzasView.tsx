@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
+import { isExpenseActive, useFinancialSSOT } from '../../services/financialSSOT';
 
 export const FinanzasView: React.FC = () => {
   const {
@@ -51,21 +52,8 @@ export const FinanzasView: React.FC = () => {
   const isToday = selectedDate === todayStr;
   const dateDisplayLabel = isToday ? 'Hoy' : selectedDate;
 
-  // Verificación rigurosa de estado ANULADO / inactivo
-  const isAnulado = (exp: Expense): boolean => {
-    if (exp.voided) return true;
-    const statusUpper = (exp.status || '').toUpperCase();
-    const estadoUpper = (exp.estado || '').toUpperCase();
-    return (
-      statusUpper === 'ANULADO' ||
-      statusUpper === 'VOIDED' ||
-      statusUpper === 'ELIMINADO' ||
-      statusUpper === 'INACTIVO' ||
-      estadoUpper === 'ANULADO' ||
-      estadoUpper === 'ELIMINADO' ||
-      estadoUpper === 'INACTIVO'
-    );
-  };
+  // Verificación unificada vía SSOT de egresos anulados / inactivos
+  const isAnulado = (exp: Expense): boolean => !isExpenseActive(exp);
 
   // Egresos del Día seleccionado (Zona Horaria America/Lima UTC-5)
   const dayExpenses = useMemo(() => {
@@ -75,15 +63,14 @@ export const FinanzasView: React.FC = () => {
     });
   }, [expenses, selectedDate]);
 
-  // Egresos ACTIVOS del Día (excluye estrictamente los anulados)
+  // Egresos ACTIVOS del Día (excluye estrictamente los anulados vía SSOT)
   const activeExpenses = useMemo(() => {
-    return dayExpenses.filter((e) => !isAnulado(e));
+    return dayExpenses.filter((e) => isExpenseActive(e));
   }, [dayExpenses]);
 
-  // TOTAL EGRESOS OPERATIVOS: suma exclusivamente gastos activos del día
-  const totalEgresosCents = useMemo(() => {
-    return activeExpenses.reduce((acc, e) => acc + (e.amount_cents || 0), 0);
-  }, [activeExpenses]);
+  // TOTAL EGRESOS OPERATIVOS centralizado vía SSOT
+  const financialMetrics = useFinancialSSOT(selectedDate);
+  const totalEgresosCents = financialMetrics.totalEgresosCents;
 
   // Apertura de Modal para Crear
   const handleOpenAddModal = () => {

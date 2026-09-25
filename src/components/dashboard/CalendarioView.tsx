@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import { formatSoles, Booking } from '../../types';
 import { supabase } from '../../lib/supabase/client';
+import { isBookingConfirmedPayment } from '../../services/financialSSOT';
 import {
   ChevronLeft,
   ChevronRight,
@@ -153,8 +154,9 @@ export const CalendarioView: React.FC = () => {
   const allEvents = useMemo(() => {
     const events: CalendarEvent[] = [];
 
-    // 1. Process bookings at service-specialist level
-    bookings.forEach((b) => {
+    // 1. Process bookings at service-specialist level (Filtro estricto: solo reservas con pago confirmado)
+    const confirmedBookings = bookings.filter((b) => isBookingConfirmedPayment(b));
+    confirmedBookings.forEach((b) => {
       if (b.services && b.services.length > 0) {
         b.services.forEach((srv, idx) => {
           let specialistName = srv.employee_name || '';

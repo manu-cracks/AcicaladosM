@@ -34,6 +34,11 @@ import {
 import { sanitizePhone, sanitizeDni } from '../lib/validators';
 import { supabase } from '../lib/supabase/client';
 import { timeToMinutes, minutesToTime } from '../lib/bookingAvailability';
+import {
+  calculateFinancialMetrics,
+  FinancialMetrics,
+  FinancialFilterOptions,
+} from '../services/financialSSOT';
 
 interface AppContextType {
   // Navigation & Role
@@ -214,6 +219,7 @@ interface AppContextType {
     citasConfirmadasCount: number;
     saldosPorCobrarCents: number;
   };
+  getFinancialMetrics: (dateFilter?: string, options?: FinancialFilterOptions) => FinancialMetrics;
 }
 
 const getCachedRole = (): UserRole => {
@@ -3543,94 +3549,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [pulseRealtime]
   );
 
-  // KPI CALCULATIONS (Reglas oficiales: Section C.1 & C.5 - Filtrado estricto por "Hoy" America/Lima UTC-5)
+  // SERVICIO CENTRALIZADO DE CÁLCULO FINANCIERO (SSOT)
+  const getFinancialMetrics = useCallback(
+    (dateFilter: string = 'hoy', options?: FinancialFilterOptions): FinancialMetrics => {
+      return calculateFinancialMetrics({
+        dateFilter,
+        bookings,
+        ventasMostrador,
+        expenses,
+        services,
+        dressRentals,
+        options,
+      });
+    },
+    [bookings, ventasMostrador, expenses, services, dressRentals]
+  );
+
+  // KPI CALCULATIONS (Unificado vía SSOT para la jornada de "Hoy" en America/Lima UTC-5)
   const kpis = useMemo(() => {
-    const today = getTodayDateString();
-
-    // 1. Citas activas de Hoy (excluyendo canceladas y expiradas)
-    const activeBookings = bookings.filter((b) => {
-      if (
-        b.status === 'cancelada' ||
-        b.status === 'cancelled' ||
-        b.status === 'expirada' ||
-        Boolean(b.cancelled_at) ||
-        Boolean(b.expired_at)
-      ) {
-        return false;
-      }
-      return getLimaDateFromTimestamp(b.date) === today;
-    });
-
-    // Suma únicamente reservas en estado PAGADO (100%) y adelantos percibidos en tiempo real
-    const ingresosServiciosCents = activeBookings.reduce(
-      (acc, b) => acc + getBookingCollectedAmountCents(b),
-      0
-    );
-
-    // 2. Ventas de Mostrador de Hoy (excluyendo anuladas)
-    const activeVentas = ventasMostrador.filter(
-      (v: any) => !v.voided && getLimaDateFromTimestamp(v.created_at || v.fecha) === today
-    );
-    const ventasMostradorCents = activeVentas.reduce(
-      (acc, v) => acc + (v.total_price_cents || 0),
-      0
-    );
-
-    const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
-
-    // 3. Egresos Operativos de Hoy (excluyendo anulados)
-    const activeExpenses = expenses.filter((e) => {
-      if (e.voided) return false;
-      const statusUpper = (e.status || '').toUpperCase();
-      const estadoUpper = (e.estado || '').toUpperCase();
-      if (
-        statusUpper === 'ANULADO' ||
-        statusUpper === 'ELIMINADO' ||
-        statusUpper === 'INACTIVO' ||
-        statusUpper === 'VOIDED' ||
-        estadoUpper === 'ANULADO' ||
-        estadoUpper === 'ELIMINADO' ||
-        estadoUpper === 'INACTIVO'
-      ) {
-        return false;
-      }
-      return getLimaDateFromTimestamp(e.date || e.created_at) === today;
-    });
-    const totalEgresosCents = activeExpenses.reduce(
-      (acc, e) => acc + (e.amount_cents || 0),
-      0
-    );
-
-    const balanceNetoCents = totalIngresosCents - totalEgresosCents;
-
-    const citasHoy = bookings.filter(
-      (b) =>
-        getLimaDateFromTimestamp(b.date) === today &&
-        b.status !== 'cancelada' &&
-        b.status !== 'cancelled' &&
-        !b.cancelled_at
-    );
-    const citasConfirmadas = citasHoy.filter(
-      (b) => b.payment_status === 'total' || b.payment_status === 'parcial'
-    );
-
-    const saldosPorCobrarCents = activeBookings.reduce((acc, b) => {
-      const collected = getBookingCollectedAmountCents(b);
-      const saldo = Math.max(0, (b.total_price_cents || 0) - collected);
-      return acc + saldo;
-    }, 0);
-
+    const metrics = getFinancialMetrics('hoy');
     return {
-      totalIngresosCents,
-      ingresosServiciosCents,
-      ventasMostradorCents,
-      totalEgresosCents,
-      balanceNetoCents,
-      citasHoyCount: citasHoy.length,
-      citasConfirmadasCount: citasConfirmadas.length,
-      saldosPorCobrarCents,
+      totalIngresosCents: metrics.totalIngresosCents,
+      ingresosServiciosCents: metrics.ingresosServiciosCents,
+      ventasMostradorCents: metrics.ventasMostradorCents,
+      totalEgresosCents: metrics.totalEgresosCents,
+      balanceNetoCents: metrics.balanceNetoCents,
+      citasHoyCount: metrics.citasCount,
+      citasConfirmadasCount: metrics.citasConfirmadasCount,
+      saldosPorCobrarCents: metrics.saldosPorCobrarCents,
     };
-  }, [bookings, expenses, ventasMostrador]);
+  }, [getFinancialMetrics]);
 
   return (
     <AppContext.Provider
@@ -3729,6 +3677,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cancelDressRental,
         deleteDressRental,
         kpis,
+        getFinancialMetrics,
       }}
     >
       {children}

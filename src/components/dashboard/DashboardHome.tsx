@@ -4,6 +4,7 @@ import { formatSoles, formatLimaDate, Booking, getBookingCollectedAmountCents } 
 import { getTodayDateString } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
 import { DashboardSkeleton } from './DashboardSkeleton';
+import { useFinancialSSOT } from '../../services/financialSSOT';
 import {
   TrendingUp,
   TrendingDown,
@@ -99,155 +100,11 @@ export const DashboardHome: React.FC = () => {
     };
   }, [dateFilter, isExactDate, todayStr, lastSyncTimestamp]);
 
-  // 1. Filtrado riguroso de citas por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
-  const rangeBookings = useMemo(() => {
-    const validBookings = bookings.filter((b) => {
-      return (
-        b.status !== 'cancelada' &&
-        b.status !== 'cancelled' &&
-        b.status !== 'expirada' &&
-        !b.cancelled_at &&
-        !b.expired_at
-      );
-    });
-
-    if (dateFilter === 'todo') return validBookings;
-    if (isExactDate) {
-      return validBookings.filter((b) => getLimaDateFromTimestamp(b.date) === dateFilter);
-    }
-    if (dateFilter === 'hoy') {
-      return validBookings.filter((b) => getLimaDateFromTimestamp(b.date) === todayStr);
-    }
-
-    let startDateStr = todayStr;
-    if (dateFilter === 'semana') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 7);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    } else if (dateFilter === 'mes') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 30);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    }
-
-    return validBookings.filter((b) => {
-      const d = getLimaDateFromTimestamp(b.date);
-      return d >= startDateStr && d <= todayStr;
-    });
-  }, [bookings, dateFilter, isExactDate, todayStr]);
-
-  // 2. Filtrado riguroso de ventas de mostrador por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
-  const rangeVentas = useMemo(() => {
-    const activeVentas = ventasMostrador.filter((v: any) => !v.voided);
-    if (dateFilter === 'todo') return activeVentas;
-    if (isExactDate) {
-      return activeVentas.filter((v: any) => getLimaDateFromTimestamp(v.created_at || v.fecha) === dateFilter);
-    }
-    if (dateFilter === 'hoy') {
-      return activeVentas.filter((v: any) => getLimaDateFromTimestamp(v.created_at || v.fecha) === todayStr);
-    }
-
-    let startDateStr = todayStr;
-    if (dateFilter === 'semana') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 7);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    } else if (dateFilter === 'mes') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 30);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    }
-
-    return activeVentas.filter((v: any) => {
-      const d = getLimaDateFromTimestamp(v.created_at || v.fecha);
-      return d >= startDateStr && d <= todayStr;
-    });
-  }, [ventasMostrador, dateFilter, isExactDate, todayStr]);
-
-  // 3. Filtrado riguroso de egresos por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
-  const rangeExpenses = useMemo(() => {
-    const activeExpenses = expenses.filter((e) => {
-      if (e.voided) return false;
-      const statusUpper = (e.status || '').toUpperCase();
-      const estadoUpper = (e.estado || '').toUpperCase();
-      if (
-        statusUpper === 'ANULADO' ||
-        statusUpper === 'ELIMINADO' ||
-        statusUpper === 'INACTIVO' ||
-        statusUpper === 'VOIDED' ||
-        estadoUpper === 'ANULADO' ||
-        estadoUpper === 'ELIMINADO' ||
-        estadoUpper === 'INACTIVO'
-      ) {
-        return false;
-      }
-      return true;
-    });
-    if (dateFilter === 'todo') return activeExpenses;
-    if (isExactDate) {
-      return activeExpenses.filter((e) => getLimaDateFromTimestamp(e.date || e.created_at) === dateFilter);
-    }
-    if (dateFilter === 'hoy') {
-      return activeExpenses.filter((e) => getLimaDateFromTimestamp(e.date || e.created_at) === todayStr);
-    }
-
-    let startDateStr = todayStr;
-    if (dateFilter === 'semana') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 7);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    } else if (dateFilter === 'mes') {
-      const d = new Date(todayStr + 'T12:00:00');
-      d.setDate(d.getDate() - 30);
-      startDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    }
-
-    return activeExpenses.filter((e) => {
-      const d = getLimaDateFromTimestamp(e.date || e.created_at);
-      return d >= startDateStr && d <= todayStr;
-    });
-  }, [expenses, dateFilter, isExactDate, todayStr]);
-
-  // Cálculo financiero estricto según rango o fecha seleccionada
-  const rangeKpis = useMemo(() => {
-    // 1. Ingresos por Servicios: Sumatoria de montos cobrados en reservas
-    const ingresosServiciosCents = rangeBookings.reduce(
-      (acc, b) => acc + getBookingCollectedAmountCents(b),
-      0
-    );
-
-    // 2. Ingresos por Ventas: Sumatoria de montos cobrados en ventas de mostrador
-    const ventasMostradorCents = rangeVentas.reduce(
-      (acc, v) => acc + (v.total_price_cents || 0),
-      0
-    );
-
-    // 3. Total Ingresos Cobrados = Ingresos por Servicios + Ingresos por Ventas
-    const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
-
-    // 4. Total Egresos Operativos
-    const totalEgresosCents = rangeExpenses.reduce(
-      (acc, e) => acc + (e.amount_cents || 0),
-      0
-    );
-
-    // 5. Balance Neto de Caja = Total Ingresos Cobrados - Total Egresos Operativos
-    const balanceNetoCents = totalIngresosCents - totalEgresosCents;
-    const citasCount = rangeBookings.length;
-    const citasConfirmadasCount = rangeBookings.filter(
-      (b) => b.payment_status === 'total' || b.payment_status === 'parcial'
-    ).length;
-
-    return {
-      totalIngresosCents,
-      ingresosServiciosCents,
-      ventasMostradorCents,
-      totalEgresosCents,
-      balanceNetoCents,
-      citasCount,
-      citasConfirmadasCount,
-    };
-  }, [rangeBookings, rangeVentas, rangeExpenses]);
+  // Consulta unificada de métricas y colecciones filtradas (Single Source of Truth)
+  const rangeKpis = useFinancialSSOT(dateFilter);
+  const rangeBookings = rangeKpis.filteredBookings;
+  const rangeVentas = rangeKpis.filteredVentas;
+  const rangeExpenses = rangeKpis.filteredExpenses;
 
   // Título dinámico para la agenda según filtro
   const agendaTitle = useMemo(() => {
@@ -352,8 +209,8 @@ export const DashboardHome: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards Grid (6 métricas: 2 filas de 3 tarjetas equilibradas) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+      {/* KPI Cards Grid (Métricas centralizadas vía SSOT) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
         {/* 1. Total Ingresos Cobrados */}
         <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/60 transition-all">
           <div className="flex items-center justify-between">
@@ -372,26 +229,44 @@ export const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. Ingresos por Servicios */}
-        <div className="bg-[#141414] border border-[#C8A45C]/25 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/50 transition-all">
+        {/* 2. Ingresos por Barbería */}
+        <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-400">Ingresos por Servicios</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center">
-              <Scissors className="w-4 h-4 text-[#E6C875]" />
+            <span className="text-xs font-semibold text-neutral-400">Ingresos por Barbería</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-950/40 text-blue-400 border border-blue-800/40 flex items-center justify-center">
+              <Scissors className="w-4 h-4" />
             </div>
           </div>
           <div>
-            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] tracking-tight block">
-              {formatSoles(rangeKpis.ingresosServiciosCents)}
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-blue-300 tracking-tight block">
+              {formatSoles(rangeKpis.barberiaCents)}
             </span>
             <span className="text-[11px] text-neutral-500 mt-0.5 block">
-              Barbería y Spa cobrados
+              {rangeKpis.barberiaCount} corte(s) y perfilado(s)
             </span>
           </div>
         </div>
 
-        {/* 3. Ingresos por Ventas */}
-        <div className="bg-[#141414] border border-emerald-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-emerald-500/50 transition-all">
+        {/* 3. Ingresos por Spa */}
+        <div className="bg-[#141414] border border-neutral-800 hover:border-purple-500/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-400">Ingresos por Spa</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-950/40 text-purple-400 border border-purple-800/40 flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-purple-300 tracking-tight block">
+              {formatSoles(rangeKpis.spaCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 mt-0.5 block">
+              {rangeKpis.spaCount} servicio(s) de estética
+            </span>
+          </div>
+        </div>
+
+        {/* 4. Ingresos por Ventas */}
+        <div className="bg-[#141414] border border-neutral-800 hover:border-emerald-500/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Ingresos por Ventas</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-950/40 text-emerald-400 flex items-center justify-center">
@@ -408,8 +283,8 @@ export const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* 4. Total Egresos Operativos */}
-        <div className="bg-[#141414] border border-red-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-red-500/50 transition-all">
+        {/* 5. Total Egresos Operativos */}
+        <div className="bg-[#141414] border border-neutral-800 hover:border-red-500/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Total Egresos Operativos</span>
             <div className="w-8 h-8 rounded-lg bg-red-950/40 text-red-400 flex items-center justify-center">
@@ -426,7 +301,7 @@ export const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* 5. Balance Neto de Caja */}
+        {/* 6. Balance Neto de Caja */}
         <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">Balance Neto de Caja</span>
@@ -458,7 +333,7 @@ export const DashboardHome: React.FC = () => {
           </div>
         </div>
 
-        {/* 6. Citas Programadas Hoy / en Periodo */}
+        {/* 7. Citas Programadas */}
         <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-400">
@@ -473,7 +348,27 @@ export const DashboardHome: React.FC = () => {
               {rangeKpis.citasCount} citas
             </span>
             <span className="text-[11px] text-neutral-500 mt-0.5 block">
-              {rangeKpis.citasConfirmadasCount} confirmadas con adelanto
+              {rangeKpis.citasConfirmadasCount} confirmadas con pago
+            </span>
+          </div>
+        </div>
+
+        {/* 8. Saldos por Cobrar */}
+        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-neutral-700 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-400">
+              Saldos por Cobrar
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-amber-950/40 text-amber-400 flex items-center justify-center">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-amber-300 tracking-tight block">
+              {formatSoles(rangeKpis.saldosPorCobrarCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 mt-0.5 block">
+              Pendientes de liquidar en caja
             </span>
           </div>
         </div>
