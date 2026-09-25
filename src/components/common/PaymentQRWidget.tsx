@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import { validateVoucher } from '../../lib/businessRules';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
 import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck, AlertCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase/client';
+import { qaRpc, uploadVoucher } from '../../lib/qaApi';
 
 interface PaymentQRWidgetProps {
   amountCents: number;
+  bookingId: string;
+  clientPhone: string;
   bookingCode?: string;
   clientName?: string;
   onVoucherUploaded?: (voucherUrl: string) => void;
@@ -14,12 +17,16 @@ interface PaymentQRWidgetProps {
 
 export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   amountCents,
+  bookingId,
+  clientPhone,
   bookingCode = 'AC-ONLINE',
   clientName = 'Cliente',
   onVoucherUploaded,
   title = 'Pago de Adelanto con Yape',
 }) => {
-  const { paymentSettings } = useApp();
+  const { paymentSettings, whatsappNumber } = useApp();
+  const uploading = useRef(false);
+  const uploadedFile = useRef<{ fingerprint: string; path: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [uploadedVoucher, setUploadedVoucher] = useState<string | null>(null);
@@ -27,6 +34,12 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   // QA-003: Estado de error de upload visible al usuario
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const [storedStatus, setStoredStatus] = useState('');
+  useEffect(() => {
+    let active = true;
+    qaRpc<{status?: string}>('qa_booking_voucher_status', { p_id: bookingId, p_code: bookingCode, p_phone: clientPhone }).then(data => { if (active) setStoredStatus(data.status || ''); }).catch(() => {});
+    return () => { active = false; };
+  }, [bookingId, bookingCode, clientPhone]);
   const handleCopyPhone = () => {
     navigator.clipboard.writeText(paymentSettings.yape_phone.replace(/\s+/g, ''));
     setCopied(true);
@@ -35,75 +48,39 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
 
   const handleVoucherUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    // QA-003: Validar formato de archivo
-    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      alert('Solo se aceptan imágenes en formato JPG, PNG o WebP.');
-      return;
-    }
-
-    // QA-003: Validar tamaño máximo (5 MB)
-    const MAX_SIZE_MB = 5;
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      alert(`El archivo supera el límite de ${MAX_SIZE_MB} MB. Por favor usa una imagen más pequeña.`);
-      return;
-    }
-
+    e.target.value = '';
+    if (!file || uploading.current) return;
+    uploading.current = true;
     setIsUploading(true);
     setUploadError(null);
-
+    setUploadedVoucher(null);
     try {
-      // QA-003: Generar nombre único para evitar colisiones
-      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-      const uniqueName = `voucher-${bookingCode}-${Date.now()}.${ext}`;
-      const storagePath = `bookings/${uniqueName}`;
-
-      // QA-003: Subir a Supabase Storage bucket 'payment-vouchers'
-      const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from('payment-vouchers')
-        .upload(storagePath, file, { contentType: file.type, upsert: false });
-
-      if (uploadErr || !uploadData) {
-        // QA-003: Si falla Storage, NO simular éxito con blob local
-        console.error('Error subiendo voucher a Supabase Storage:', uploadErr);
-        setUploadError(
-          'No se pudo cargar el comprobante. Verifica tu conexión e inténtalo nuevamente.'
-        );
-        return;
-      }
-
-      // QA-003: Obtener URL pública solo después de confirmar el upload
-      const { data: pubData } = supabase.storage
-        .from('payment-vouchers')
-        .getPublicUrl(uploadData.path);
-
-      const persistentUrl = pubData?.publicUrl || '';
-      if (!persistentUrl) {
-        setUploadError('No se pudo obtener la URL del comprobante. Inténtalo nuevamente.');
-        return;
-      }
-
-      // QA-003: Solo declarar "éxito" después de tener URL persistente
-      setUploadedVoucher(persistentUrl);
-      if (onVoucherUploaded) {
-        onVoucherUploaded(persistentUrl);
-      }
+      const validation = validateVoucher(file);
+      if (validation) throw new Error(validation);
+      const bytes = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      const fingerprint = Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
+      const cached = uploadedFile.current;
+      const path = cached?.fingerprint === fingerprint ? cached.path : await uploadVoucher(file, 'booking', bookingId, bookingCode, clientPhone);
+      uploadedFile.current = { fingerprint, path };
+      await qaRpc('qa_submit_booking_voucher', { p_booking_id: bookingId, p_code: bookingCode,
+        p_phone: clientPhone, p_path: path, p_amount: amountCents });
+      setStoredStatus('pending');
+      setUploadedVoucher(path);
+      onVoucherUploaded?.(path);
     } catch (err) {
-      console.error('Error inesperado al subir voucher:', err);
-      setUploadError('Error inesperado al cargar el comprobante. Inténtalo nuevamente.');
-    } finally {
-      setIsUploading(false);
-    }
+      setUploadError(err instanceof Error ? err.message : 'No se pudo guardar el comprobante. Inténtalo nuevamente.');
+    } finally { uploading.current = false; setIsUploading(false); }
   };
 
   const handleWhatsAppConfirmation = () => {
     const text = encodeURIComponent(
       `¡Hola Acicalados! Acabo de realizar el pago para mi reserva *${bookingCode}* a nombre de *${clientName}*.\n\n*Monto abonado:* ${formatSoles(amountCents)}\n*Medio:* Yape al número ${paymentSettings.yape_phone}\n\nAdjunto comprobante para confirmar mi cita. ¡Muchas gracias!`
     );
-    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${text}`, '_blank');
+    window.open(`https://wa.me/${whatsappNumber}?text=${text}`, '_blank');
   };
+
+  if (!paymentSettings.yape_phone || !paymentSettings.yape_qr_url) return <div role="status" className="rounded-xl border border-amber-700 bg-amber-950/30 p-4 text-sm text-amber-200">Tu reserva está registrada. Contacta a recepción para obtener los datos de pago; Yape aún no está configurado.</div>;
+  if (amountCents <= 0) return <p className="text-sm text-neutral-300">No se requiere adelanto. Recepción revisará tu reserva.</p>;
 
   return (
     <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-6 shadow-xl space-y-5">
@@ -116,7 +93,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <span>{title}</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-semibold">
-                Yape Oficial
+                Validación manual
               </span>
             </h4>
             <p className="text-xs text-neutral-400">Escanea desde tu app Yape o transfiere al número</p>
@@ -185,13 +162,15 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
             </div>
           </div>
 
-          {/* Voucher Upload Section */}
+          {storedStatus && <p role="status" className="text-sm text-amber-200">{storedStatus === 'verified' ? 'Comprobante validado por recepción.' : storedStatus === 'pending' ? 'Comprobante recibido; pendiente de validación por recepción.' : 'El comprobante anterior requiere revisión. Contacta a recepción.'}</p>}
+      {/* Voucher Upload Section */}
           <div className="border border-dashed border-[#C8A45C]/30 hover:border-[#C8A45C]/60 rounded-xl p-3 text-center bg-[#181818] transition">
             <input
               type="file"
               id={`voucher-upload-${bookingCode}`}
               accept="image/jpeg,image/png,image/webp"
               onChange={handleVoucherUpload}
+              disabled={isUploading || amountCents <= 0}
               className="hidden"
             />
             {/* QA-003: Mostrar error de upload si ocurre */}
@@ -209,7 +188,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
                   </div>
                   <div>
                     <span className="text-xs font-semibold text-emerald-400 block">Comprobante Guardado</span>
-                    <span className="text-[10px] text-neutral-400">Persistido en servidor • Listo para validación</span>
+                    <span className="text-[10px] text-neutral-400">Guardado • Pendiente de validación por recepción</span>
                   </div>
                 </div>
                 <label

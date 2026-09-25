@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { voucherPreview } from '../../../lib/qaApi';
+import React, { useState, useEffect } from 'react';
 import { X, Check, AlertTriangle, Eye, ShieldAlert, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { DressRental, formatSoles } from '../../../types';
 import { useApp } from '../../../context/AppContext';
@@ -24,6 +25,13 @@ export const ValidateVoucherModal: React.FC<ValidateVoucherModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const [preview, setPreview] = useState('');
+  useEffect(() => {
+    let active = true;
+    setPreview('');
+    if (isOpen && rental?.voucher_url) voucherPreview(rental.voucher_url).then(url => { if (active) setPreview(url); }).catch(() => { if (active) setErrorMessage('No se pudo abrir el comprobante.'); });
+    return () => { active = false; };
+  }, [isOpen, rental?.voucher_url]);
   if (!isOpen || !rental) return null;
 
   const handleApprove = async () => {
@@ -121,7 +129,7 @@ export const ValidateVoucherModal: React.FC<ValidateVoucherModalProps> = ({
             <div
               onClick={() =>
                 openLightbox({
-                  url: rental.voucher_url!,
+                  url: preview,
                   title: `Voucher Yape - ${rental.ticket_code}`,
                   description: `Cliente: ${rental.client_first_name} ${rental.client_last_name} | Monto: ${formatSoles(rental.voucher_declared_amount_cents || rental.advance_cents)}`,
                 })
@@ -129,7 +137,7 @@ export const ValidateVoucherModal: React.FC<ValidateVoucherModalProps> = ({
               className="relative aspect-video rounded-2xl bg-neutral-900 border border-neutral-800 overflow-hidden cursor-zoom-in group shadow-md"
             >
               <img
-                src={rental.voucher_url}
+                src={preview || undefined}
                 alt="Comprobante Yape"
                 className="w-full h-full object-contain group-hover:scale-105 transition duration-300"
               />
