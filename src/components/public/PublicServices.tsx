@@ -4,7 +4,7 @@ import { formatSoles, Service } from '../../types';
 import { Scissors, Sparkles, Clock, Calendar, Maximize2, MoveHorizontal } from 'lucide-react';
 
 export const PublicServices: React.FC = () => {
-  const { services, setActiveView, openLightbox } = useApp();
+  const { services, setActiveView, openLightbox, paymentSettings } = useApp();
   const [filterCategory, setFilterCategory] = useState<'all' | 'barberia' | 'spa'>('all');
 
   const filtered = services.filter((s) => {
@@ -108,7 +108,7 @@ export const PublicServices: React.FC = () => {
           Carta de Servicios & Terapias
         </h1>
         <p className="text-xs sm:text-sm text-neutral-400">
-          Precios oficiales en Soles Peruanos. Reserva en línea asegurando tu turno con solo el 25% de adelanto mediante Yape.
+          Precios oficiales en Soles Peruanos. Reserva en línea asegurando tu turno con el {paymentSettings.advance_percentage}% de adelanto mediante Yape.
         </p>
 
         {/* Category Filters */}

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export const PublicLanding: React.FC = () => {
-  const { setActiveView, services } = useApp();
+  const { setActiveView, services, paymentSettings } = useApp();
 
   const featuredBarberia = services.filter((s) => s.category === 'barberia').slice(0, 3);
   const featuredSpa = services.filter((s) => s.category === 'spa').slice(0, 3);
@@ -109,7 +109,7 @@ export const PublicLanding: React.FC = () => {
               <span className="text-[11px] text-neutral-400">Especialistas Certificados</span>
             </div>
             <div className="p-3 bg-[#121212] rounded-xl border border-neutral-800">
-              <span className="block font-serif-luxury text-xl font-bold text-[#E6C875]">25%</span>
+              <span className="block font-serif-luxury text-xl font-bold text-[#E6C875]">{paymentSettings.advance_percentage}%</span>
               <span className="text-[11px] text-neutral-400">Garantía de Adelanto</span>
             </div>
           </div>

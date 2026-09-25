@@ -1,3 +1,4 @@
+import { qaRpc, mapBooking } from '../../lib/qaApi';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, formatLimaDate, Booking } from '../../types';
@@ -49,7 +50,8 @@ export const ClientPortal: React.FC = () => {
   // Selected booking to pay pending balance
   const [payingBooking, setPayingBooking] = useState<Booking | null>(null);
 
-  // QA-004: Estado para búsqueda por teléfono de invitados no autenticados
+  // QA-004: Estado para búsqueda por código y celular de invitados no autenticados
+  const [guestLookupCode, setGuestLookupCode] = useState('');
   const [guestLookupPhone, setGuestLookupPhone] = useState('');
   const [isLookingUpGuest, setIsLookingUpGuest] = useState(false);
   const [guestLookupError, setGuestLookupError] = useState<string | null>(null);
@@ -80,16 +82,7 @@ export const ClientPortal: React.FC = () => {
         .select('*, booking_services(*)')
         .order('booking_date', { ascending: false });
 
-      // Filtro estricto por user_id y client_email
-      if (currentUser.id && currentUser.id.includes('-')) {
-        if (currentUser.email) {
-          query = query.or(`user_id.eq.${currentUser.id},client_email.eq.${currentUser.email}`);
-        } else {
-          query = query.eq('user_id', currentUser.id);
-        }
-      } else if (currentUser.email) {
-        query = query.eq('client_email', currentUser.email);
-      }
+      query = query.eq('user_id', currentUser.id);
 
       const { data, error } = await query;
       if (error) {
@@ -98,41 +91,7 @@ export const ClientPortal: React.FC = () => {
         return;
       }
 
-      if (data && data.length > 0) {
-        setUserBookings(
-          data.map((b: any) => ({
-            id: b.id,
-            code: b.booking_code,
-            client_name: `${b.client_first_name} ${b.client_last_name}`.trim(),
-            client_phone: sanitizePhone(b.client_phone) || '',
-            client_email: b.client_email || '',
-            client_dni: sanitizeDni(b.client_dni) || '',
-            date: b.booking_date,
-            start_time: b.start_time?.substring(0, 5) || '10:00',
-            end_time: b.end_time?.substring(0, 5) || '11:00',
-            type: b.service_type as any,
-            services: b.booking_services
-              ? b.booking_services.map((bs: any) => ({
-                  service_id: bs.service_id || '',
-                  service_name: bs.service_name,
-                  employee_id: bs.assigned_employee_id || b.assigned_employee_id || '',
-                  employee_name: 'Especialista',
-                  price_cents: bs.service_price_cents,
-                  duration_minutes: bs.duration_minutes,
-                  hora_inicio: bs.hora_inicio || undefined,
-                  hora_fin: bs.hora_fin || undefined,
-                }))
-              : [],
-            total_price_cents: b.total_price_cents,
-            advance_amount_cents: b.advance_amount_cents || 0,
-            payment_status: b.payment_status as any,
-            created_at: b.created_at,
-            confirmed_at: b.confirmed_at || undefined,
-          }))
-        );
-      } else {
-        setUserBookings([]);
-      }
+      setUserBookings((data || []).map(mapBooking));
     } catch (err) {
       console.error('Error inesperado al cargar citas:', err);
       setUserBookings([]);
@@ -141,63 +100,23 @@ export const ClientPortal: React.FC = () => {
     }
   }, [currentUser]);
 
-  // QA-004: Búsqueda de reservas para usuarios no autenticados (invitados) por teléfono
+  // QA-004: Búsqueda de reservas para usuarios no autenticados (invitados) por código y celular
   const handleGuestLookup = useCallback(async () => {
     const cleanPhone = sanitizePhone(guestLookupPhone);
-    if (!cleanPhone || !isValidPhone(cleanPhone)) {
-      setGuestLookupError(PHONE_ERROR_MESSAGE);
+    if (!guestLookupCode.trim() || !cleanPhone || !isValidPhone(cleanPhone)) {
+      setGuestLookupError('Ingresa el código de reserva y un celular válido.');
       return;
     }
 
+    if (isLookingUpGuest) return;
+    setUserBookings([]);
     setIsLookingUpGuest(true);
     setGuestLookupError(null);
     setGuestLookupDone(false);
 
     try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*, booking_services(*)')
-        .eq('client_phone', cleanPhone)
-        .order('booking_date', { ascending: false })
-        .limit(20);
-
-      if (error) {
-        console.error('Error en búsqueda de invitado:', error);
-        setGuestLookupError('No se pudo consultar el historial. Verifica tu conexión.');
-        return;
-      }
-
-      const bookings: Booking[] = (data || []).map((b: any) => ({
-        id: b.id,
-        code: b.booking_code,
-        client_name: `${b.client_first_name} ${b.client_last_name}`.trim(),
-        client_phone: sanitizePhone(b.client_phone) || '',
-        client_email: b.client_email || '',
-        client_dni: sanitizeDni(b.client_dni) || '',
-        date: b.booking_date,
-        start_time: b.start_time?.substring(0, 5) || '10:00',
-        end_time: b.end_time?.substring(0, 5) || '11:00',
-        type: b.service_type as any,
-        services: b.booking_services
-          ? b.booking_services.map((bs: any) => ({
-              service_id: bs.service_id || '',
-              service_name: bs.service_name,
-              employee_id: bs.assigned_employee_id || '',
-              employee_name: 'Especialista',
-              price_cents: bs.service_price_cents,
-              duration_minutes: bs.duration_minutes,
-              hora_inicio: bs.hora_inicio || undefined,
-              hora_fin: bs.hora_fin || undefined,
-            }))
-          : [],
-        total_price_cents: b.total_price_cents,
-        advance_amount_cents: b.advance_amount_cents || 0,
-        payment_status: b.payment_status as any,
-        created_at: b.created_at,
-        confirmed_at: b.confirmed_at || undefined,
-      }));
-
-      setUserBookings(bookings);
+      const data = await qaRpc<any[]>('qa_lookup_booking', { p_code: guestLookupCode.trim().toUpperCase(), p_phone: cleanPhone });
+      setUserBookings(data.map(mapBooking));
       setGuestLookupDone(true);
     } catch (err) {
       console.error('Error en búsqueda de invitado:', err);
@@ -205,7 +124,7 @@ export const ClientPortal: React.FC = () => {
     } finally {
       setIsLookingUpGuest(false);
     }
-  }, [guestLookupPhone]);
+  }, [guestLookupPhone, guestLookupCode]);
 
   useEffect(() => {
     fetchUserReservations();
@@ -347,7 +266,7 @@ export const ClientPortal: React.FC = () => {
                 <span className="text-[10px] text-neutral-500 font-mono">9 dígitos</span>
               </div>
               <div className="relative">
-                <Phone className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+
                 <input
                   type="tel"
                   inputMode="numeric"
@@ -443,8 +362,8 @@ export const ClientPortal: React.FC = () => {
             ) : userBookings.length === 0 ? (
               /* Estado Vacío + QA-004: Búsqueda para invitados */
               <div className="space-y-5">
-                {/* QA-004: Formulario de búsqueda por teléfono para usuarios invitados */}
-                {(currentUser.role === 'anon' || currentUser.role === 'anonimo') && !guestLookupDone && (
+                {/* QA-004: Formulario de búsqueda por código y celular para usuarios invitados */}
+                {(currentUser.role === 'anon' || currentUser.role === 'anonimo') && (
                   <div className="bg-[#181818]/80 border border-[#C8A45C]/20 rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center">
@@ -452,13 +371,14 @@ export const ClientPortal: React.FC = () => {
                       </div>
                       <div>
                         <h4 className="text-sm font-semibold text-white">¿Reservaste sin cuenta?</h4>
-                        <p className="text-[11px] text-neutral-400">Ingresa tu WhatsApp para consultar tus reservas</p>
+                        <p className="text-[11px] text-neutral-400">Ingresa el código de reserva y el celular registrado.</p>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Phone className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
-                        <input
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative flex-1 min-w-0 space-y-2">
+
+                        <input aria-label="Código de reserva" value={guestLookupCode} onChange={e => setGuestLookupCode(e.target.value)} placeholder="Código de reserva AC-…" className="w-full min-w-0 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white" />
+                      <input
                           type="tel"
                           inputMode="numeric"
                           maxLength={9}
@@ -505,7 +425,7 @@ export const ClientPortal: React.FC = () => {
                   <div className="space-y-1.5 max-w-md mx-auto">
                     <h4 className="font-serif-luxury text-lg font-bold text-white">
                       {guestLookupDone
-                        ? 'No encontramos reservas con ese número'
+                        ? 'No encontramos una reserva con ese código y celular'
                         : 'Aún no tienes citas agendadas'}
                     </h4>
                     <p className="text-xs text-neutral-400 leading-relaxed">
@@ -538,8 +458,8 @@ export const ClientPortal: React.FC = () => {
                       className="bg-[#181818] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-xl p-4 sm:p-5 space-y-4 transition"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800/80 pb-3">
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-xs font-bold text-[#E6C875] bg-black/40 px-2.5 py-1 rounded border border-neutral-800">
+                        <div className="flex flex-wrap min-w-0 items-center gap-3">
+                          <span className="break-all font-mono text-xs font-bold text-[#E6C875] bg-black/40 px-2.5 py-1 rounded border border-neutral-800">
                             #{b.code}
                           </span>
                           <div>
@@ -573,6 +493,7 @@ export const ClientPortal: React.FC = () => {
                         </div>
                       </div>
 
+                      <p className="text-xs text-neutral-300">Estado de la reserva: {b.status || 'pendiente'}</p>
                       {/* Services Detail */}
                       <div className="space-y-1">
                         {b.services.map((srv, idx) => (
@@ -620,6 +541,8 @@ export const ClientPortal: React.FC = () => {
                           <PaymentQRWidget
                             amountCents={saldoPendiente}
                             bookingCode={b.code}
+                            bookingId={b.id}
+                            clientPhone={b.client_phone}
                             clientName={b.client_name}
                             title={`Liquidar Saldo Pendiente de Reserva #${b.code}`}
                           />

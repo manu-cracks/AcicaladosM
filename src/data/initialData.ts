@@ -62,9 +62,9 @@ export function getLimaDateFromTimestamp(val?: string | null): string {
 
 export const INITIAL_PAYMENT_SETTINGS: PaymentSettings = {
   advance_percentage: 25,
-  yape_phone: '987 654 321',
-  yape_holder: 'Acicalados Spa & Barber Shop S.A.C.',
-  yape_qr_url: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021126580014pe.yape.pe01129876543215204000053036045802PE5925ACICALADOS+SPA+BARBER+SHOP6004LIMA6304E64A',
+  yape_phone: import.meta.env.VITE_YAPE_PHONE || '',
+  yape_holder: import.meta.env.VITE_YAPE_HOLDER || 'Acicalados Spa & Barber Shop',
+  yape_qr_url: import.meta.env.VITE_YAPE_QR_URL || '',
 };
 
 export const INITIAL_BONUS_SETTINGS: BonusSettings = {

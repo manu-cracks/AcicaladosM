@@ -15,8 +15,14 @@ interface ClientLayoutProps {
  * - Capa de oscurecimiento (overlay semitransparente) para contraste y legibilidad óptima.
  */
 export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
-  const { setActiveView, activeView } = useApp();
+  const { setActiveView, activeView, whatsappNumber } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const previous = history.scrollRestoration;
+    history.scrollRestoration = 'manual';
+    return () => { history.scrollRestoration = previous; };
+  }, []);
 
   // QA-001: Ir al inicio de la página cada vez que cambia la vista activa
   useEffect(() => {
@@ -127,7 +133,7 @@ export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
               </p>
               <p className="flex items-center gap-1.5 text-neutral-300">
                 <Phone className="w-3.5 h-3.5 text-[#C8A45C]" />
-                <span>+51 997 766 828</span>
+                <span>+{whatsappNumber}</span>
               </p>
               <p className="text-[11px] text-neutral-500 pt-1">
                 Horario: Lun - Sáb 08:30 a 21:00 hrs. Dom 09:30 a 20:00 hrs.
@@ -196,7 +202,7 @@ export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
               </a>
 
               <a
-                href="https://wa.me/51997766828"
+                href={`https://wa.me/${whatsappNumber}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="WhatsApp Oficial de Acicalados"
@@ -237,7 +243,7 @@ export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
             <span>© {new Date().getFullYear()} Acicalados Spa &amp; Barber Shop. RUC 20608912341. Todos los derechos reservados.</span>
             <span className="flex items-center gap-1.5 text-neutral-400">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Pagos seguros vía Yape Perú &amp; Verificación Inmediata</span>
+              <span>Pagos vía Yape sujetos a validación del comprobante por recepción.</span>
             </span>
           </div>
         </div>

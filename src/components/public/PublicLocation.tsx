@@ -1,3 +1,4 @@
+import { useApp } from '../../context/AppContext';
 import React, { useState, useEffect } from 'react';
 import {
   MapPin,
@@ -27,8 +28,8 @@ export const PublicLocation: React.FC = () => {
   const googleMapsDirectUrl = 'https://maps.app.goo.gl/9ojPm9qdawhvqEYu9';
 
   const plusCode = 'F5J9+PX9 Pichari';
-  const whatsappNumber = '997766828';
-  const whatsappDisplay = '+51 997 766 828';
+  const { whatsappNumber } = useApp();
+  const whatsappDisplay = `+${whatsappNumber}`;
 
   // Check if open now according to Peru local time
   useEffect(() => {
@@ -283,7 +284,7 @@ export const PublicLocation: React.FC = () => {
 
               {/* Direct WhatsApp Quick Chat */}
               <a
-                href={`https://wa.me/51${whatsappNumber}?text=Hola%20Spa%20Acicalados%20Barber%20Shop,%20quisiera%20consultar%20sobre%20su%20ubicaci%C3%B3n%20y%20disponibilidad%20de%20citas`}
+                href={`https://wa.me/${whatsappNumber}?text=Hola%20Spa%20Acicalados%20Barber%20Shop,%20quisiera%20consultar%20sobre%20su%20ubicaci%C3%B3n%20y%20disponibilidad%20de%20citas`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group w-full py-3 px-4 rounded-2xl bg-[#181818] hover:bg-neutral-800 border border-neutral-800 hover:border-emerald-600/50 text-neutral-200 hover:text-white font-semibold text-xs flex items-center justify-center gap-2.5 transition shadow"
