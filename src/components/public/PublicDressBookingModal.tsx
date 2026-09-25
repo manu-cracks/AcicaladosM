@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Calendar as CalendarIcon,
@@ -19,7 +19,8 @@ import {
 import { useApp } from '../../context/AppContext';
 import { WardrobeItem, formatSoles, DressRental } from '../../types';
 import { DressAvailabilityCalendar } from '../dashboard/vestuario/DressAvailabilityCalendar';
-import { supabase } from '../../lib/supabase/client';
+import { qaRpc, uploadVoucher } from '../../lib/qaApi';
+import { isWardrobeReservable } from '../../lib/businessRules';
 
 interface PublicDressBookingModalProps {
   item: WardrobeItem;
@@ -27,8 +28,20 @@ interface PublicDressBookingModalProps {
 }
 
 export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = ({ item, onClose }) => {
-  const { paymentSettings, addDressRental, dressRentals } = useApp();
+  const { paymentSettings, addDressRental, dressRentals, whatsappNumber } = useApp();
 
+  const rentalRequestId = useRef(crypto.randomUUID());
+  const uploadLock = useRef(false);
+  const submitLock = useRef(false);
+  const [voucherPreview, setVoucherPreview] = useState('');
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+  const [publicRentals, setPublicRentals] = useState<DressRental[]>([]);
+  useEffect(() => {
+    let active = true;
+    qaRpc<DressRental[]>('qa_dress_availability', { p_item: item.id }).then(rows => { if (active) { setPublicRentals(rows); setAvailabilityLoaded(true); } }).catch(() => { if (active) setErrorMsg('No se pudo verificar la disponibilidad. Cierra y vuelve a abrir la prenda.'); });
+    return () => { active = false; };
+  }, [item.id]);
+  useEffect(() => () => { if (voucherPreview) URL.revokeObjectURL(voucherPreview); }, [voucherPreview]);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Paso 1: Fechas
@@ -56,6 +69,35 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
 
   const priceFormatted = (item.rental_price_cents / 100).toFixed(2);
   const codeDisplay = (item.code || 'A').toUpperCase().trim();
+
+  // QA-007: Verificar si la prenda está disponible para reserva
+  const isItemReservable = isWardrobeReservable(item);
+
+  /**
+   * QA-007: Verificar solapamiento con rentas activas para las fechas seleccionadas.
+   * Una prenda no puede estar reservada para dos eventos con fechas que se crucen.
+   */
+  const checkDateOverlap = (): boolean => {
+    if (!eventDate || !returnDate) return false;
+
+    const BLOCKING_STATUSES = new Set(['reservado', 'por_validar', 'entregado']);
+    const activeRentals = publicRentals.filter(
+      (r) =>
+        r.wardrobe_item_id === item.id &&
+        BLOCKING_STATUSES.has(r.status)
+    );
+
+    if (activeRentals.length === 0) return false;
+
+    const reqStart = new Date(eventDate);
+    const reqEnd = new Date(returnDate);
+
+    return activeRentals.some((r) => {
+      const rStart = new Date(r.event_date);
+      const rEnd = new Date(r.return_date);
+      return reqStart <= rEnd && reqEnd >= rStart;
+    });
+  };
 
   // Al seleccionar fecha de evento, calcular automáticamente retorno (evento + 2 días)
   const handleDatesSelect = (eDate: string, rDate: string) => {
@@ -94,70 +136,51 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
 
   const handleVoucherFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setErrorMsg('Por favor selecciona un comprobante en formato de imagen (JPG, PNG, WebP).');
-      return;
-    }
-
-    // QA-006: Validar tamaño máximo (5 MB)
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMsg('La imagen supera el límite de 5 MB. Por favor usa una captura más pequeña.');
-      return;
-    }
-
-    setVoucherFile(file);
+    e.target.value = '';
+    if (!file || uploadLock.current || submitLock.current) return;
+    uploadLock.current = true;
     setIsUploadingVoucher(true);
     setErrorMsg(null);
-    // QA-006: Limpiar URL anterior al intentar nuevo upload
     setVoucherUrl('');
-
+    setVoucherFile(null);
+    setVoucherPreview('');
     try {
-      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-      const fileName = `dress-voucher-${codeDisplay}-${Date.now()}.${ext}`;
-      const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from('wardrobe-images')
-        .upload(fileName, file, { contentType: file.type, upsert: false });
-
-      if (uploadErr || !uploadData) {
-        // QA-006: Si Supabase falla, NO usar blob local como fallback
-        console.error('Error subiendo voucher de vestuario:', uploadErr);
-        setVoucherFile(null);
-        setErrorMsg(
-          'No se pudo cargar el comprobante al servidor. Verifica tu conexión e inténtalo nuevamente.'
-        );
-        return;
-      }
-
-      const { data: pubData } = supabase.storage
-        .from('wardrobe-images')
-        .getPublicUrl(uploadData.path || fileName);
-
-      const persistentUrl = pubData?.publicUrl;
-      if (!persistentUrl) {
-        setVoucherFile(null);
-        setErrorMsg('No se pudo obtener la URL del comprobante. Inténtalo nuevamente.');
-        return;
-      }
-
-      // QA-006: Solo setear URL si es una URL persistente real (no blob)
-      setVoucherUrl(persistentUrl);
+      const path = await uploadVoucher(file, 'dress', rentalRequestId.current);
+      setVoucherUrl(path);
+      setVoucherFile(file);
+      setVoucherPreview(URL.createObjectURL(file)); // Preview only; path is persisted.
     } catch (err) {
-      // QA-006: No fallback blob en ningún caso
-      setVoucherFile(null);
-      setErrorMsg('Error inesperado al cargar el comprobante. Inténtalo nuevamente.');
-    } finally {
-      setIsUploadingVoucher(false);
-    }
+      setErrorMsg(err instanceof Error ? err.message : 'No se pudo cargar el comprobante.');
+    } finally { uploadLock.current = false; setIsUploadingVoucher(false); }
   };
 
   const handleConfirmReservation = async () => {
-    if (!voucherUrl && !voucherFile) {
+    if (submitLock.current || uploadLock.current) return;
+    if (!validateStep2() || !availabilityLoaded || !eventDate || !returnDate) return;
+    if (!voucherUrl) {
       setErrorMsg('Debes adjuntar la captura del comprobante (voucher) de Yape.');
       return;
     }
 
+    // QA-006: Rechazar blob URLs (no persistentes)
+    if (voucherUrl && voucherUrl.startsWith('blob:')) {
+      setErrorMsg('El comprobante no fue guardado correctamente. Por favor cárgalo nuevamente.');
+      return;
+    }
+
+    // QA-007: Verificar disponibilidad justo antes de confirmar
+    if (!isItemReservable) {
+      setErrorMsg(`La prenda "${item.name}" ya no está disponible para alquiler. Por favor contacta a recepción.`);
+      return;
+    }
+
+    // QA-007: Verificar solapamiento de fechas con rentas activas
+    if (checkDateOverlap()) {
+      setErrorMsg(`Esta prenda ya tiene una reserva activa en las fechas seleccionadas (${eventDate} - ${returnDate}). Por favor elige otras fechas o consulta otra prenda.`);
+      return;
+    }
+
+    submitLock.current = true;
     setIsSubmitting(true);
     setErrorMsg(null);
 
@@ -197,6 +220,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
     } catch (err: any) {
       setErrorMsg(err?.message || 'Error al procesar la reserva.');
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   };
@@ -227,6 +251,16 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* QA-007: Banner de alerta cuando la prenda no está disponible */}
+        {!isItemReservable && (
+          <div className="px-5 py-3 bg-amber-950/60 border-b border-amber-800/60 flex items-center gap-2.5 text-amber-300 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>Prenda no disponible:</strong> Esta prenda tiene estado "{item.status}" y no puede reservarse online en este momento. Contacta a recepción para más información.
+            </span>
+          </div>
+        )}
 
         {/* Stepper Indicator */}
         {step < 4 && (
@@ -308,7 +342,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                 <DressAvailabilityCalendar
                   itemCode={codeDisplay}
                   itemName={item.name}
-                  dressRentals={dressRentals}
+                  dressRentals={publicRentals}
                   selectedDate={eventDate}
                   returnDate={returnDate}
                   onSelectDates={handleDatesSelect}
@@ -470,7 +504,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
                   <div className="w-36 h-36 bg-white p-2 rounded-2xl shadow-lg border border-neutral-300 flex items-center justify-center">
                     <img
-                      src={paymentSettings.yape_qr_url}
+                      src={paymentSettings.yape_qr_url || undefined}
                       alt="QR Yape"
                       className="w-full h-full object-contain"
                     />
@@ -489,6 +523,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                 </div>
               </div>
 
+              {(!paymentSettings.yape_phone || !paymentSettings.yape_qr_url) && <p role="alert" className="text-amber-300 text-sm">Contacta a recepción para obtener los datos de pago. Yape aún no está configurado.</p>}
               {/* Paso 2: Adjuntar Voucher */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
@@ -500,7 +535,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                   <input
                     type="file"
                     id="client-voucher-upload"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp" disabled={isUploadingVoucher || isSubmitting}
                     onChange={handleVoucherFileChange}
                     className="hidden"
                   />
@@ -508,7 +543,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     {voucherUrl ? (
                       <div className="flex items-center justify-center gap-3">
                         <img
-                          src={voucherUrl}
+                          src={voucherPreview}
                           alt="Voucher"
                           className="w-16 h-16 rounded-xl object-cover border border-emerald-500/50"
                         />
@@ -552,7 +587,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
               <div className="bg-[#181818] border border-neutral-800 p-5 rounded-2xl font-mono text-xs space-y-3">
                 <div className="text-center pb-2 border-b border-neutral-700">
                   <div className="font-serif-luxury font-bold text-base text-[#E6C875]">BOUTIQUE DE VESTIDOS</div>
-                  <div className="text-[11px] text-neutral-400">Reserva Web Nro: {createdRental.ticket_code}</div>
+                  <div className="break-all text-[11px] text-neutral-400">Reserva Web Nro: {createdRental.ticket_code}</div>
                 </div>
 
                 <div className="space-y-1 text-[11px]">
@@ -583,7 +618,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                   </div>
                   <div className="flex justify-between text-emerald-400">
                     <span>ADELANTO ENVIADO (VÍA YAPE):</span>
-                    <span className="font-bold">{formatSoles(createdRental.advance_cents)}</span>
+                    <span className="font-bold">{formatSoles(createdRental.voucher_declared_amount_cents ?? createdRental.advance_cents)}</span>
                   </div>
                   <div className="flex justify-between text-amber-400 pt-1 border-t border-neutral-800">
                     <span>ESTADO DEL PAGO:</span>
@@ -603,7 +638,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     const msg = encodeURIComponent(
                       `¡Hola Acicalados! Acabo de registrar mi reserva web Nro *${createdRental.ticket_code}* para el vestido [${createdRental.item_code}] a nombre de ${createdRental.client_first_name}. Adjunto mi voucher para la validación.`
                     );
-                    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${msg}`, '_blank');
+                    window.open(`https://wa.me/${whatsappNumber}?text=${msg}`, '_blank');
                   }}
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer"
                 >
@@ -641,7 +676,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
               {step === 1 && (
                 <button
                   type="button"
-                  disabled={!eventDate}
+                  disabled={!isItemReservable || !availabilityLoaded || !eventDate}
                   onClick={() => setStep(2)}
                   className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-[#C8A45C] to-[#A27F38] text-black hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all cursor-pointer"
                 >
@@ -666,7 +701,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
               {step === 3 && (
                 <button
                   type="button"
-                  disabled={isSubmitting || isUploadingVoucher || !voucherUrl}
+                  disabled={isSubmitting || isUploadingVoucher || !voucherUrl || !isItemReservable || !availabilityLoaded}
                   onClick={handleConfirmReservation}
                   className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all cursor-pointer flex items-center gap-2"
                 >

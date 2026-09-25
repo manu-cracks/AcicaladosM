@@ -1,3 +1,4 @@
+import { getTodayDateString } from '../../../data/initialData';
 import React, { useState, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { DressRental } from '../../../types';
@@ -21,7 +22,8 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
 }) => {
   // Fecha actual de referencia
   const today = useMemo(() => new Date(), []);
-  const todayStr = useMemo(() => today.toISOString().split('T')[0], [today]);
+  const todayStr = getTodayDateString();
+  const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
   // Mes visible en el calendario
   const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => {
@@ -70,7 +72,7 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
       
       const curr = new Date(start);
       while (curr <= end) {
-        set.add(curr.toISOString().split('T')[0]);
+        set.add(dateKey(curr));
         curr.setDate(curr.getDate() + 1);
       }
 
@@ -121,8 +123,9 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
     const eventD = new Date(dateStr + 'T00:00:00');
     const returnD = new Date(eventD);
     returnD.setDate(returnD.getDate() + 2);
-    const returnStr = returnD.toISOString().split('T')[0];
+    const returnStr = dateKey(returnD);
 
+    if ([0,1,2].some(offset => { const d = new Date(eventD); d.setDate(d.getDate()+offset); return blockedDatesSet.has(dateKey(d)); })) return;
     onSelectDates(dateStr, returnStr);
   };
 
@@ -132,7 +135,7 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
     const end = new Date(returnDate + 'T00:00:00');
     const curr = new Date(start);
     while (curr <= end) {
-      if (blockedDatesSet.has(curr.toISOString().split('T')[0])) {
+      if (blockedDatesSet.has(dateKey(curr))) {
         return true;
       }
       curr.setDate(curr.getDate() + 1);

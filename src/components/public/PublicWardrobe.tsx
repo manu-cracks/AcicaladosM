@@ -1,3 +1,4 @@
+import { isWardrobeReservable } from '../../lib/businessRules';
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, WardrobeItem } from '../../types';
@@ -6,7 +7,7 @@ import { PublicDressBookingModal } from './PublicDressBookingModal';
 
 export const PublicWardrobe: React.FC = () => {
   // QA-010: usar paymentSettings para número de WhatsApp (fuente única)
-  const { wardrobe, openLightbox, paymentSettings } = useApp();
+  const { wardrobe, openLightbox, paymentSettings, whatsappNumber } = useApp();
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [selectedBookingItem, setSelectedBookingItem] = useState<WardrobeItem | null>(null);
 
@@ -37,8 +38,8 @@ export const PublicWardrobe: React.FC = () => {
       `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
     );
     // QA-010: número dinámico desde paymentSettings en lugar de número hardcodeado
-    const whatsappPhone = paymentSettings?.yape_phone?.replace(/\s+/g, '') || '997766828';
-    window.open(`https://wa.me/51${whatsappPhone}?text=${text}`, '_blank');
+    const whatsappPhone = whatsappNumber;
+    window.open(`https://wa.me/${whatsappPhone}?text=${text}`, '_blank');
   };
 
   const renderWardrobeCard = (item: WardrobeItem) => {
@@ -150,11 +151,12 @@ export const PublicWardrobe: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                disabled={!isWardrobeReservable(item)}
                 onClick={() => setSelectedBookingItem(item)}
                 className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-[#C8A45C] via-[#E2C37D] to-[#C8A45C] text-black hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-[#C8A45C]/15"
               >
                 <Calendar className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Reservar Prenda</span>
+                <span>{isWardrobeReservable(item) ? 'Reservar Prenda' : 'No disponible'}</span>
               </button>
 
               <button
