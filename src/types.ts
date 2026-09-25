@@ -260,6 +260,7 @@ export interface ServiceAuditItem {
 export type PaymentStatus = 'sin_pago' | 'parcial' | 'total';
 
 export interface Booking {
+  advance_percentage?: number;
   id: string;
   code: string;
   client_name: string;
@@ -290,6 +291,7 @@ export interface Booking {
 }
 
 export interface PaymentLog {
+  status?: string;
   id: string;
   booking_id: string;
   booking_code: string;
