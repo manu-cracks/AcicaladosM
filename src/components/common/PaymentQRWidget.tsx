@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
-import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck } from 'lucide-react';
+import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck, AlertCircle } from 'lucide-react';
+import { supabase } from '../../lib/supabase/client';
 
 interface PaymentQRWidgetProps {
   amountCents: number;
@@ -23,6 +24,8 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [uploadedVoucher, setUploadedVoucher] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  // QA-003: Estado de error de upload visible al usuario
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleCopyPhone = () => {
     navigator.clipboard.writeText(paymentSettings.yape_phone.replace(/\s+/g, ''));
@@ -30,18 +33,68 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSimulateVoucherUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVoucherUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploading(true);
-      setTimeout(() => {
-        const dummyUrl = URL.createObjectURL(file);
-        setUploadedVoucher(dummyUrl);
-        setIsUploading(false);
-        if (onVoucherUploaded) {
-          onVoucherUploaded(dummyUrl);
-        }
-      }, 1200);
+    if (!file) return;
+
+    // QA-003: Validar formato de archivo
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert('Solo se aceptan imágenes en formato JPG, PNG o WebP.');
+      return;
+    }
+
+    // QA-003: Validar tamaño máximo (5 MB)
+    const MAX_SIZE_MB = 5;
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      alert(`El archivo supera el límite de ${MAX_SIZE_MB} MB. Por favor usa una imagen más pequeña.`);
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      // QA-003: Generar nombre único para evitar colisiones
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const uniqueName = `voucher-${bookingCode}-${Date.now()}.${ext}`;
+      const storagePath = `bookings/${uniqueName}`;
+
+      // QA-003: Subir a Supabase Storage bucket 'payment-vouchers'
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('payment-vouchers')
+        .upload(storagePath, file, { contentType: file.type, upsert: false });
+
+      if (uploadErr || !uploadData) {
+        // QA-003: Si falla Storage, NO simular éxito con blob local
+        console.error('Error subiendo voucher a Supabase Storage:', uploadErr);
+        setUploadError(
+          'No se pudo cargar el comprobante. Verifica tu conexión e inténtalo nuevamente.'
+        );
+        return;
+      }
+
+      // QA-003: Obtener URL pública solo después de confirmar el upload
+      const { data: pubData } = supabase.storage
+        .from('payment-vouchers')
+        .getPublicUrl(uploadData.path);
+
+      const persistentUrl = pubData?.publicUrl || '';
+      if (!persistentUrl) {
+        setUploadError('No se pudo obtener la URL del comprobante. Inténtalo nuevamente.');
+        return;
+      }
+
+      // QA-003: Solo declarar "éxito" después de tener URL persistente
+      setUploadedVoucher(persistentUrl);
+      if (onVoucherUploaded) {
+        onVoucherUploaded(persistentUrl);
+      }
+    } catch (err) {
+      console.error('Error inesperado al subir voucher:', err);
+      setUploadError('Error inesperado al cargar el comprobante. Inténtalo nuevamente.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -137,10 +190,17 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
             <input
               type="file"
               id={`voucher-upload-${bookingCode}`}
-              accept="image/*,.pdf"
-              onChange={handleSimulateVoucherUpload}
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleVoucherUpload}
               className="hidden"
             />
+            {/* QA-003: Mostrar error de upload si ocurre */}
+            {uploadError && (
+              <div className="mb-2 p-2 rounded-lg bg-rose-950/50 border border-rose-900/60 text-rose-300 text-xs flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+            )}
             {uploadedVoucher ? (
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-2 text-left">
@@ -148,8 +208,8 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
                     <Check className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-emerald-400 block">Comprobante Adjunto</span>
-                    <span className="text-[10px] text-neutral-400">Listo para validación en caja</span>
+                    <span className="text-xs font-semibold text-emerald-400 block">Comprobante Guardado</span>
+                    <span className="text-[10px] text-neutral-400">Persistido en servidor • Listo para validación</span>
                   </div>
                 </div>
                 <label
@@ -166,9 +226,9 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
               >
                 <Upload className="w-5 h-5 text-[#C8A45C] mx-auto mb-1" />
                 <span className="text-xs font-medium text-neutral-300 block">
-                  {isUploading ? 'Subiendo comprobante...' : 'Subir Comprobante / Voucher (Opcional)'}
+                  {isUploading ? 'Subiendo comprobante...' : 'Subir Comprobante / Voucher'}
                 </span>
-                <span className="text-[10px] text-neutral-500">Captura de Yape en formato JPG o PNG</span>
+                <span className="text-[10px] text-neutral-500">JPG, PNG o WebP • Máx. 5 MB</span>
               </label>
             )}
           </div>

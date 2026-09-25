@@ -7,6 +7,27 @@
 
 import { Service, Employee, EmployeeBlock, Booking } from '../types';
 
+/**
+ * Estados de reserva que NO deben bloquear disponibilidad de horarios.
+ * QA-009: Reservas canceladas o expiradas no deben seguir ocupando cupos.
+ */
+const INACTIVE_BOOKING_STATUSES = new Set([
+  'cancelada',
+  'expirada',
+  'anulada',
+  'no_show',
+  'liberada',
+]);
+
+/**
+ * Determina si una reserva debe ser ignorada en el cálculo de disponibilidad.
+ * Las reservas canceladas, expiradas, anuladas, no-show o liberadas liberan el horario.
+ */
+export function isBookingInactive(booking: Booking): boolean {
+  if (!booking.status) return false;
+  return INACTIVE_BOOKING_STATUSES.has(booking.status.toLowerCase());
+}
+
 export const BUSINESS_HOURS = {
   open: '09:00',
   close: '21:00',
@@ -206,7 +227,8 @@ export function isEmployeeBlocked(
 }
 
 /**
- * Verifica si un colaborador ya tiene una cita asignada en ese intervalo
+ * Verifica si un colaborador ya tiene una cita asignada en ese intervalo.
+ * QA-009: Se excluyen reservas canceladas, expiradas, anuladas o liberadas.
  */
 export function isEmployeeBooked(
   empId: string,
@@ -219,6 +241,9 @@ export function isEmployeeBooked(
 
   return bookings.some((b) => {
     if (b.date !== date) return false;
+
+    // QA-009: Ignorar reservas que no bloquean disponibilidad
+    if (isBookingInactive(b)) return false;
 
     // Verificar si el colaborador está asignado a nivel de algún servicio específico
     const matchingServices = b.services?.filter((s) => s.employee_id === empId) || [];
@@ -246,7 +271,8 @@ export function isEmployeeBooked(
 }
 
 /**
- * Cuenta reservas activas no asignadas que solapan el intervalo para el mismo tipo de servicio
+ * Cuenta reservas activas no asignadas que solapan el intervalo para el mismo tipo de servicio.
+ * QA-009: Se excluyen reservas canceladas, expiradas, anuladas o liberadas.
  */
 export function countUnassignedBookings(
   service: Service,
@@ -259,6 +285,9 @@ export function countUnassignedBookings(
 
   return bookings.filter((b) => {
     if (b.date !== date) return false;
+
+    // QA-009: Ignorar reservas que no bloquean disponibilidad
+    if (isBookingInactive(b)) return false;
 
     // Si no tiene asignado colaborador principal ni en servicios
     const hasAssigned =

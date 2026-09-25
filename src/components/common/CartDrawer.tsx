@@ -4,7 +4,8 @@ import { formatSoles } from '../../types';
 import { ShoppingBag, X, Plus, Minus, Trash2, MessageSquare, ArrowRight } from 'lucide-react';
 
 export const CartDrawer: React.FC = () => {
-  const { cart, isCartOpen, setIsCartOpen, removeFromCart, updateCartQuantity, clearCart } = useApp();
+  // QA-010: usar paymentSettings para número de WhatsApp (fuente única)
+  const { cart, isCartOpen, setIsCartOpen, removeFromCart, updateCartQuantity, clearCart, paymentSettings } = useApp();
 
   if (!isCartOpen) return null;
 
@@ -20,7 +21,9 @@ export const CartDrawer: React.FC = () => {
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera realizar un pedido de la tienda online:\n\n${lines.join('\n')}\n\n*Total a pagar:* ${formatSoles(totalCents)}\n\n¿Tienen disponibilidad para envío o recojo en el local?`
     );
-    window.open(`https://wa.me/51987654321?text=${text}`, '_blank');
+    // QA-010: número dinámico desde paymentSettings
+    const whatsappPhone = paymentSettings?.yape_phone?.replace(/\s+/g, '') || '997766828';
+    window.open(`https://wa.me/51${whatsappPhone}?text=${text}`, '_blank');
   };
 
   return (

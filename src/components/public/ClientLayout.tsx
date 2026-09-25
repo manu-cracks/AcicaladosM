@@ -15,8 +15,13 @@ interface ClientLayoutProps {
  * - Capa de oscurecimiento (overlay semitransparente) para contraste y legibilidad óptima.
  */
 export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
-  const { setActiveView } = useApp();
+  const { setActiveView, activeView } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // QA-001: Ir al inicio de la página cada vez que cambia la vista activa
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [activeView]);
 
   // Garantizar autoplay continuo en iOS Safari y Android Chrome
   useEffect(() => {

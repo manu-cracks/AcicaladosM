@@ -536,8 +536,8 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
         };
       });
 
-      // 3. Crear reserva
-      const newBooking = addBooking({
+      // 3. Crear reserva (QA-002: ahora async, espera confirmación de Supabase)
+      const newBooking = await addBooking({
         client_name: clientName.trim(),
         client_phone: clientPhone.trim() || '',
         client_dni: clientDni.trim() || undefined,
@@ -556,6 +556,11 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
         transfer_cents: transferCents,
         payment_notes: paymentNotes || undefined,
       });
+
+      if (!newBooking) {
+        setSubmitError('No se pudo registrar la reserva en el sistema. Verifica la conexión e inténtalo nuevamente.');
+        return;
+      }
 
       // Limpiar formulario y cerrar
       setClientName('');

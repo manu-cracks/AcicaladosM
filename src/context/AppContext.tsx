@@ -100,7 +100,9 @@ interface AppContextType {
   refreshData: () => Promise<void>;
 
   // Business Action Handlers
-  addBooking: (booking: Omit<Booking, 'id' | 'code' | 'created_at'>) => Booking;
+  // QA-002: addBooking es ahora async y retorna Promise<Booking | null>.
+  // null indica que el INSERT falló y NO se debe mostrar éxito al usuario.
+  addBooking: (booking: Omit<Booking, 'id' | 'code' | 'created_at'>) => Promise<Booking | null>;
   registerBookingPayment: (
     bookingId: string,
     amountCents: number,
@@ -1053,17 +1055,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Cart Functions
+  // QA-008: addToCart ahora respeta el stock disponible del producto
   const addToCart = useCallback((product: Product, quantity = 1) => {
+    const stockLimit = product.stock ?? 999;
+
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
+        const newQty = existing.quantity + quantity;
+        if (newQty > stockLimit) {
+          // QA-008: No exceder el stock disponible
+          if (existing.quantity >= stockLimit) {
+            // Ya está en el límite, no cambiar nada
+            return prev;
+          }
+          // Ajustar al máximo permitido
+          return prev.map((item) =>
+            item.product.id === product.id
+              ? { ...item, quantity: stockLimit }
+              : item
+          );
+        }
         return prev.map((item) =>
           item.product.id === product.id
-            ? { ...item, quantity: item.quantity + quantity }
+            ? { ...item, quantity: newQty }
             : item
         );
       }
-      return [...prev, { product, quantity }];
+      // QA-008: Nuevo producto - respetar stock
+      const clampedQty = Math.min(quantity, stockLimit);
+      if (clampedQty <= 0) return prev;
+      return [...prev, { product, quantity: clampedQty }];
     });
     setIsCartOpen(true);
   }, []);
@@ -1072,15 +1094,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   }, []);
 
+  // QA-008: updateCartQuantity también respeta el stock disponible
   const updateCartQuantity = useCallback((productId: string, quantity: number) => {
     if (quantity <= 0) {
       removeFromCart(productId);
       return;
     }
     setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, quantity } : item
-      )
+      prev.map((item) => {
+        if (item.product.id !== productId) return item;
+        // QA-008: Limitar al stock disponible (si es >= 0)
+        const stockLimit = item.product.stock ?? 999;
+        const clampedQty = stockLimit > 0 ? Math.min(quantity, stockLimit) : quantity;
+        return { ...item, quantity: clampedQty };
+      })
     );
   }, [removeFromCart]);
 
@@ -1089,10 +1116,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // BOOKING HANDLERS
-  const addBooking = useCallback((bookingData: Omit<Booking, 'id' | 'code' | 'created_at'>): Booking => {
+  // QA-002: addBooking ahora es asíncrona y espera confirmación de Supabase antes de retornar.
+  // Retorna el Booking persistido con su ID real de Supabase, o null si falló.
+  const addBooking = useCallback(async (bookingData: Omit<Booking, 'id' | 'code' | 'created_at'>): Promise<Booking | null> => {
     const today = getTodayDateString();
     const randomCode = `AC-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newId = `bk-${Date.now()}`;
     const sanitizedServices = (bookingData.services || []).map((srv) => {
       const srvStart = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
       const srvDuration = srv.duration_minutes || 30;
@@ -1109,178 +1137,169 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
-    const newBooking: Booking = {
-      ...bookingData,
-      services: sanitizedServices,
-      id: newId,
-      code: randomCode,
-      created_at: `${today}T12:00:00Z`,
-    };
+    try {
+      const names = bookingData.client_name.trim().split(' ');
+      const firstName = names[0] || 'Cliente';
+      const lastName = names.slice(1).join(' ') || 'General';
 
-    setBookings((prev) => [newBooking, ...prev]);
-    pulseRealtime();
+      // Buscar UUID de empleado si es válido
+      const primaryEmpId = bookingData.services?.[0]?.employee_id;
+      const validEmp = employees.find(
+        (e) => e.id === primaryEmpId || e.full_name === bookingData.services?.[0]?.employee_name
+      );
+      const safeEmployeeId =
+        primaryEmpId && primaryEmpId.includes('-') && primaryEmpId.length === 36
+          ? primaryEmpId
+          : validEmp && validEmp.id.includes('-') && validEmp.id.length === 36
+          ? validEmp.id
+          : null;
 
-    // Persistir directamente en Supabase
-    (async () => {
-      try {
-        const names = bookingData.client_name.trim().split(' ');
-        const firstName = names[0] || 'Cliente';
-        const lastName = names.slice(1).join(' ') || 'General';
+      const advanceAmount = bookingData.advance_amount_cents || 0;
+      const advancePercentage = Math.max(1, paymentSettings?.advance_percentage || 25);
+      const totalPrice = bookingData.total_price_cents || 0;
+      const balance = Math.max(0, totalPrice - advanceAmount);
 
-        // Buscar UUID de empleado si es valido
-        const primaryEmpId = bookingData.services?.[0]?.employee_id;
-        const validEmp = employees.find(
-          (e) => e.id === primaryEmpId || e.full_name === bookingData.services?.[0]?.employee_name
-        );
-        const safeEmployeeId =
-          primaryEmpId && primaryEmpId.includes('-') && primaryEmpId.length === 36
-            ? primaryEmpId
-            : validEmp && validEmp.id.includes('-') && validEmp.id.length === 36
-            ? validEmp.id
-            : null;
+      const authUid =
+        currentUserOverride?.id && currentUserOverride.id.includes('-')
+          ? currentUserOverride.id
+          : (await supabase.auth.getSession()).data.session?.user?.id || null;
 
-        const advanceAmount = bookingData.advance_amount_cents || 0;
-        const advancePercentage = Math.max(1, paymentSettings?.advance_percentage || 25);
-        const totalPrice = bookingData.total_price_cents || 0;
-        const balance = Math.max(0, totalPrice - advanceAmount);
+      // QA-002: INSERT en Supabase PRIMERO - no mostrar éxito hasta confirmación
+      const { data: insertedBooking, error } = await supabase
+        .from('bookings')
+        .insert({
+          booking_code: randomCode,
+          user_id: authUid,
+          client_first_name: firstName,
+          client_last_name: lastName,
+          client_phone: sanitizePhone(bookingData.client_phone) || null,
+          client_email: bookingData.client_email || null,
+          client_dni: sanitizeDni(bookingData.client_dni) || null,
+          service_type: bookingData.type || 'barberia',
+          booking_date: bookingData.date,
+          start_time: bookingData.start_time,
+          end_time: bookingData.end_time,
+          total_duration_minutes:
+            bookingData.services?.reduce((acc, s) => acc + (s.duration_minutes || 0), 0) || 60,
+          total_price_cents: totalPrice,
+          advance_percentage: advancePercentage,
+          advance_amount_cents: advanceAmount,
+          balance_cents: balance,
+          payment_status:
+            bookingData.payment_status ||
+            (advanceAmount >= totalPrice ? 'total' : advanceAmount > 0 ? 'parcial' : 'sin_pago'),
+          assigned_employee_id: safeEmployeeId,
+          payment_method: (bookingData as any).payment_method || null,
+        })
+        .select()
+        .single();
 
-        const authUid =
-          currentUserOverride?.id && currentUserOverride.id.includes('-')
-            ? currentUserOverride.id
-            : (await supabase.auth.getSession()).data.session?.user?.id || null;
-
-        const { data: insertedBooking, error } = await supabase
-          .from('bookings')
-          .insert({
-            booking_code: randomCode,
-            user_id: authUid,
-            client_first_name: firstName,
-            client_last_name: lastName,
-            client_phone: sanitizePhone(bookingData.client_phone) || null,
-            client_email: bookingData.client_email || null,
-            client_dni: sanitizeDni(bookingData.client_dni) || null,
-            service_type: bookingData.type || 'barberia',
-            booking_date: bookingData.date,
-            start_time: bookingData.start_time,
-            end_time: bookingData.end_time,
-            total_duration_minutes:
-              bookingData.services?.reduce((acc, s) => acc + (s.duration_minutes || 0), 0) || 60,
-            total_price_cents: totalPrice,
-            advance_percentage: advancePercentage,
-            advance_amount_cents: advanceAmount,
-            balance_cents: balance,
-            payment_status:
-              bookingData.payment_status ||
-              (advanceAmount >= totalPrice ? 'total' : advanceAmount > 0 ? 'parcial' : 'sin_pago'),
-            assigned_employee_id: safeEmployeeId,
-            payment_method: (bookingData as any).payment_method || null,
-          })
-          .select()
-          .single();
-
-        if (insertedBooking) {
-          if (bookingData.services && bookingData.services.length > 0) {
-            const serviceRows = bookingData.services.map((srv) => {
-              const matchedService = services.find(
-                (s) => s.id === srv.service_id || s.name === srv.service_name
-              );
-              const srvId =
-                matchedService && matchedService.id.includes('-') && matchedService.id.length === 36
-                  ? matchedService.id
-                  : srv.service_id && srv.service_id.includes('-') && srv.service_id.length === 36
-                  ? srv.service_id
-                  : null;
-
-              const srvEmp = employees.find(
-                (e) => e.id === srv.employee_id || e.full_name === srv.employee_name
-              );
-              const srvEmpId =
-                srv.employee_id && srv.employee_id.includes('-') && srv.employee_id.length === 36
-                  ? srv.employee_id
-                  : srvEmp && srvEmp.id.includes('-') && srvEmp.id.length === 36
-                  ? srvEmp.id
-                  : safeEmployeeId;
-
-              const srvHoraInicio = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
-              const srvDuration = srv.duration_minutes || 30;
-              const calcFin = minutesToTime(timeToMinutes(srvHoraInicio) + srvDuration);
-              const rawFin = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcFin;
-              const srvHoraFin = (timeToMinutes(rawFin) - timeToMinutes(srvHoraInicio) > srvDuration + 5) ? calcFin : rawFin;
-
-              return {
-                booking_id: insertedBooking.id,
-                service_id: srvId,
-                service_name: srv.service_name,
-                service_price_cents: srv.price_cents,
-                duration_minutes: srvDuration,
-                assigned_employee_id: srvEmpId,
-                hora_inicio: srvHoraInicio,
-                hora_fin: srvHoraFin,
-                start_time: srvHoraInicio,
-                end_time: srvHoraFin,
-                status: 'confirmada',
-              };
-            });
-            await supabase.from('booking_services').insert(serviceRows);
-          }
-
-          // Si se registró un pago de adelanto o total al crear la reserva, registrar en payment_logs
-          if (advanceAmount > 0) {
-            const pMethod = (bookingData as any).payment_method || 'efectivo';
-            const cashC = (bookingData as any).cash_cents || (pMethod === 'efectivo' ? advanceAmount : 0);
-            const yapeC = (bookingData as any).yape_cents || (pMethod === 'yape' ? advanceAmount : 0);
-            const pNotes = (bookingData as any).payment_notes || null;
-
-            await supabase.from('payment_logs').insert({
-              booking_id: insertedBooking.id,
-              amount_cents: advanceAmount,
-              payment_method: pMethod,
-              payment_type: advanceAmount >= totalPrice ? 'total' : 'advance',
-              cash_amount_cents: cashC,
-              yape_amount_cents: yapeC,
-              notes: pNotes,
-              status: 'verified',
-            });
-
-            const newLog: PaymentLog = {
-              id: `pay-${Date.now()}`,
-              booking_id: insertedBooking.id,
-              booking_code: insertedBooking.booking_code,
-              amount_cents: advanceAmount,
-              payment_method: pMethod,
-              cash_cents: cashC,
-              yape_cents: yapeC,
-              transfer_cents: (bookingData as any).transfer_cents || 0,
-              notes: pNotes,
-              created_at: `${today}T12:00:00Z`,
-              voided: false,
-            };
-            setPaymentLogs((prev) => [newLog, ...prev]);
-          }
-
-          // Actualizar ID local al UUID de Supabase
-          setBookings((prev) =>
-            prev.map((b) =>
-              b.id === newId
-                ? {
-                    ...b,
-                    id: insertedBooking.id,
-                    code: insertedBooking.booking_code,
-                  }
-                : b
-            )
-          );
-          pulseRealtime();
-        } else if (error) {
-          console.error('Error al insertar reserva en Supabase:', error);
-        }
-      } catch (err) {
-        console.error('Error guardando reserva en Supabase:', err);
+      if (error || !insertedBooking) {
+        // QA-002: INSERT falló - retornar null, NO crear reserva local ficticia
+        console.error('Error al insertar reserva en Supabase:', error);
+        return null;
       }
-    })();
 
-    return newBooking;
+      // INSERT exitoso - insertar servicios
+      if (bookingData.services && bookingData.services.length > 0) {
+        const serviceRows = bookingData.services.map((srv) => {
+          const matchedService = services.find(
+            (s) => s.id === srv.service_id || s.name === srv.service_name
+          );
+          const srvId =
+            matchedService && matchedService.id.includes('-') && matchedService.id.length === 36
+              ? matchedService.id
+              : srv.service_id && srv.service_id.includes('-') && srv.service_id.length === 36
+              ? srv.service_id
+              : null;
+
+          const srvEmp = employees.find(
+            (e) => e.id === srv.employee_id || e.full_name === srv.employee_name
+          );
+          const srvEmpId =
+            srv.employee_id && srv.employee_id.includes('-') && srv.employee_id.length === 36
+              ? srv.employee_id
+              : srvEmp && srvEmp.id.includes('-') && srvEmp.id.length === 36
+              ? srvEmp.id
+              : safeEmployeeId;
+
+          const srvHoraInicio = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
+          const srvDuration = srv.duration_minutes || 30;
+          const calcFin = minutesToTime(timeToMinutes(srvHoraInicio) + srvDuration);
+          const rawFin = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcFin;
+          const srvHoraFin = (timeToMinutes(rawFin) - timeToMinutes(srvHoraInicio) > srvDuration + 5) ? calcFin : rawFin;
+
+          return {
+            booking_id: insertedBooking.id,
+            service_id: srvId,
+            service_name: srv.service_name,
+            service_price_cents: srv.price_cents,
+            duration_minutes: srvDuration,
+            assigned_employee_id: srvEmpId,
+            hora_inicio: srvHoraInicio,
+            hora_fin: srvHoraFin,
+            start_time: srvHoraInicio,
+            end_time: srvHoraFin,
+            status: 'confirmada',
+          };
+        });
+        await supabase.from('booking_services').insert(serviceRows);
+      }
+
+      // Si se registró un pago de adelanto o total al crear la reserva, registrar en payment_logs
+      if (advanceAmount > 0) {
+        const pMethod = (bookingData as any).payment_method || 'efectivo';
+        const cashC = (bookingData as any).cash_cents || (pMethod === 'efectivo' ? advanceAmount : 0);
+        const yapeC = (bookingData as any).yape_cents || (pMethod === 'yape' ? advanceAmount : 0);
+        const pNotes = (bookingData as any).payment_notes || null;
+
+        await supabase.from('payment_logs').insert({
+          booking_id: insertedBooking.id,
+          amount_cents: advanceAmount,
+          payment_method: pMethod,
+          payment_type: advanceAmount >= totalPrice ? 'total' : 'advance',
+          cash_amount_cents: cashC,
+          yape_amount_cents: yapeC,
+          notes: pNotes,
+          status: 'verified',
+        });
+
+        const newLog: PaymentLog = {
+          id: `pay-${Date.now()}`,
+          booking_id: insertedBooking.id,
+          booking_code: insertedBooking.booking_code,
+          amount_cents: advanceAmount,
+          payment_method: pMethod,
+          cash_cents: cashC,
+          yape_cents: yapeC,
+          transfer_cents: (bookingData as any).transfer_cents || 0,
+          notes: pNotes,
+          created_at: `${today}T12:00:00Z`,
+          voided: false,
+        };
+        setPaymentLogs((prev) => [newLog, ...prev]);
+      }
+
+      // QA-002: Construir el objeto local usando el ID real de Supabase (no ficticio)
+      const newBooking: Booking = {
+        ...bookingData,
+        services: sanitizedServices,
+        id: insertedBooking.id,
+        code: insertedBooking.booking_code || randomCode,
+        created_at: insertedBooking.created_at || `${today}T12:00:00Z`,
+      };
+
+      setBookings((prev) => [newBooking, ...prev]);
+      pulseRealtime();
+      return newBooking;
+
+    } catch (err) {
+      console.error('Error guardando reserva en Supabase:', err);
+      return null;
+    }
   }, [paymentSettings.advance_percentage, pulseRealtime, employees, services]);
+
+
 
   const registerBookingPayment = useCallback(
     async (
@@ -3170,6 +3189,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         const ticketCode = `${prefix}-${randomNum}`;
 
+        // QA-006: Rechazar blob: URLs - solo se aceptan URLs persistentes de Supabase Storage
+        if (data.voucher_url && data.voucher_url.startsWith('blob:')) {
+          throw new Error(
+            'El comprobante no fue guardado correctamente. Por favor carga el comprobante nuevamente.'
+          );
+        }
+
+        // QA-006: Para reservas web, exigir comprobante con URL real
+        if (data.origin === 'web' && !data.voucher_url) {
+          throw new Error('Debes adjuntar el comprobante de pago Yape para confirmar tu reserva online.');
+        }
+
         const insertPayload = {
           ticket_code: ticketCode,
           origin: data.origin,
@@ -3248,19 +3279,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             updated_at: raw.updated_at,
           };
         } else {
-          console.warn('Fallback reactivo local para alquiler de vestuario:', error);
-          newRental = {
-            ...data,
-            id: `rent-${Date.now()}`,
-            ticket_code: ticketCode,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
+          // QA-005: Si Supabase falla, NO crear registro local ficticio como alquiler "confirmado".
+          // Lanzar el error para que el componente lo capture y muestre al usuario.
+          const errorMessage = (error as any)?.message || 'Error de base de datos al registrar el alquiler';
+          console.error('Error al insertar alquiler de vestuario en Supabase:', error);
+          throw new Error(errorMessage);
         }
-
-        setDressRentals((prev) => [newRental, ...prev]);
-        pulseRealtime();
-        return newRental;
       } catch (err) {
         console.error('Error adding dress rental:', err);
         return null;

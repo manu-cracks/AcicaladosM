@@ -49,6 +49,12 @@ export const ClientPortal: React.FC = () => {
   // Selected booking to pay pending balance
   const [payingBooking, setPayingBooking] = useState<Booking | null>(null);
 
+  // QA-004: Estado para búsqueda por teléfono de invitados no autenticados
+  const [guestLookupPhone, setGuestLookupPhone] = useState('');
+  const [isLookingUpGuest, setIsLookingUpGuest] = useState(false);
+  const [guestLookupError, setGuestLookupError] = useState<string | null>(null);
+  const [guestLookupDone, setGuestLookupDone] = useState(false);
+
   // Sincronizar datos del titular al cambiar currentUser o cargar sesión
   useEffect(() => {
     if (currentUser && currentUser.role !== 'anon') {
@@ -135,6 +141,72 @@ export const ClientPortal: React.FC = () => {
     }
   }, [currentUser]);
 
+  // QA-004: Búsqueda de reservas para usuarios no autenticados (invitados) por teléfono
+  const handleGuestLookup = useCallback(async () => {
+    const cleanPhone = sanitizePhone(guestLookupPhone);
+    if (!cleanPhone || !isValidPhone(cleanPhone)) {
+      setGuestLookupError(PHONE_ERROR_MESSAGE);
+      return;
+    }
+
+    setIsLookingUpGuest(true);
+    setGuestLookupError(null);
+    setGuestLookupDone(false);
+
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*, booking_services(*)')
+        .eq('client_phone', cleanPhone)
+        .order('booking_date', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error en búsqueda de invitado:', error);
+        setGuestLookupError('No se pudo consultar el historial. Verifica tu conexión.');
+        return;
+      }
+
+      const bookings: Booking[] = (data || []).map((b: any) => ({
+        id: b.id,
+        code: b.booking_code,
+        client_name: `${b.client_first_name} ${b.client_last_name}`.trim(),
+        client_phone: sanitizePhone(b.client_phone) || '',
+        client_email: b.client_email || '',
+        client_dni: sanitizeDni(b.client_dni) || '',
+        date: b.booking_date,
+        start_time: b.start_time?.substring(0, 5) || '10:00',
+        end_time: b.end_time?.substring(0, 5) || '11:00',
+        type: b.service_type as any,
+        services: b.booking_services
+          ? b.booking_services.map((bs: any) => ({
+              service_id: bs.service_id || '',
+              service_name: bs.service_name,
+              employee_id: bs.assigned_employee_id || '',
+              employee_name: 'Especialista',
+              price_cents: bs.service_price_cents,
+              duration_minutes: bs.duration_minutes,
+              hora_inicio: bs.hora_inicio || undefined,
+              hora_fin: bs.hora_fin || undefined,
+            }))
+          : [],
+        total_price_cents: b.total_price_cents,
+        advance_amount_cents: b.advance_amount_cents || 0,
+        payment_status: b.payment_status as any,
+        created_at: b.created_at,
+        confirmed_at: b.confirmed_at || undefined,
+      }));
+
+      setUserBookings(bookings);
+      setGuestLookupDone(true);
+    } catch (err) {
+      console.error('Error en búsqueda de invitado:', err);
+      setGuestLookupError('Error inesperado. Inténtalo nuevamente.');
+    } finally {
+      setIsLookingUpGuest(false);
+    }
+  }, [guestLookupPhone]);
+
   useEffect(() => {
     fetchUserReservations();
   }, [fetchUserReservations]);
@@ -144,13 +216,11 @@ export const ClientPortal: React.FC = () => {
     setProfileError(null);
 
     if (phone.trim() && !isValidPhone(phone)) {
-      alert(PHONE_ERROR_MESSAGE);
       setProfileError(PHONE_ERROR_MESSAGE);
       return;
     }
 
     if (dni.trim() && !isValidDni(dni)) {
-      alert(DNI_ERROR_MESSAGE);
       setProfileError(DNI_ERROR_MESSAGE);
       return;
     }
@@ -371,28 +441,89 @@ export const ClientPortal: React.FC = () => {
                 <p className="text-xs text-neutral-400">Consultando tus reservas registradas...</p>
               </div>
             ) : userBookings.length === 0 ? (
-              /* Estado Vacío Elegante (Empty State) */
-              <div className="bg-[#181818]/60 border border-neutral-800/80 rounded-xl p-8 sm:p-12 text-center space-y-5">
-                <div className="w-14 h-14 rounded-2xl bg-[#C8A45C]/10 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C] mx-auto shadow-inner">
-                  <CalendarX2 className="w-7 h-7" />
-                </div>
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h4 className="font-serif-luxury text-lg font-bold text-white">
-                    Aún no tienes citas agendadas
-                  </h4>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
-                    Cuando reserves una cita en nuestra barbería o spa, podrás consultar aquí los detalles de tu servicio, el especialista asignado y liquidar saldos pendientes vía código QR.
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveView('/reservar')}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] hover:from-[#DFCA8D] hover:to-[#D4AF37] text-black shadow-lg shadow-[#C8A45C]/10 transition"
-                  >
-                    <span>Reservar Mi Primera Cita</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+              /* Estado Vacío + QA-004: Búsqueda para invitados */
+              <div className="space-y-5">
+                {/* QA-004: Formulario de búsqueda por teléfono para usuarios invitados */}
+                {(currentUser.role === 'anon' || currentUser.role === 'anonimo') && !guestLookupDone && (
+                  <div className="bg-[#181818]/80 border border-[#C8A45C]/20 rounded-xl p-5 space-y-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center">
+                        <Phone className="w-4 h-4 text-[#C8A45C]" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white">¿Reservaste sin cuenta?</h4>
+                        <p className="text-[11px] text-neutral-400">Ingresa tu WhatsApp para consultar tus reservas</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Phone className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          maxLength={9}
+                          placeholder={PHONE_PLACEHOLDER}
+                          value={guestLookupPhone}
+                          onKeyDown={(e) => {
+                            handleNumericKeyDown(e);
+                            if (e.key === 'Enter') handleGuestLookup();
+                          }}
+                          onChange={(e) => {
+                            setGuestLookupPhone(sanitizePhone(e.target.value));
+                            if (guestLookupError) setGuestLookupError(null);
+                          }}
+                          className="w-full bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] text-white text-xs rounded-xl pl-9 pr-3 py-2 outline-none font-mono"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isLookingUpGuest}
+                        onClick={handleGuestLookup}
+                        className="px-4 py-2 rounded-xl bg-[#C8A45C] hover:bg-[#D4AF37] text-black text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLookingUpGuest ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isLookingUpGuest ? 'Buscando...' : 'Buscar'}</span>
+                      </button>
+                    </div>
+                    {guestLookupError && (
+                      <div className="flex items-center gap-2 text-xs text-rose-400 bg-rose-950/30 border border-rose-900/40 rounded-lg px-3 py-2">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{guestLookupError}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Estado vacío cuando no hay reservas */}
+                <div className="bg-[#181818]/60 border border-neutral-800/80 rounded-xl p-8 sm:p-12 text-center space-y-5">
+                  <div className="w-14 h-14 rounded-2xl bg-[#C8A45C]/10 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C] mx-auto shadow-inner">
+                    <CalendarX2 className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1.5 max-w-md mx-auto">
+                    <h4 className="font-serif-luxury text-lg font-bold text-white">
+                      {guestLookupDone
+                        ? 'No encontramos reservas con ese número'
+                        : 'Aún no tienes citas agendadas'}
+                    </h4>
+                    <p className="text-xs text-neutral-400 leading-relaxed">
+                      {guestLookupDone
+                        ? 'Verifica que el número es el mismo que usaste al reservar, o crea una nueva reserva.'
+                        : 'Cuando reserves una cita en nuestra barbería o spa, podrás consultar aquí los detalles de tu servicio, el especialista asignado y liquidar saldos pendientes vía código QR.'}
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('/reservar')}
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] hover:from-[#DFCA8D] hover:to-[#D4AF37] text-black shadow-lg shadow-[#C8A45C]/10 transition"
+                    >
+                      <span>Reservar Mi Primera Cita</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

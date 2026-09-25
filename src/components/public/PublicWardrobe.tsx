@@ -5,7 +5,8 @@ import { Shirt, MessageSquare, Sparkles, Tag, Maximize2, MoveHorizontal, Calenda
 import { PublicDressBookingModal } from './PublicDressBookingModal';
 
 export const PublicWardrobe: React.FC = () => {
-  const { wardrobe, openLightbox } = useApp();
+  // QA-010: usar paymentSettings para número de WhatsApp (fuente única)
+  const { wardrobe, openLightbox, paymentSettings } = useApp();
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [selectedBookingItem, setSelectedBookingItem] = useState<WardrobeItem | null>(null);
 
@@ -35,7 +36,9 @@ export const PublicWardrobe: React.FC = () => {
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
     );
-    window.open(`https://wa.me/51987654321?text=${text}`, '_blank');
+    // QA-010: número dinámico desde paymentSettings en lugar de número hardcodeado
+    const whatsappPhone = paymentSettings?.yape_phone?.replace(/\s+/g, '') || '997766828';
+    window.open(`https://wa.me/51${whatsappPhone}?text=${text}`, '_blank');
   };
 
   const renderWardrobeCard = (item: WardrobeItem) => {

@@ -101,27 +101,52 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
       return;
     }
 
+    // QA-006: Validar tamaño máximo (5 MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMsg('La imagen supera el límite de 5 MB. Por favor usa una captura más pequeña.');
+      return;
+    }
+
     setVoucherFile(file);
     setIsUploadingVoucher(true);
     setErrorMsg(null);
+    // QA-006: Limpiar URL anterior al intentar nuevo upload
+    setVoucherUrl('');
 
     try {
-      const fileName = `voucher-${codeDisplay}-${Date.now()}.webp`;
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const fileName = `dress-voucher-${codeDisplay}-${Date.now()}.${ext}`;
       const { data: uploadData, error: uploadErr } = await supabase.storage
         .from('wardrobe-images')
-        .upload(fileName, file, { contentType: file.type, upsert: true });
+        .upload(fileName, file, { contentType: file.type, upsert: false });
 
-      if (uploadErr) {
-        const localBlob = URL.createObjectURL(file);
-        setVoucherUrl(localBlob);
-      } else {
-        const { data: pubData } = supabase.storage
-          .from('wardrobe-images')
-          .getPublicUrl(uploadData.path || fileName);
-        setVoucherUrl(pubData?.publicUrl || URL.createObjectURL(file));
+      if (uploadErr || !uploadData) {
+        // QA-006: Si Supabase falla, NO usar blob local como fallback
+        console.error('Error subiendo voucher de vestuario:', uploadErr);
+        setVoucherFile(null);
+        setErrorMsg(
+          'No se pudo cargar el comprobante al servidor. Verifica tu conexión e inténtalo nuevamente.'
+        );
+        return;
       }
+
+      const { data: pubData } = supabase.storage
+        .from('wardrobe-images')
+        .getPublicUrl(uploadData.path || fileName);
+
+      const persistentUrl = pubData?.publicUrl;
+      if (!persistentUrl) {
+        setVoucherFile(null);
+        setErrorMsg('No se pudo obtener la URL del comprobante. Inténtalo nuevamente.');
+        return;
+      }
+
+      // QA-006: Solo setear URL si es una URL persistente real (no blob)
+      setVoucherUrl(persistentUrl);
     } catch (err) {
-      setVoucherUrl(URL.createObjectURL(file));
+      // QA-006: No fallback blob en ningún caso
+      setVoucherFile(null);
+      setErrorMsg('Error inesperado al cargar el comprobante. Inténtalo nuevamente.');
     } finally {
       setIsUploadingVoucher(false);
     }
@@ -158,7 +183,8 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
         guarantee_cents: item.deposit_cents || 5000,
         is_immediate_delivery: false,
         status: 'por_validar',
-        voucher_url: voucherUrl || 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80',
+        // QA-006: voucherUrl es siempre una URL persistente real; si está vacía, addDressRental lanzará error
+        voucher_url: voucherUrl,
         notes: `Solicitud de reserva online vía Yape por S/ ${(advanceAmountCents / 100).toFixed(2)}`,
       });
 

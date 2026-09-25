@@ -86,6 +86,8 @@ export const PublicBookingFlow: React.FC = () => {
     }
   }, [currentUser]);
   const [bookingFormError, setBookingFormError] = useState<string | null>(null);
+  // QA-022: Protección contra doble envío
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Generated Booking Result
   const [createdBooking, setCreatedBooking] = useState<any | null>(null);
@@ -154,27 +156,31 @@ export const PublicBookingFlow: React.FC = () => {
     }
   }, [computedSlots, selectedSlot, selectedSlotObj]);
 
-  const handleFinishBooking = () => {
+  // QA-002: handleFinishBooking ahora es async - espera confirmación de Supabase
+  // antes de mostrar el paso 5. Si falla, muestra error y conserva el formulario.
+  const handleFinishBooking = async () => {
     setBookingFormError(null);
     if (!clientName.trim()) {
       setBookingFormError('Por favor ingresa tu nombre completo.');
       return;
     }
     if (!isValidPhone(clientPhone)) {
-      alert(PHONE_ERROR_MESSAGE);
       setBookingFormError(PHONE_ERROR_MESSAGE);
       return;
     }
     if (clientDni.trim() && !isValidDni(clientDni)) {
-      alert(DNI_ERROR_MESSAGE);
       setBookingFormError(DNI_ERROR_MESSAGE);
       return;
     }
 
     if (!selectedSlot || !selectedSlotObj || selectedSlotObj.status !== 'disponible') {
-      alert('Por favor selecciona un horario disponible.');
+      setBookingFormError('Por favor selecciona un horario disponible.');
       return;
     }
+
+    // QA-022: Proteger contra doble clic
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
     const overallEnd = selectedSlotObj.overallEndTime;
     const plans = selectedSlotObj.servicePlans || [];
@@ -201,36 +207,52 @@ export const PublicBookingFlow: React.FC = () => {
       };
     });
 
-    const primaryEmployeeId = mappedServices[0]?.employee_id;
-
-    const newBooking = addBooking({
-      client_name: clientName,
-      client_phone: clientPhone,
-      client_email: clientEmail || 'cliente@acicalados.pe',
-      client_dni: clientDni,
-      date: bookingDate,
-      start_time: selectedSlot,
-      end_time: overallEnd,
-      type: selectedType,
-      services: mappedServices,
-      total_price_cents: totalPriceCents,
-      advance_amount_cents: 0,
-      payment_status: 'sin_pago',
-      notes,
-    });
-
-    setCreatedBooking(newBooking);
-    setCurrentStep(5);
-
     try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#C8A45C', '#DFCA8D', '#22C55E', '#FFFFFF'],
+      // QA-002: addBooking es async - solo avanzar si Supabase confirma el INSERT
+      const newBooking = await addBooking({
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail || 'cliente@acicalados.pe',
+        client_dni: clientDni,
+        date: bookingDate,
+        start_time: selectedSlot,
+        end_time: overallEnd,
+        type: selectedType,
+        services: mappedServices,
+        total_price_cents: totalPriceCents,
+        advance_amount_cents: 0,
+        payment_status: 'sin_pago',
+        notes,
       });
-    } catch {
-      // ignore
+
+      if (!newBooking) {
+        // QA-002: INSERT falló - mostrar error, NO mostrar ticket
+        setBookingFormError(
+          'No se pudo registrar tu reserva. Por favor verifica tu conexión e inténtalo nuevamente.'
+        );
+        return;
+      }
+
+      // QA-002: Solo llegar aquí si Supabase confirmó el INSERT
+      setCreatedBooking(newBooking);
+      setCurrentStep(5);
+
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#C8A45C', '#DFCA8D', '#22C55E', '#FFFFFF'],
+        });
+      } catch {
+        // ignore
+      }
+    } catch (err: any) {
+      setBookingFormError(
+        err?.message || 'Error inesperado al procesar la reserva. Inténtalo nuevamente.'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -459,7 +481,8 @@ export const PublicBookingFlow: React.FC = () => {
           <div className="bg-[#181611] border border-[#C8A45C]/30 rounded-xl p-3.5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2 text-neutral-300">
               <ShieldCheck className="w-4 h-4 text-[#C8A45C]" />
-              <span>Adelanto del 25% requerido para confirmar:</span>
+              {/* QA-011: Usar advance_percentage dinámico, no hardcodeado */}
+              <span>Adelanto del {paymentSettings.advance_percentage}% requerido para confirmar:</span>
             </div>
             <span className="font-bold text-[#E6C875]">{formatSoles(minAdvanceCents)}</span>
           </div>
@@ -846,18 +869,19 @@ export const PublicBookingFlow: React.FC = () => {
               <span>Atrás</span>
             </button>
 
+            {/* QA-022: Botón deshabilitado mientras isSubmitting para evitar doble envío */}
             <button
               type="button"
-              disabled={!clientName.trim() || !isValidPhone(clientPhone) || (Boolean(clientDni.trim()) && !isValidDni(clientDni))}
+              disabled={isSubmitting || !clientName.trim() || !isValidPhone(clientPhone) || (Boolean(clientDni.trim()) && !isValidDni(clientDni))}
               onClick={handleFinishBooking}
               className={`px-7 py-3 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
-                clientName.trim() && isValidPhone(clientPhone) && (!clientDni.trim() || isValidDni(clientDni))
+                !isSubmitting && clientName.trim() && isValidPhone(clientPhone) && (!clientDni.trim() || isValidDni(clientDni))
                   ? 'bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] text-black shadow-lg hover:from-[#DFCA8D] hover:to-[#D4AF37]'
                   : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
               }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Confirmar y Ver Instrucciones de Pago</span>
+              <span>{isSubmitting ? 'Registrando reserva...' : 'Confirmar y Ver Instrucciones de Pago'}</span>
             </button>
           </div>
         </div>
@@ -923,12 +947,13 @@ export const PublicBookingFlow: React.FC = () => {
             </div>
           </div>
 
-          {/* Payment QR Widget with 25% minimum advance */}
+          {/* Payment QR Widget with dynamic advance percentage */}
+          {/* QA-011: title usa advance_percentage dinámico */}
           <PaymentQRWidget
             amountCents={minAdvanceCents}
             bookingCode={createdBooking.code}
             clientName={createdBooking.client_name}
-            title={`Abonar Adelanto Mínimo del 25% (${formatSoles(minAdvanceCents)})`}
+            title={`Abonar Adelanto Mínimo del ${paymentSettings.advance_percentage}% (${formatSoles(minAdvanceCents)})`}
           />
 
           <div className="text-center pt-4">
