@@ -254,6 +254,19 @@ export const ReportesView: React.FC = () => {
   const dayExpenses = useMemo(() => {
     return expenses.filter((e) => {
       if (e.voided) return false;
+      const statusUpper = (e.status || '').toUpperCase();
+      const estadoUpper = (e.estado || '').toUpperCase();
+      if (
+        statusUpper === 'ANULADO' ||
+        statusUpper === 'ELIMINADO' ||
+        statusUpper === 'INACTIVO' ||
+        statusUpper === 'VOIDED' ||
+        estadoUpper === 'ANULADO' ||
+        estadoUpper === 'ELIMINADO' ||
+        estadoUpper === 'INACTIVO'
+      ) {
+        return false;
+      }
       const eDate = getLimaDateFromTimestamp(e.date || e.created_at);
       return eDate === selectedDate;
     });

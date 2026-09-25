@@ -128,6 +128,9 @@ interface AppContextType {
 
   // Expenses
   addExpense: (expense: Omit<Expense, 'id' | 'created_at' | 'voided'>) => void;
+  updateExpense: (id: string, expenseData: Partial<Omit<Expense, 'id' | 'created_at'>>) => Promise<void>;
+  deleteExpense: (id: string, reason?: string) => Promise<void>;
+  anularExpense: (id: string, motivo: string) => Promise<void>;
   voidExpense: (expenseId: string, reason: string) => void;
 
   // Employees & Attendance
@@ -753,20 +756,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .order('expense_date', { ascending: false });
         if (dbExpenses) {
           setExpenses(
-            dbExpenses.map((e: any) => ({
-              id: e.id,
-              description: e.description,
-              category: e.category,
-              amount_cents: e.amount_cents,
-              payment_method: e.payment_method === 'cash' ? 'efectivo' : e.payment_method,
-              beneficiary: e.supplier || '',
-              voucher_url: e.receipt_url || undefined,
-              date: e.expense_date,
-              voided: e.status === 'voided',
-              voided_reason: e.void_reason || undefined,
-              voided_by: e.voided_by || undefined,
-              created_at: e.created_at || e.expense_date,
-            }))
+            dbExpenses.map((e: any) => {
+              const statusUpper = (e.status || '').toUpperCase();
+              const estadoUpper = (e.estado || '').toUpperCase();
+              const isVoided =
+                e.status === 'voided' ||
+                statusUpper === 'ELIMINADO' ||
+                statusUpper === 'INACTIVO' ||
+                statusUpper === 'ANULADO' ||
+                statusUpper === 'VOIDED' ||
+                estadoUpper === 'ANULADO' ||
+                estadoUpper === 'ELIMINADO' ||
+                estadoUpper === 'INACTIVO' ||
+                e.voided_at != null;
+
+              return {
+                id: e.id,
+                description: e.description,
+                concept: e.description,
+                category: e.category,
+                amount_cents: e.amount_cents,
+                payment_method: e.payment_method === 'cash' ? 'efectivo' : e.payment_method,
+                beneficiary: e.supplier || '',
+                responsible: e.supplier || '',
+                voucher_url: e.receipt_url || undefined,
+                date: e.expense_date,
+                status: isVoided ? 'ANULADO' : (e.status || 'active'),
+                estado: isVoided ? 'ANULADO' : (e.estado || 'ACTIVO'),
+                motivo_anulacion: e.motivo_anulacion || e.void_reason || undefined,
+                voided: isVoided,
+                voided_reason: e.motivo_anulacion || e.void_reason || undefined,
+                voided_by: e.voided_by || undefined,
+                created_at: e.created_at || e.expense_date,
+              };
+            })
           );
         }
       }
@@ -1871,6 +1894,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...expenseData,
       id: `exp-${Date.now()}`,
       voided: false,
+      status: 'active',
+      estado: 'ACTIVO',
       date: expenseData.date || today,
       created_at: nowIso,
     };
@@ -1878,15 +1903,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pulseRealtime();
 
     supabase.from('expenses').insert({
-      description: expenseData.description,
+      description: expenseData.description || expenseData.concept,
       category: expenseData.category,
       amount_cents: expenseData.amount_cents,
       payment_method: expenseData.payment_method === 'efectivo' ? 'cash' : expenseData.payment_method,
       expense_date: expenseData.date || today,
       created_at: nowIso,
-      supplier: expenseData.beneficiary || null,
+      supplier: expenseData.beneficiary || expenseData.responsible || null,
       receipt_url: expenseData.voucher_url || null,
       status: 'active',
+      estado: 'ACTIVO',
     }).then();
   }, [pulseRealtime]);
 
@@ -1894,7 +1920,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setExpenses((prev) =>
       prev.map((e) =>
         e.id === expenseId
-          ? { ...e, voided: true, voided_reason: reason, voided_by: currentUser.name }
+          ? {
+              ...e,
+              voided: true,
+              status: 'ANULADO',
+              estado: 'ANULADO',
+              voided_reason: reason,
+              motivo_anulacion: reason,
+              voided_by: currentUser.name,
+            }
           : e
       )
     );
@@ -1902,12 +1936,102 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (expenseId.includes('-') && expenseId.length === 36) {
       supabase.from('expenses').update({
-        status: 'voided',
+        status: 'ANULADO',
+        estado: 'ANULADO',
         void_reason: reason,
+        motivo_anulacion: reason,
         voided_at: new Date().toISOString(),
       }).eq('id', expenseId).then();
     }
   }, [currentUser.name, pulseRealtime]);
+
+  const updateExpense = useCallback(async (id: string, expenseData: Partial<Omit<Expense, 'id' | 'created_at'>>) => {
+    setExpenses((prev) =>
+      prev.map((e) => {
+        if (e.id !== id) return e;
+        return {
+          ...e,
+          ...expenseData,
+          description: expenseData.description || expenseData.concept || e.description,
+          concept: expenseData.concept || expenseData.description || e.concept,
+          responsible: expenseData.responsible || expenseData.beneficiary || e.responsible,
+        };
+      })
+    );
+    pulseRealtime();
+
+    try {
+      const updatePayload: any = {};
+      if (expenseData.description || expenseData.concept) {
+        updatePayload.description = expenseData.description || expenseData.concept;
+      }
+      if (expenseData.category) {
+        updatePayload.category = expenseData.category;
+      }
+      if (expenseData.amount_cents !== undefined) {
+        updatePayload.amount_cents = expenseData.amount_cents;
+      }
+      if (expenseData.payment_method) {
+        updatePayload.payment_method = expenseData.payment_method === 'efectivo' ? 'cash' : expenseData.payment_method;
+      }
+      if (expenseData.beneficiary || expenseData.responsible) {
+        updatePayload.supplier = expenseData.beneficiary || expenseData.responsible;
+      }
+      if (expenseData.date) {
+        updatePayload.expense_date = expenseData.date;
+      }
+
+      await (supabase.from('expenses') as any).update(updatePayload).eq('id', id);
+    } catch (err) {
+      console.error('Error actualizando egreso:', err);
+    }
+  }, [pulseRealtime]);
+
+  const anularExpense = useCallback(async (id: string, motivo: string) => {
+    const reason = motivo.trim() || 'Anulado desde módulo de Egresos';
+    const isUuid = !!(currentUser?.id && currentUser.id.includes('-') && currentUser.id.length === 36);
+
+    // Soft-delete reactivo e inmediato en memoria
+    setExpenses((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              voided: true,
+              status: 'ANULADO',
+              estado: 'ANULADO',
+              voided_reason: reason,
+              motivo_anulacion: reason,
+              voided_by: currentUser?.name || 'Personal',
+            }
+          : e
+      )
+    );
+    pulseRealtime();
+
+    try {
+      const { error } = await (supabase.from('expenses') as any).update({
+        status: 'ANULADO',
+        estado: 'ANULADO',
+        voided_at: new Date().toISOString(),
+        voided_by: isUuid ? currentUser.id : null,
+        void_reason: reason,
+        motivo_anulacion: reason,
+      }).eq('id', id);
+
+      if (error) {
+        console.error('Error en Supabase anulando egreso:', error);
+        throw error;
+      }
+    } catch (err) {
+      console.error('Error anulando egreso:', err);
+      throw err;
+    }
+  }, [currentUser, pulseRealtime]);
+
+  const deleteExpense = useCallback(async (id: string, reason?: string) => {
+    return anularExpense(id, reason || 'Eliminado desde módulo de Egresos');
+  }, [anularExpense]);
 
   // EMPLOYEE & ATTENDANCE HANDLERS
   const addEmployee = useCallback(async (empData: Omit<Employee, 'id' | 'qr_code_uuid'> & { skills?: string[] }): Promise<Employee | null> => {
@@ -3455,9 +3579,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
 
     // 3. Egresos Operativos de Hoy (excluyendo anulados)
-    const activeExpenses = expenses.filter(
-      (e) => !e.voided && getLimaDateFromTimestamp(e.date || e.created_at) === today
-    );
+    const activeExpenses = expenses.filter((e) => {
+      if (e.voided) return false;
+      const statusUpper = (e.status || '').toUpperCase();
+      const estadoUpper = (e.estado || '').toUpperCase();
+      if (
+        statusUpper === 'ANULADO' ||
+        statusUpper === 'ELIMINADO' ||
+        statusUpper === 'INACTIVO' ||
+        statusUpper === 'VOIDED' ||
+        estadoUpper === 'ANULADO' ||
+        estadoUpper === 'ELIMINADO' ||
+        estadoUpper === 'INACTIVO'
+      ) {
+        return false;
+      }
+      return getLimaDateFromTimestamp(e.date || e.created_at) === today;
+    });
     const totalEgresosCents = activeExpenses.reduce(
       (acc, e) => acc + (e.amount_cents || 0),
       0
@@ -3553,6 +3691,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteVentaMostrador,
         setProducts,
         addExpense,
+        updateExpense,
+        deleteExpense,
+        anularExpense,
         voidExpense,
         addEmployee,
         updateEmployee,

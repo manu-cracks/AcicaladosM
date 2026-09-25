@@ -365,6 +365,8 @@ export interface Expense {
   voucher_url?: string;
   date: string; // YYYY-MM-DD
   status?: string;
+  estado?: string;
+  motivo_anulacion?: string;
   voided: boolean;
   voided_reason?: string;
   voided_by?: string;

@@ -926,6 +926,8 @@ export type Database = {
           receipt_url: string | null
           registered_by: string | null
           status: string
+          estado: string | null
+          motivo_anulacion: string | null
           supplier: string | null
           void_reason: string | null
           voided_at: string | null
@@ -944,6 +946,8 @@ export type Database = {
           receipt_url?: string | null
           registered_by?: string | null
           status?: string
+          estado?: string | null
+          motivo_anulacion?: string | null
           supplier?: string | null
           void_reason?: string | null
           voided_at?: string | null
@@ -962,6 +966,8 @@ export type Database = {
           receipt_url?: string | null
           registered_by?: string | null
           status?: string
+          estado?: string | null
+          motivo_anulacion?: string | null
           supplier?: string | null
           void_reason?: string | null
           voided_at?: string | null

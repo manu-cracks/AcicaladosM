@@ -166,7 +166,23 @@ export const DashboardHome: React.FC = () => {
 
   // 3. Filtrado riguroso de egresos por rango / fecha exacta (00:00:00 a 23:59:59 America/Lima)
   const rangeExpenses = useMemo(() => {
-    const activeExpenses = expenses.filter((e) => !e.voided);
+    const activeExpenses = expenses.filter((e) => {
+      if (e.voided) return false;
+      const statusUpper = (e.status || '').toUpperCase();
+      const estadoUpper = (e.estado || '').toUpperCase();
+      if (
+        statusUpper === 'ANULADO' ||
+        statusUpper === 'ELIMINADO' ||
+        statusUpper === 'INACTIVO' ||
+        statusUpper === 'VOIDED' ||
+        estadoUpper === 'ANULADO' ||
+        estadoUpper === 'ELIMINADO' ||
+        estadoUpper === 'INACTIVO'
+      ) {
+        return false;
+      }
+      return true;
+    });
     if (dateFilter === 'todo') return activeExpenses;
     if (isExactDate) {
       return activeExpenses.filter((e) => getLimaDateFromTimestamp(e.date || e.created_at) === dateFilter);
