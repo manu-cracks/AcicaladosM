@@ -1277,7 +1277,24 @@ export const ReservasManager: React.FC = () => {
                                   const serviceKey = srv.id || `${b.id}-${sIdx}`;
                                   const isActionLoading = actionLoadingServiceId === serviceKey;
                                   const isSolicitado = Boolean(srv.solicitud_eliminacion);
-                                    const hasMultipleServices = Boolean(b.services && b.services.length > 1);
+                                  const hasMultipleServices = Boolean(b.services && b.services.length > 1);
+                                  const itemPrice = srv.price_cents || 0;
+                                  // Evaluar el adelanto/monto cobrado asignado a este ítem
+                                  const itemAdvance =
+                                    srv.advance_amount_cents != null && srv.advance_amount_cents > 0
+                                      ? srv.advance_amount_cents
+                                      : !hasMultipleServices
+                                      ? b.advance_amount_cents || 0
+                                      : 0;
+                                  const isFullyPaid =
+                                    itemAdvance >= itemPrice ||
+                                    b.payment_status === 'paid' ||
+                                    b.payment_status === 'total';
+                                  // Caso A: Verdadero Adelanto (> 0 y < precio_total)
+                                  // Caso B: Pago Completo (>= precio_total) -> oculto
+                                  // Caso C: Sin Pago (<= 0) -> oculto
+                                  const isVerdaderoAdelanto =
+                                    itemAdvance > 0 && itemAdvance < itemPrice && !isFullyPaid;
 
                                   return (
                                     <div
@@ -1300,15 +1317,15 @@ export const ReservasManager: React.FC = () => {
                                       />
 
                                       <div className="flex flex-wrap items-center gap-3">
-                                        {/* Adelanto proporcional retenido por este servicio */}
-                                        {srv.advance_amount_cents != null && srv.advance_amount_cents > 0 && (
+                                        {/* Adelanto proporcional retenido por este servicio (Solo Caso A: Verdadero Adelanto) */}
+                                        {isVerdaderoAdelanto && (
                                           <div
                                             className="flex items-center gap-1.5 bg-[#121212] px-2.5 py-1 rounded-lg border border-emerald-800/40 text-[11px]"
                                             title="Adelanto proporcional retenido para este servicio"
                                           >
                                             <span className="text-[10px] text-neutral-400 font-medium">Adelanto:</span>
                                             <span className="font-bold text-emerald-400 font-mono">
-                                              {formatSoles(srv.advance_amount_cents)}
+                                              {formatSoles(itemAdvance)}
                                             </span>
                                           </div>
                                         )}
@@ -1485,21 +1502,30 @@ export const ReservasManager: React.FC = () => {
                     Servicios a liquidar en caja:
                   </span>
                   <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
-                    {selectedBookingForPayment.services.map((s, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-[11px] bg-[#121212] px-2 py-1 rounded border border-neutral-800/60">
-                        <span className="text-neutral-300 font-medium">
-                          • {s.service_name} <span className="text-neutral-500 text-[10px]">({s.employee_name || 'Especialista'})</span>
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-white font-semibold">{formatSoles(s.price_cents)}</span>
-                          {s.advance_amount_cents != null && s.advance_amount_cents > 0 && (
-                            <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-900/40 font-mono">
-                              Adelanto: {formatSoles(s.advance_amount_cents)}
-                            </span>
-                          )}
+                    {selectedBookingForPayment.services.map((s, idx) => {
+                      const sPrice = s.price_cents || 0;
+                      const sAdvance =
+                        s.advance_amount_cents != null && s.advance_amount_cents > 0
+                          ? s.advance_amount_cents
+                          : (selectedBookingForPayment.services?.length === 1 ? (selectedBookingForPayment.advance_amount_cents || 0) : 0);
+                      const isPartialAdvance = sAdvance > 0 && sAdvance < sPrice;
+
+                      return (
+                        <div key={idx} className="flex justify-between items-center text-[11px] bg-[#121212] px-2 py-1 rounded border border-neutral-800/60">
+                          <span className="text-neutral-300 font-medium">
+                            • {s.service_name} <span className="text-neutral-500 text-[10px]">({s.employee_name || 'Especialista'})</span>
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-white font-semibold">{formatSoles(sPrice)}</span>
+                            {isPartialAdvance && (
+                              <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-900/40 font-mono">
+                                Adelanto: {formatSoles(sAdvance)}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
