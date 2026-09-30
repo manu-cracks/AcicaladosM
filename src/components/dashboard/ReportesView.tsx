@@ -157,6 +157,7 @@ export const ReportesView: React.FC = () => {
   const financialMetrics = useFinancialSSOT(selectedDate, {
     employeeId: selectedEmployee?.id,
     employeeArea: selectedEmployeeArea || undefined,
+    employeeName: selectedEmployee?.full_name,
   });
 
   const {
@@ -223,8 +224,11 @@ export const ReportesView: React.FC = () => {
       .map((emp) => {
         const empServices = dayServicesWithCollected.filter(
           (srv) =>
-            srv.employee_id === emp.id ||
-            srv.employee_name?.toLowerCase() === emp.full_name?.toLowerCase()
+            (srv.collected_cents || 0) > 0 &&
+            (srv.employee_id === emp.id ||
+              (Boolean(srv.employee_name) &&
+                Boolean(emp.full_name) &&
+                srv.employee_name.trim().toLowerCase() === emp.full_name.trim().toLowerCase()))
         );
 
         const totalCents = empServices.reduce(

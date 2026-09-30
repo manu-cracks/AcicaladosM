@@ -119,6 +119,7 @@ DECLARE
   v_balance_neto integer := 0;
   v_citas_count integer := 0;
   v_citas_confirmadas_count integer := 0;
+  v_servicios_count integer := 0;
 BEGIN
   IF p_date IS NOT NULL THEN
     v_effective_date := p_date;
@@ -127,7 +128,7 @@ BEGIN
   ELSIF p_start_date IS NOT NULL THEN
     v_effective_date := NULL;
     v_start_ts := (p_start_date::text || ' 00:00:00 America/Lima')::timestamptz;
-    v_end_ts   := (COALESCE(p_end_date, CURRENT_DATE)::text || ' 23:59:59.999 America/Lima')::timestamptz;
+    v_end_ts   := (COALESCE(p_end_date, (now() AT TIME ZONE 'America/Lima')::date)::text || ' 23:59:59.999 America/Lima')::timestamptz;
   ELSE
     v_effective_date := (now() AT TIME ZONE 'America/Lima')::date;
     v_start_ts := (v_effective_date::text || ' 00:00:00 America/Lima')::timestamptz;
@@ -135,37 +136,77 @@ BEGIN
   END IF;
 
   -- 1. Citas activas e ingresos de servicios
-  SELECT 
-    COALESCE(SUM(
-      CASE 
-        WHEN b.cancelled_at IS NOT NULL OR b.expired_at IS NOT NULL THEN 0
-        WHEN b.payment_status = 'total' OR (COALESCE(b.total_price_cents, 0) > 0 AND COALESCE(b.advance_amount_cents, 0) >= COALESCE(b.total_price_cents, 0))
-          THEN GREATEST(COALESCE(b.total_price_cents, 0), COALESCE(b.advance_amount_cents, 0))
-        WHEN b.payment_status = 'parcial' OR COALESCE(b.advance_amount_cents, 0) > 0
-          THEN LEAST(COALESCE(b.advance_amount_cents, 0), COALESCE(b.total_price_cents, b.advance_amount_cents))
-        ELSE 0
-      END
-    ), 0),
-    COUNT(*),
-    COUNT(*) FILTER (WHERE b.payment_status IN ('total', 'parcial'))
-  INTO v_ingresos_servicios, v_citas_count, v_citas_confirmadas_count
-  FROM public.bookings b
-  WHERE (b.cancelled_at IS NULL AND b.expired_at IS NULL)
-    AND (
-      (v_effective_date IS NOT NULL AND b.booking_date = v_effective_date)
-      OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND b.booking_date >= p_start_date AND b.booking_date <= COALESCE(p_end_date, CURRENT_DATE))
-    )
-    AND (
-      p_employee_id IS NULL 
-      OR b.assigned_employee_id = p_employee_id
-      OR EXISTS (
-        SELECT 1 FROM public.booking_services bs 
-        WHERE bs.booking_id = b.id AND bs.assigned_employee_id = p_employee_id
+  IF p_employee_id IS NOT NULL THEN
+    -- FILTRADO A NIVEL DE ÍTEM (Detalle de Reserva) para Colaborador Específico
+    SELECT 
+      COALESCE(SUM(
+        CASE 
+          WHEN b.cancelled_at IS NOT NULL OR b.expired_at IS NOT NULL THEN 0
+          WHEN b.payment_status = 'total' OR (COALESCE(b.total_price_cents, 0) > 0 AND COALESCE(b.advance_amount_cents, 0) >= COALESCE(b.total_price_cents, 0))
+            THEN COALESCE(bs.service_price_cents, 0)
+          WHEN b.payment_status = 'parcial' OR COALESCE(b.advance_amount_cents, 0) > 0
+            THEN COALESCE(
+                   bs.advance_amount_cents, 
+                   CASE 
+                     WHEN COALESCE(b.total_price_cents, 0) > 0 
+                       THEN LEAST(ROUND(b.advance_amount_cents * (bs.service_price_cents::numeric / b.total_price_cents))::integer, bs.service_price_cents)
+                     ELSE 0 
+                   END
+                 )
+          ELSE 0
+        END
+      ), 0),
+      COUNT(DISTINCT b.id),
+      COUNT(DISTINCT CASE WHEN (b.payment_status IN ('total', 'parcial') OR COALESCE(b.advance_amount_cents, 0) > 0) THEN b.id END),
+      COUNT(bs.id) FILTER (WHERE (b.payment_status IN ('total', 'parcial') OR COALESCE(b.advance_amount_cents, 0) > 0))
+    INTO v_ingresos_servicios, v_citas_count, v_citas_confirmadas_count, v_servicios_count
+    FROM public.booking_services bs
+    JOIN public.bookings b ON b.id = bs.booking_id
+    WHERE (b.cancelled_at IS NULL AND b.expired_at IS NULL)
+      AND (
+        (v_effective_date IS NOT NULL AND b.booking_date = v_effective_date)
+        OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND b.booking_date >= p_start_date AND b.booking_date <= COALESCE(p_end_date, (now() AT TIME ZONE 'America/Lima')::date))
       )
-    );
+      AND COALESCE(bs.assigned_employee_id, b.assigned_employee_id) = p_employee_id;
 
-  -- 2. Ventas de mostrador (solo aplican globalmente cuando no hay empleado específico seleccionado)
-  IF p_employee_id IS NULL THEN
+    -- Si se filtra por empleado, las ventas de mostrador y egresos del salón no se imputan
+    v_ventas_mostrador := 0;
+    v_egresos := 0;
+  ELSE
+    -- CÁLCULO GLOBAL DEL SALÓN (Todos los especialistas)
+    SELECT 
+      COALESCE(SUM(
+        CASE 
+          WHEN b.cancelled_at IS NOT NULL OR b.expired_at IS NOT NULL THEN 0
+          WHEN b.payment_status = 'total' OR (COALESCE(b.total_price_cents, 0) > 0 AND COALESCE(b.advance_amount_cents, 0) >= COALESCE(b.total_price_cents, 0))
+            THEN GREATEST(COALESCE(b.total_price_cents, 0), COALESCE(b.advance_amount_cents, 0))
+          WHEN b.payment_status = 'parcial' OR COALESCE(b.advance_amount_cents, 0) > 0
+            THEN LEAST(COALESCE(b.advance_amount_cents, 0), COALESCE(b.total_price_cents, b.advance_amount_cents))
+          ELSE 0
+        END
+      ), 0),
+      COUNT(*),
+      COUNT(*) FILTER (WHERE b.payment_status IN ('total', 'parcial') OR COALESCE(b.advance_amount_cents, 0) > 0),
+      COALESCE((
+        SELECT COUNT(bs.id)
+        FROM public.booking_services bs
+        JOIN public.bookings b2 ON b2.id = bs.booking_id
+        WHERE (b2.cancelled_at IS NULL AND b2.expired_at IS NULL)
+          AND (
+            (v_effective_date IS NOT NULL AND b2.booking_date = v_effective_date)
+            OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND b2.booking_date >= p_start_date AND b2.booking_date <= COALESCE(p_end_date, (now() AT TIME ZONE 'America/Lima')::date))
+          )
+          AND (b2.payment_status IN ('total', 'parcial') OR COALESCE(b2.advance_amount_cents, 0) > 0)
+      ), 0)
+    INTO v_ingresos_servicios, v_citas_count, v_citas_confirmadas_count, v_servicios_count
+    FROM public.bookings b
+    WHERE (b.cancelled_at IS NULL AND b.expired_at IS NULL)
+      AND (
+        (v_effective_date IS NOT NULL AND b.booking_date = v_effective_date)
+        OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND b.booking_date >= p_start_date AND b.booking_date <= COALESCE(p_end_date, (now() AT TIME ZONE 'America/Lima')::date))
+      );
+
+    -- 2. Ventas de mostrador globales
     SELECT COALESCE(SUM(ROUND(COALESCE(total, 0) * 100)::integer), 0)
     INTO v_ventas_mostrador
     FROM public.ventas_mostrador
@@ -173,7 +214,7 @@ BEGIN
       (v_start_ts IS NOT NULL AND COALESCE(fecha, created_at) >= v_start_ts AND COALESCE(fecha, created_at) <= v_end_ts)
     );
 
-    -- 3. Egresos operativos activos (solo aplican globalmente)
+    -- 3. Egresos operativos activos globales
     SELECT COALESCE(SUM(amount_cents), 0)
     INTO v_egresos
     FROM public.expenses
@@ -181,11 +222,8 @@ BEGIN
       AND voided_at IS NULL
       AND (
         (v_effective_date IS NOT NULL AND (expense_date = v_effective_date OR (expense_date IS NULL AND created_at >= v_start_ts AND created_at <= v_end_ts)))
-        OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND ((expense_date >= p_start_date AND expense_date <= COALESCE(p_end_date, CURRENT_DATE)) OR (expense_date IS NULL AND created_at >= v_start_ts AND created_at <= v_end_ts)))
+        OR (v_start_ts IS NOT NULL AND v_effective_date IS NULL AND ((expense_date >= p_start_date AND expense_date <= COALESCE(p_end_date, (now() AT TIME ZONE 'America/Lima')::date)) OR (expense_date IS NULL AND created_at >= v_start_ts AND created_at <= v_end_ts)))
       );
-  ELSE
-    v_ventas_mostrador := 0;
-    v_egresos := 0;
   END IF;
 
   v_total_ingresos := v_ingresos_servicios + v_ventas_mostrador;
@@ -199,6 +237,7 @@ BEGIN
     'balance_neto_cents', v_balance_neto,
     'citas_count', v_citas_count,
     'citas_confirmadas_count', v_citas_confirmadas_count,
+    'servicios_count', v_servicios_count,
     'query_date', v_effective_date,
     'employee_id', p_employee_id,
     'timezone', 'America/Lima'

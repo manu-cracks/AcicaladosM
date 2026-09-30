@@ -226,13 +226,49 @@ BEGIN
     v_new_payment_status := 'sin_pago';
   END IF;
 
-  -- Actualizar cabecera de bookings con la matemática exacta
+  -- 8. Recalcular categoría dinámica principal (service_type) de la reserva
+  SELECT 
+    COUNT(DISTINCT computed_area),
+    MAX(computed_area)
+  INTO 
+    v_distinct_areas_count,
+    v_single_area
+  FROM (
+    SELECT 
+      CASE 
+        WHEN LOWER(COALESCE(s.type, '')) IN ('spa') THEN 'spa'
+        WHEN LOWER(COALESCE(s.type, '')) IN ('barberia', 'barbero') THEN 'barberia'
+        WHEN LOWER(COALESCE(e.type, '')) IN ('spa') THEN 'spa'
+        WHEN LOWER(COALESCE(bs.service_name, '')) ~* '(spa|uña|acrílica|facial|masaje|pedicure|manicure)' THEN 'spa'
+        ELSE 'barberia'
+      END AS computed_area
+    FROM public.booking_services bs
+    LEFT JOIN public.services s ON s.id = bs.service_id
+    LEFT JOIN public.employees e ON e.id = bs.assigned_employee_id
+    WHERE bs.booking_id = v_booking_id
+  ) sub;
+
+  IF v_remaining_count = 0 THEN
+    SELECT service_type INTO v_new_service_type FROM public.bookings WHERE id = v_booking_id;
+  ELSIF v_remaining_count = 1 THEN
+    -- Caso Único: 1 servicio restante -> asigna automáticamente el área de ese servicio
+    v_new_service_type := COALESCE(v_single_area, 'barberia');
+  ELSIF v_distinct_areas_count > 1 THEN
+    -- Caso Mixto: 2 o más servicios activos de áreas diferentes
+    v_new_service_type := 'mixto';
+  ELSE
+    -- Caso Homogéneo: Múltiples servicios pero todos de la misma área
+    v_new_service_type := COALESCE(v_single_area, 'barberia');
+  END IF;
+
+  -- Actualizar cabecera de bookings con la matemática exacta y nueva categoría
   UPDATE public.bookings
   SET
     total_price_cents = v_new_total_price,
     advance_amount_cents = v_total_advance,
     balance_cents = v_new_balance,
     payment_status = v_new_payment_status,
+    service_type = v_new_service_type,
     updated_at = NOW()
   WHERE id = v_booking_id;
 
@@ -247,6 +283,7 @@ BEGIN
     'new_advance_amount_cents', v_total_advance,
     'new_balance_cents', v_new_balance,
     'new_payment_status', v_new_payment_status,
+    'new_service_type', v_new_service_type,
     'remaining_services_count', v_remaining_count
   );
 

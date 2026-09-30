@@ -7,6 +7,7 @@ import {
   Service,
   DressRental,
   BookingServiceItem,
+  Employee,
   getBookingCollectedAmountCents,
   getBookingServicesWithCollectedCents,
   formatLimaDate,
@@ -27,6 +28,7 @@ export interface DateRangeLima {
 export interface FinancialFilterOptions {
   employeeId?: string;
   employeeArea?: 'spa' | 'barberia' | 'todos';
+  employeeName?: string;
 }
 
 export interface FinancialMetrics {
@@ -280,7 +282,7 @@ export function calculateFinancialMetrics(params: {
 
   const dateRange = resolveDateRangeLima(dateFilter);
   const { isExact, startDate, endDate, exactDate } = dateRange;
-  const { employeeId, employeeArea } = options;
+  const { employeeId, employeeArea, employeeName } = options;
 
   // 1. Filtrado de Citas en el bloque de tiempo (excluyendo canceladas y expiradas)
   const validBookings = bookings.filter((b) => {
@@ -311,13 +313,35 @@ export function calculateFinancialMetrics(params: {
   let spaCount = 0;
 
   validBookings.forEach((b) => {
+    // REGLA DE PAGOS CONFIRMADOS:
+    // Solo computar servicios de citas cuya reserva padre tenga pago confirmado
+    // (estado de pago "total" / "parcial", o adelanto abonado mayor a cero).
+    if (!isBookingConfirmedPayment(b)) {
+      return;
+    }
+
     const servicesWithCollected = getBookingServicesWithCollectedCents(b);
 
     servicesWithCollected.forEach((srv) => {
-      // Filtro opcional por colaborador
+      // Ignorar servicios sin recaudación efectiva cobrada
+      if ((srv.collected_cents || 0) <= 0) {
+        return;
+      }
+
+      // FILTRADO A NIVEL DE ÍTEM (Detalle de Reserva):
+      // En reservas mixtas, cada ítem puede pertenecer a un colaborador distinto.
+      // Cuando haya un employeeId seleccionado, computar EXCLUSIVAMENTE los ítems de ese empleado.
       if (employeeId) {
-        const matchesId = srv.employee_id === employeeId || (b as any).assigned_employee_id === employeeId;
-        const matchesName = Boolean(srv.employee_name) && srv.employee_name !== 'Especialista';
+        const srvEmployeeId =
+          srv.employee_id ||
+          (b.services && b.services.length === 1 ? (b as any).assigned_employee_id : undefined);
+
+        const matchesId = Boolean(employeeId) && srvEmployeeId === employeeId;
+        const matchesName =
+          Boolean(employeeName) &&
+          Boolean(srv.employee_name) &&
+          srv.employee_name.trim().toLowerCase() === employeeName.trim().toLowerCase();
+
         if (!matchesId && !matchesName) {
           return;
         }
@@ -438,9 +462,12 @@ export function useFinancialSSOT(
   dateFilter: string = 'hoy',
   options?: FinancialFilterOptions
 ): FinancialMetrics {
-  const { bookings, ventasMostrador, expenses, services, dressRentals } = useApp();
+  const { bookings, ventasMostrador, expenses, services, dressRentals, employees } = useApp();
   const empId = options?.employeeId;
   const empArea = options?.employeeArea;
+  const empName =
+    options?.employeeName ||
+    (empId ? employees.find((e) => e.id === empId)?.full_name : undefined);
 
   return useMemo(() => {
     return calculateFinancialMetrics({
@@ -450,7 +477,17 @@ export function useFinancialSSOT(
       expenses,
       services,
       dressRentals,
-      options: { employeeId: empId, employeeArea: empArea },
+      options: { employeeId: empId, employeeArea: empArea, employeeName: empName },
     });
-  }, [dateFilter, bookings, ventasMostrador, expenses, services, dressRentals, empId, empArea]);
+  }, [
+    dateFilter,
+    bookings,
+    ventasMostrador,
+    expenses,
+    services,
+    dressRentals,
+    empId,
+    empArea,
+    empName,
+  ]);
 }

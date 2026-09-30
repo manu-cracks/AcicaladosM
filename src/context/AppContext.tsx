@@ -23,6 +23,7 @@ import {
   LightboxData,
   PaymentStatus,
   getBookingCollectedAmountCents,
+  BusinessCategory,
 } from '../types';
 import {
   INITIAL_PAYMENT_SETTINGS,
@@ -1681,7 +1682,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     },
-    [bookings, currentRole, currentUser, pulseRealtime]
+    [bookings, currentRole, currentUser, pulseRealtime, services]
   );
 
   const requestServiceDeletion = useCallback(
@@ -1871,8 +1872,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               };
             });
 
+            // Recalcular categoría dinámica (service_type / BusinessCategory)
+            let newType: BusinessCategory = (parsedResult?.new_service_type as BusinessCategory);
+            if (!newType) {
+              const areas = new Set<string>();
+              filteredServices.forEach((s) => {
+                const catalogMatch = services.find(
+                  (cs) => cs.id === s.service_id || cs.name.toLowerCase() === s.service_name.toLowerCase()
+                );
+                if (catalogMatch?.category) {
+                  areas.add(catalogMatch.category);
+                } else if (s.service_name.toLowerCase().match(/(spa|uña|acrílica|facial|masaje|pedicure|manicure)/)) {
+                  areas.add('spa');
+                } else {
+                  areas.add('barberia');
+                }
+              });
+              if (filteredServices.length >= 2 && areas.size > 1) {
+                newType = 'mixto';
+              } else if (areas.has('spa') && !areas.has('barberia')) {
+                newType = 'spa';
+              } else if (areas.has('barberia') && !areas.has('spa')) {
+                newType = 'barberia';
+              } else if (filteredServices.length === 1) {
+                newType = (Array.from(areas)[0] as BusinessCategory) || 'barberia';
+              } else {
+                newType = (b.type as BusinessCategory) || 'barberia';
+              }
+            }
+
             return {
               ...b,
+              type: newType,
               services: reallocatedServices,
               total_price_cents: newTotal,
               advance_amount_cents: newAdvance,

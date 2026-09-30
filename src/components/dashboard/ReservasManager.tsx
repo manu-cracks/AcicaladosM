@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents } from '../../types';
+import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents, BusinessCategory } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
 import { isEmployeeBlocked, isEmployeeBooked, timeToMinutes, minutesToTime, formatCompletionTime } from '../../lib/bookingAvailability';
 import { DashboardSkeleton } from './DashboardSkeleton';
@@ -37,6 +37,103 @@ import {
   PHONE_ERROR_MESSAGE,
 } from '../../lib/validators';
 import { NewBookingModal } from './NewBookingModal';
+
+/**
+ * Evalúa estrictamente la categoría dinámica de la reserva según sus servicios activos:
+ * - Caso Único: 1 servicio restante -> categoría de ese servicio ("spa" o "barberia")
+ * - Caso Homogéneo: Múltiples servicios de la misma área -> "spa" o "barberia"
+ * - Caso Mixto: 2 o más servicios de áreas distintas -> "mixto"
+ */
+export const getBookingEffectiveCategory = (
+  b: Booking,
+  catalogServices: Service[] = []
+): BusinessCategory => {
+  const activeServices = b.services || [];
+  if (activeServices.length === 0) {
+    return (b.type as BusinessCategory) || 'barberia';
+  }
+
+  // Caso Único: Si tiene exactamente 1 servicio, NUNCA puede ser mixto
+  if (activeServices.length === 1) {
+    const s = activeServices[0];
+    const catalogMatch = catalogServices.find(
+      (cs) => cs.id === s.service_id || cs.name.toLowerCase() === s.service_name.toLowerCase()
+    );
+    if (catalogMatch?.category) {
+      return catalogMatch.category as BusinessCategory;
+    }
+    const sName = s.service_name.toLowerCase();
+    if (sName.match(/(spa|uña|acrílica|facial|masaje|pedicure|manicure)/)) {
+      return 'spa';
+    }
+    if (b.type === 'spa' || b.type === 'barberia') {
+      return b.type;
+    }
+    return 'barberia';
+  }
+
+  // Evaluar áreas para múltiples servicios
+  const areas = new Set<string>();
+  for (const s of activeServices) {
+    const catalogMatch = catalogServices.find(
+      (cs) => cs.id === s.service_id || cs.name.toLowerCase() === s.service_name.toLowerCase()
+    );
+    if (catalogMatch?.category) {
+      areas.add(catalogMatch.category.toLowerCase());
+    } else {
+      const sName = s.service_name.toLowerCase();
+      if (sName.match(/(spa|uña|acrílica|facial|masaje|pedicure|manicure)/)) {
+        areas.add('spa');
+      } else {
+        areas.add('barberia');
+      }
+    }
+  }
+
+  // Caso Mixto: Únicamente si existen 2 o más servicios activos y pertenecen a áreas diferentes
+  if (areas.size > 1) {
+    return 'mixto';
+  }
+
+  // Caso Homogéneo: Todos pertenecen a la misma área
+  if (areas.has('spa')) {
+    return 'spa';
+  }
+  if (areas.has('barberia')) {
+    return 'barberia';
+  }
+
+  return (b.type as BusinessCategory) || 'barberia';
+};
+
+const renderCategoryBadge = (cat: BusinessCategory) => {
+  switch (cat) {
+    case 'spa':
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-950/60 text-purple-300 border border-purple-800/50 shadow-sm">
+          Spa
+        </span>
+      );
+    case 'barberia':
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#C8A45C]/15 text-[#E6C875] border border-[#C8A45C]/35 shadow-sm">
+          Barbería
+        </span>
+      );
+    case 'mixto':
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-amber-950/60 to-purple-950/60 text-amber-200 border border-amber-600/40 shadow-sm">
+          Mixto
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-800 text-neutral-300 border border-neutral-700 shadow-sm">
+          {cat}
+        </span>
+      );
+  }
+};
 
 interface ServiceSpecialistSelectorProps {
   booking: Booking;
@@ -527,8 +624,11 @@ export const ReservasManager: React.FC = () => {
       }
       if (isAdmin && effectiveDateFilter === 'custom' && customDate && b.date !== customDate) return false;
 
-      // Category filter
-      if (categoryFilter !== 'all' && b.type !== categoryFilter) return false;
+      // Category filter (evaluación dinámica estricta)
+      if (categoryFilter !== 'all') {
+        const effectiveCat = getBookingEffectiveCategory(b, services);
+        if (effectiveCat !== categoryFilter) return false;
+      }
 
       // Search Query
       if (searchQuery.trim()) {
@@ -1071,6 +1171,7 @@ export const ReservasManager: React.FC = () => {
                 </tr>
               ) : (
                 filteredBookings.map((b) => {
+                  const effectiveCategory = getBookingEffectiveCategory(b, services);
                   const saldo = Math.max(0, b.total_price_cents - b.advance_amount_cents);
                   const isExpanded = expandedBookingId === b.id;
                   const hasPendingDeletion = Boolean(
@@ -1124,8 +1225,8 @@ export const ReservasManager: React.FC = () => {
 
                         {/* Services Count */}
                         <td className="py-3 px-4 text-neutral-300">
-                          <span className="capitalize">{b.type}</span>
-                          <span className="text-[10px] text-neutral-500 block">
+                          {renderCategoryBadge(effectiveCategory)}
+                          <span className="text-[10px] text-neutral-500 block mt-1">
                             {b.services.length} {b.services.length === 1 ? 'servicio' : 'servicios'}
                           </span>
                         </td>
