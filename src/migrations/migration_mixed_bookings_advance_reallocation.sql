@@ -67,7 +67,7 @@ BEGIN
       v_allocated := GREATEST(0, v_advance_amount - v_accumulated);
     ELSE
       IF v_srv_total > 0 THEN
-        v_allocated := ROUND((v_rec.service_price_cents::numeric / v_srv_total::numeric) * v_advance_amount);
+        v_allocated := ROUND((v_rec.service_price_cents::numeric / v_srv_total::numeric) * v_advance_amount)::integer;
       ELSE
         v_allocated := 0;
       END IF;
@@ -201,7 +201,7 @@ BEGIN
         v_allocated := GREATEST(0, v_total_advance - v_accumulated_advance);
       ELSE
         IF v_new_total_price > 0 THEN
-          v_allocated := ROUND((v_remaining_rec.service_price_cents::numeric / v_new_total_price::numeric) * v_total_advance);
+          v_allocated := ROUND((v_remaining_rec.service_price_cents::numeric / v_new_total_price::numeric) * v_total_advance)::integer;
         ELSE
           v_allocated := 0;
         END IF;

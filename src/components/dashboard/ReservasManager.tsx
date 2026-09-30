@@ -28,6 +28,7 @@ import {
   Check,
   Clock,
   Wallet,
+  Loader2,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -1287,7 +1288,7 @@ export const ReservasManager: React.FC = () => {
                               {hasPendingDeletion ? (
                                 <>
                                   <Shield className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                                  <span>[ COBRAR SALDO ]</span>
+                                  <span>(Bloqueado: Pendiente de Admin)</span>
                                 </>
                               ) : (
                                 <>
@@ -1470,10 +1471,11 @@ export const ReservasManager: React.FC = () => {
                                                 type="button"
                                                 disabled={isActionLoading}
                                                 onClick={() => handleCancelServiceDeletion(b.id, srv.id || '', sIdx)}
-                                                className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer disabled:opacity-50"
+                                                className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer disabled:opacity-50 flex items-center gap-1"
                                                 title="Deshacer solicitud de eliminación"
                                               >
-                                                Deshacer
+                                                {isActionLoading && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                                <span>{isActionLoading ? 'Cancelando...' : 'Deshacer'}</span>
                                               </button>
                                             </div>
                                           ) : (
@@ -1484,8 +1486,12 @@ export const ReservasManager: React.FC = () => {
                                               className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-700/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
                                               title="Solicitar al administrador la eliminación de este servicio para reasignar su adelanto"
                                             >
-                                              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-                                              <span>[ ⚠️ Solicitar Eliminación ]</span>
+                                              {isActionLoading ? (
+                                                <Loader2 className="w-3 h-3 text-amber-400 animate-spin shrink-0" />
+                                              ) : (
+                                                <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                              )}
+                                              <span>{isActionLoading ? 'Solicitando...' : '[ ⚠️ Solicitar Eliminación ]'}</span>
                                             </button>
                                           )
                                         ) : (
@@ -1509,7 +1515,11 @@ export const ReservasManager: React.FC = () => {
                                               }`}
                                               title="Eliminar servicio y ejecutar extorno automático de su adelanto al servicio restante (RPC Supabase)"
                                             >
-                                              <Trash2 className="w-3 h-3 shrink-0" />
+                                              {isActionLoading ? (
+                                                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                                              ) : (
+                                                <Trash2 className="w-3 h-3 shrink-0" />
+                                              )}
                                               <span>[ 🗑️ Eliminar ]</span>
                                             </button>
 
@@ -1518,10 +1528,11 @@ export const ReservasManager: React.FC = () => {
                                                 type="button"
                                                 disabled={isActionLoading}
                                                 onClick={() => handleCancelServiceDeletion(b.id, srv.id || '', sIdx)}
-                                                className="px-2 py-1 rounded text-[10px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition cursor-pointer disabled:opacity-50"
+                                                className="px-2 py-1 rounded text-[10px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition cursor-pointer disabled:opacity-50 flex items-center gap-1"
                                                 title="Desestimar solicitud y mantener el servicio"
                                               >
-                                                Rechazar
+                                                {isActionLoading && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                                <span>{isActionLoading ? 'Procesando...' : 'Rechazar'}</span>
                                               </button>
                                             )}
                                           </div>
