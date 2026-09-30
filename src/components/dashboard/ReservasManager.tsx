@@ -631,7 +631,7 @@ export const ReservasManager: React.FC = () => {
 
   // Open Payment Modal
   const handleOpenPaymentModal = (b: Booking) => {
-    if (b.services?.some((s) => s.solicitud_eliminacion)) {
+    if (b.services && b.services.length > 1 && b.services.some((s) => s.solicitud_eliminacion)) {
       alert('Esta reserva tiene una solicitud de eliminación pendiente de autorización por el Administrador. El cobro permanecerá bloqueado hasta que se resuelva la solicitud.');
       return;
     }
@@ -991,7 +991,7 @@ export const ReservasManager: React.FC = () => {
               <span className="px-2 py-0.5 rounded bg-[#C8A45C] text-black font-bold text-[10px] shadow-sm shrink-0">
                 💳 [ COBRAR SALDO ]
               </span>
-              <span className="text-neutral-400">Cobro en caja (Bloqueado si hay solicitud)</span>
+              <span className="text-neutral-400">Cobro en caja</span>
             </div>
 
             {/* 2. Solicitud Eliminación (Recepción) */}
@@ -1073,7 +1073,11 @@ export const ReservasManager: React.FC = () => {
                 filteredBookings.map((b) => {
                   const saldo = Math.max(0, b.total_price_cents - b.advance_amount_cents);
                   const isExpanded = expandedBookingId === b.id;
-                  const hasPendingDeletion = Boolean(b.services && b.services.some((s) => s.solicitud_eliminacion === true));
+                  const hasPendingDeletion = Boolean(
+                    b.services &&
+                      b.services.length > 1 &&
+                      b.services.some((s) => s.solicitud_eliminacion === true)
+                  );
 
                   return (
                     <React.Fragment key={b.id}>
@@ -1182,7 +1186,7 @@ export const ReservasManager: React.FC = () => {
                               {hasPendingDeletion ? (
                                 <>
                                   <Shield className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                                  <span>[ COBRAR SALDO ] (Bloqueado: Pendiente de Admin)</span>
+                                  <span>[ COBRAR SALDO ]</span>
                                 </>
                               ) : (
                                 <>
@@ -1273,6 +1277,7 @@ export const ReservasManager: React.FC = () => {
                                   const serviceKey = srv.id || `${b.id}-${sIdx}`;
                                   const isActionLoading = actionLoadingServiceId === serviceKey;
                                   const isSolicitado = Boolean(srv.solicitud_eliminacion);
+                                    const hasMultipleServices = Boolean(b.services && b.services.length > 1);
 
                                   return (
                                     <div
@@ -1333,8 +1338,9 @@ export const ReservasManager: React.FC = () => {
                                           </button>
                                         )}
 
-                                        {/* ACCIONES RBAC: SOLICITUD DE ELIMINACIÓN Y EXTORNO */}
-                                        {!isAdmin ? (
+                                        {/* ACCIONES RBAC: SOLICITUD DE ELIMINACIÓN Y EXTORNO (Solo para reservas con múltiples servicios) */}
+                                        {hasMultipleServices && (
+                                          !isAdmin ? (
                                           /* Rol Recepcionista: Botón [⚠️ Solicitar Eliminación] / Estado Pendiente */
                                           isSolicitado ? (
                                             <div className="flex items-center gap-1.5">
@@ -1401,7 +1407,8 @@ export const ReservasManager: React.FC = () => {
                                               </button>
                                             )}
                                           </div>
-                                        )}
+                                        )
+                                      )}
                                       </div>
                                     </div>
                                   );

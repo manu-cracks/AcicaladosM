@@ -1686,6 +1686,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const requestServiceDeletion = useCallback(
     async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      const currentBk = bookings.find((b) => b.id === bookingId);
+      if (currentBk && (currentBk.services?.length || 0) <= 1) {
+        console.warn('La solicitud de eliminación solo aplica a reservas con múltiples servicios.');
+        return;
+      }
       // 1. Actualización optimista inmediata en estado local de React
       setBookings((prev) =>
         prev.map((b) => {
@@ -1736,7 +1741,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     },
-    [pulseRealtime]
+    [bookings, pulseRealtime]
   );
 
   const cancelServiceDeletionRequest = useCallback(
@@ -1799,6 +1804,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
       if (!isEffectiveAdmin) {
         throw new Error('Permiso denegado: Solo el Administrador puede autorizar la eliminación y extorno de un servicio.');
+      }
+
+      const currentBk = bookings.find((b) => b.id === bookingId);
+      if (currentBk && (currentBk.services?.length || 0) <= 1) {
+        throw new Error('La eliminación con extorno solo es aplicable a reservas con múltiples servicios.');
       }
 
       let effectiveServiceItemId = serviceItemId;
@@ -1877,7 +1887,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pulseRealtime();
       return rpcResult;
     },
-    [currentRole, currentUser, pulseRealtime]
+    [bookings, currentRole, currentUser, pulseRealtime]
   );
 
   const deleteBooking = useCallback(async (bookingId: string): Promise<boolean> => {
