@@ -199,6 +199,7 @@ export type Database = {
       }
       booking_services: {
         Row: {
+          advance_amount_cents: number
           assigned_employee_id: string | null
           booking_id: string
           created_at: string
@@ -211,10 +212,12 @@ export type Database = {
           service_id: string | null
           service_name: string
           service_price_cents: number
+          solicitud_eliminacion: boolean
           start_time: string | null
           status: string | null
         }
         Insert: {
+          advance_amount_cents?: number
           assigned_employee_id?: string | null
           booking_id: string
           created_at?: string
@@ -227,10 +230,12 @@ export type Database = {
           service_id?: string | null
           service_name: string
           service_price_cents: number
+          solicitud_eliminacion?: boolean
           start_time?: string | null
           status?: string | null
         }
         Update: {
+          advance_amount_cents?: number
           assigned_employee_id?: string | null
           booking_id?: string
           created_at?: string
@@ -243,6 +248,7 @@ export type Database = {
           service_id?: string | null
           service_name?: string
           service_price_cents?: number
+          solicitud_eliminacion?: boolean
           start_time?: string | null
           status?: string | null
         }
@@ -1703,6 +1709,18 @@ export type Database = {
       recalculate_booking_payment: {
         Args: { p_booking_id: string }
         Returns: undefined
+      }
+      distribuir_adelanto_reserva: {
+        Args: { p_booking_id: string }
+        Returns: undefined
+      }
+      solicitar_eliminacion_servicio: {
+        Args: { p_service_item_id: string; p_solicitar?: boolean }
+        Returns: Json
+      }
+      eliminar_servicio_con_extorno: {
+        Args: { p_service_item_id: string; p_booking_id?: string | null }
+        Returns: Json
       }
     }
     Enums: {

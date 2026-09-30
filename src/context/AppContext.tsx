@@ -119,6 +119,9 @@ interface AppContextType {
   liberateServiceEarly: (bookingId: string, serviceIndex: number) => void;
   reassignBookingService: (bookingId: string, serviceIndex: number, newEmployeeId: string, newEmployeeName: string) => Promise<void>;
   updateBookingServicePrice: (bookingId: string, serviceIndex: number, newPriceCents: number) => Promise<void>;
+  requestServiceDeletion: (bookingId: string, serviceItemId: string, serviceIndex: number) => Promise<void>;
+  cancelServiceDeletionRequest: (bookingId: string, serviceItemId: string, serviceIndex: number) => Promise<void>;
+  deleteBookingServiceWithExtorno: (bookingId: string, serviceItemId: string, serviceIndex: number) => Promise<any>;
   deleteBooking: (bookingId: string) => Promise<boolean>;
   editBooking: (bookingId: string, updates: Partial<Booking>) => Promise<boolean>;
 
@@ -654,6 +657,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 start_time: srvStart,
                 end_time: effectiveEnd,
                 liberado_at: bs.liberado_at || undefined,
+                solicitud_eliminacion: Boolean(bs.solicitud_eliminacion),
+                advance_amount_cents: bs.advance_amount_cents || 0,
               };
             }) : [],
             total_price_cents: b.total_price_cents,
@@ -1202,7 +1207,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. Insertar servicios asociados si existen
       if (bookingData.services && bookingData.services.length > 0) {
-        const serviceRows = bookingData.services.map((srv) => {
+        const totalServicesPrice = bookingData.services.reduce((acc, s) => acc + (s.price_cents || 0), 0);
+        let accumulatedAdvance = 0;
+
+        const serviceRows = bookingData.services.map((srv, idx) => {
           const matchedService = services.find(
             (s) => s.id === srv.service_id || s.name === srv.service_name
           );
@@ -1229,6 +1237,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const rawFin = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcFin;
           const srvHoraFin = (timeToMinutes(rawFin) - timeToMinutes(srvHoraInicio) > srvDuration + 5) ? calcFin : rawFin;
 
+          // Lógica proporcional: fraccionar el dinero según el peso de cada servicio
+          let srvAdvance = 0;
+          if (advanceAmount > 0) {
+            if (idx === bookingData.services.length - 1) {
+              srvAdvance = Math.max(0, advanceAmount - accumulatedAdvance);
+            } else if (totalServicesPrice > 0) {
+              srvAdvance = Math.round((srv.price_cents / totalServicesPrice) * advanceAmount);
+              accumulatedAdvance += srvAdvance;
+            }
+          }
+
           return {
             booking_id: insertedBooking.id,
             service_id: srvId,
@@ -1241,11 +1260,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             start_time: srvHoraInicio,
             end_time: srvHoraFin,
             status: 'confirmada',
+            solicitud_eliminacion: false,
+            advance_amount_cents: srvAdvance,
           };
         });
         const { error: srvError } = await supabase.from('booking_services').insert(serviceRows);
         if (srvError) {
           console.error('Error al insertar booking_services:', srvError);
+        } else if (advanceAmount > 0) {
+          await supabase.rpc('distribuir_adelanto_reserva', { p_booking_id: insertedBooking.id });
         }
       }
 
@@ -1327,8 +1350,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setBookings((prev) => {
         return prev.map((b) => {
           if (b.id === bookingId) {
+            let acc = 0;
+            const updatedServices = (b.services || []).map((s, idx) => {
+              let sAdv = 0;
+              if (idx === (b.services || []).length - 1) {
+                sAdv = Math.max(0, newAdvance - acc);
+              } else if (b.total_price_cents > 0) {
+                sAdv = Math.round((s.price_cents / b.total_price_cents) * newAdvance);
+                acc += sAdv;
+              }
+              return { ...s, advance_amount_cents: sAdv };
+            });
+
             return {
               ...b,
+              services: updatedServices,
               advance_amount_cents: newAdvance,
               balance_cents: newBalance,
               payment_status: payStatus,
@@ -1375,6 +1411,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             payment_status: payStatus,
             confirmed_at: newAdvance > 0 ? (targetBooking?.confirmed_at || new Date().toISOString()) : null,
           }).eq('id', bookingId);
+
+          await supabase.rpc('distribuir_adelanto_reserva', { p_booking_id: bookingId });
 
           pulseRealtime();
         } catch (err) {
@@ -1644,6 +1682,202 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     },
     [bookings, currentRole, currentUser, pulseRealtime]
+  );
+
+  const requestServiceDeletion = useCallback(
+    async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      // 1. Actualización optimista inmediata en estado local de React
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            const updated = [...(b.services || [])];
+            if (updated[serviceIndex]) {
+              updated[serviceIndex] = {
+                ...updated[serviceIndex],
+                solicitud_eliminacion: true,
+              };
+            }
+            return { ...b, services: updated };
+          }
+          return b;
+        })
+      );
+      pulseRealtime();
+
+      // 2. Persistencia en Supabase
+      if (serviceItemId && serviceItemId.length === 36) {
+        try {
+          const { error } = await supabase.rpc('solicitar_eliminacion_servicio', {
+            p_service_item_id: serviceItemId,
+            p_solicitar: true,
+          });
+          if (error) {
+            await supabase
+              .from('booking_services')
+              .update({ solicitud_eliminacion: true })
+              .eq('id', serviceItemId);
+          }
+          pulseRealtime();
+        } catch (err) {
+          console.error('Error al registrar solicitud de eliminación:', err);
+        }
+      } else if (bookingId.includes('-') && bookingId.length === 36) {
+        const { data: dbServices } = await supabase
+          .from('booking_services')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('created_at', { ascending: true });
+        if (dbServices && dbServices[serviceIndex]) {
+          await supabase
+            .from('booking_services')
+            .update({ solicitud_eliminacion: true })
+            .eq('id', dbServices[serviceIndex].id);
+          pulseRealtime();
+        }
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const cancelServiceDeletionRequest = useCallback(
+    async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      // 1. Actualización optimista inmediata en estado local de React
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            const updated = [...(b.services || [])];
+            if (updated[serviceIndex]) {
+              updated[serviceIndex] = {
+                ...updated[serviceIndex],
+                solicitud_eliminacion: false,
+              };
+            }
+            return { ...b, services: updated };
+          }
+          return b;
+        })
+      );
+      pulseRealtime();
+
+      // 2. Persistencia en Supabase
+      if (serviceItemId && serviceItemId.length === 36) {
+        try {
+          const { error } = await supabase.rpc('solicitar_eliminacion_servicio', {
+            p_service_item_id: serviceItemId,
+            p_solicitar: false,
+          });
+          if (error) {
+            await supabase
+              .from('booking_services')
+              .update({ solicitud_eliminacion: false })
+              .eq('id', serviceItemId);
+          }
+          pulseRealtime();
+        } catch (err) {
+          console.error('Error al cancelar solicitud de eliminación:', err);
+        }
+      } else if (bookingId.includes('-') && bookingId.length === 36) {
+        const { data: dbServices } = await supabase
+          .from('booking_services')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('created_at', { ascending: true });
+        if (dbServices && dbServices[serviceIndex]) {
+          await supabase
+            .from('booking_services')
+            .update({ solicitud_eliminacion: false })
+            .eq('id', dbServices[serviceIndex].id);
+          pulseRealtime();
+        }
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const deleteBookingServiceWithExtorno = useCallback(
+    async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+      if (!isEffectiveAdmin) {
+        throw new Error('Permiso denegado: Solo el Administrador puede autorizar la eliminación y extorno de un servicio.');
+      }
+
+      let effectiveServiceItemId = serviceItemId;
+      if (!effectiveServiceItemId || effectiveServiceItemId.length !== 36) {
+        const { data: dbServices } = await supabase
+          .from('booking_services')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('created_at', { ascending: true });
+        if (dbServices && dbServices[serviceIndex]) {
+          effectiveServiceItemId = dbServices[serviceIndex].id;
+        }
+      }
+
+      if (!effectiveServiceItemId) {
+        throw new Error('No se pudo identificar el servicio para eliminar.');
+      }
+
+      // Llamada RPC atómica en Supabase
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('eliminar_servicio_con_extorno', {
+        p_service_item_id: effectiveServiceItemId,
+        p_booking_id: bookingId.length === 36 ? bookingId : null,
+      });
+
+      if (rpcError) {
+        console.error('Error al ejecutar eliminar_servicio_con_extorno:', rpcError);
+        throw new Error(rpcError.message || 'Error al ejecutar el extorno en Supabase.');
+      }
+
+      // Actualizar estado local inmediatamente
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            const filteredServices = (b.services || []).filter((s, idx) => {
+              if (effectiveServiceItemId && s.id) {
+                return s.id !== effectiveServiceItemId;
+              }
+              return idx !== serviceIndex;
+            });
+
+            const parsedResult = rpcResult as any;
+            const newTotal = parsedResult?.new_total_price_cents ?? filteredServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+            const newAdvance = parsedResult?.new_advance_amount_cents ?? b.advance_amount_cents;
+            const newBalance = parsedResult?.new_balance_cents ?? Math.max(0, newTotal - newAdvance);
+            const newPaymentStatus = parsedResult?.new_payment_status ?? (newAdvance >= newTotal && newTotal > 0 ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago');
+
+            let acc = 0;
+            const reallocatedServices = filteredServices.map((srv, idx) => {
+              let sAdv = 0;
+              if (idx === filteredServices.length - 1) {
+                sAdv = Math.max(0, newAdvance - acc);
+              } else if (newTotal > 0) {
+                sAdv = Math.round((srv.price_cents / newTotal) * newAdvance);
+                acc += sAdv;
+              }
+              return {
+                ...srv,
+                solicitud_eliminacion: false,
+                advance_amount_cents: sAdv,
+              };
+            });
+
+            return {
+              ...b,
+              services: reallocatedServices,
+              total_price_cents: newTotal,
+              advance_amount_cents: newAdvance,
+              balance_cents: newBalance,
+              payment_status: newPaymentStatus as any,
+            };
+          }
+          return b;
+        })
+      );
+
+      pulseRealtime();
+      return rpcResult;
+    },
+    [currentRole, currentUser, pulseRealtime]
   );
 
   const deleteBooking = useCallback(async (bookingId: string): Promise<boolean> => {
@@ -3615,6 +3849,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         liberateServiceEarly,
         reassignBookingService,
         updateBookingServicePrice,
+        requestServiceDeletion,
+        cancelServiceDeletionRequest,
+        deleteBookingServiceWithExtorno,
         deleteBooking,
         editBooking,
         registerVentaMostrador,

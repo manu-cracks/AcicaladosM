@@ -432,6 +432,9 @@ export const ReservasManager: React.FC = () => {
     liberateServiceEarly,
     reassignBookingService,
     updateBookingServicePrice,
+    requestServiceDeletion,
+    cancelServiceDeletionRequest,
+    deleteBookingServiceWithExtorno,
     deleteBooking,
     editBooking,
     addBooking,
@@ -470,6 +473,15 @@ export const ReservasManager: React.FC = () => {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
   const [selectedBookingForHistory, setSelectedBookingForHistory] = useState<Booking | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+
+  // Estado y Modales para Solicitud y Extorno Proporcional de Servicios
+  const [actionLoadingServiceId, setActionLoadingServiceId] = useState<string | null>(null);
+  const [extornoModalData, setExtornoModalData] = useState<{
+    booking: Booking;
+    service: BookingServiceItem;
+    serviceIndex: number;
+  } | null>(null);
+  const [isExecutingExtorno, setIsExecutingExtorno] = useState<boolean>(false);
 
   // Edit Reservation Modal State (Admin)
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
@@ -574,8 +586,55 @@ export const ReservasManager: React.FC = () => {
     };
   }, [filteredBookings]);
 
+  // Acciones de Solicitud de Eliminación y Extorno Proporcional
+  const handleRequestServiceDeletion = async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+    const key = serviceItemId || `${bookingId}-${serviceIndex}`;
+    setActionLoadingServiceId(key);
+    try {
+      await requestServiceDeletion(bookingId, serviceItemId, serviceIndex);
+    } catch (err: any) {
+      alert(`Error al solicitar eliminación: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setActionLoadingServiceId(null);
+    }
+  };
+
+  const handleCancelServiceDeletion = async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+    const key = serviceItemId || `${bookingId}-${serviceIndex}`;
+    setActionLoadingServiceId(key);
+    try {
+      await cancelServiceDeletionRequest(bookingId, serviceItemId, serviceIndex);
+    } catch (err: any) {
+      alert(`Error al cancelar solicitud: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setActionLoadingServiceId(null);
+    }
+  };
+
+  const handleOpenExtornoModal = (booking: Booking, service: BookingServiceItem, serviceIndex: number) => {
+    setExtornoModalData({ booking, service, serviceIndex });
+  };
+
+  const handleConfirmExtorno = async () => {
+    if (!extornoModalData) return;
+    const { booking, service, serviceIndex } = extornoModalData;
+    setIsExecutingExtorno(true);
+    try {
+      await deleteBookingServiceWithExtorno(booking.id, service.id || '', serviceIndex);
+      setExtornoModalData(null);
+    } catch (err: any) {
+      alert(`Error al ejecutar extorno de servicio: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setIsExecutingExtorno(false);
+    }
+  };
+
   // Open Payment Modal
   const handleOpenPaymentModal = (b: Booking) => {
+    if (b.services?.some((s) => s.solicitud_eliminacion)) {
+      alert('Esta reserva tiene una solicitud de eliminación pendiente de autorización por el Administrador. El cobro permanecerá bloqueado hasta que se resuelva la solicitud.');
+      return;
+    }
     setSelectedBookingForPayment(b);
     const saldo = Math.max(0, b.total_price_cents - b.advance_amount_cents);
     setPayAmountInput((saldo / 100).toFixed(2));
@@ -927,31 +986,47 @@ export const ReservasManager: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:flex xl:flex-wrap xl:items-center gap-2.5 sm:gap-3.5 text-[11px]">
-            {/* 1. Cobrar */}
-            <div className="flex items-center gap-1.5" title="Registrar cobro en caja">
+            {/* 1. Cobrar Saldo */}
+            <div className="flex items-center gap-1.5" title="Registrar cobro de saldo en caja">
               <span className="px-2 py-0.5 rounded bg-[#C8A45C] text-black font-bold text-[10px] shadow-sm shrink-0">
-                💳 Cobrar
+                💳 [ COBRAR SALDO ]
               </span>
-              <span className="text-neutral-400">Cobro en caja</span>
+              <span className="text-neutral-400">Cobro en caja (Bloqueado si hay solicitud)</span>
             </div>
 
-            {/* 2. Historial de Pagos & Auditoría */}
+            {/* 2. Solicitud Eliminación (Recepción) */}
+            <div className="flex items-center gap-1.5" title="Recepción: Solicitar baja de servicio para extorno de adelanto">
+              <span className="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-700/50 font-bold text-[10px] shrink-0">
+                ⚠️ Solicitar
+              </span>
+              <span className="text-neutral-400">Solicitud Eliminación (Recepción)</span>
+            </div>
+
+            {/* 3. Extorno RPC (Admin) */}
+            <div className="flex items-center gap-1.5" title="Admin: Ejecutar extorno atómico de adelanto y eliminar ítem">
+              <span className="px-1.5 py-0.5 rounded bg-red-600 text-white font-bold text-[10px] shrink-0">
+                🗑️ Extorno RPC
+              </span>
+              <span className="text-neutral-400">Extorno de Adelanto (Admin)</span>
+            </div>
+
+            {/* 4. Historial de Pagos & Auditoría */}
             <div className="flex items-center gap-1.5" title="Historial de pagos y auditoría">
               <span className="p-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700/50 shrink-0 flex items-center justify-center">
                 <History className="w-3.5 h-3.5" />
               </span>
-              <span className="text-neutral-400">Historial / Auditoría</span>
+              <span className="text-neutral-400">Historial</span>
             </div>
 
-            {/* 3. Ticket Térmico */}
+            {/* 5. Ticket Térmico */}
             <div className="flex items-center gap-1.5" title="Imprimir ticket térmico">
               <span className="p-1 rounded bg-neutral-800 text-neutral-300 border border-neutral-700/50 shrink-0 flex items-center justify-center">
                 <Printer className="w-3.5 h-3.5" />
               </span>
-              <span className="text-neutral-400">Ticket térmico</span>
+              <span className="text-neutral-400">Ticket</span>
             </div>
 
-            {/* 4. WhatsApp */}
+            {/* 6. WhatsApp */}
             <div className="flex items-center gap-1.5" title="Enviar recordatorio WhatsApp">
               <span className="p-1 rounded bg-neutral-800 text-emerald-400 border border-emerald-900/50 shrink-0 flex items-center justify-center">
                 <MessageSquare className="w-3.5 h-3.5" />
@@ -959,26 +1034,12 @@ export const ReservasManager: React.FC = () => {
               <span className="text-neutral-400">WhatsApp</span>
             </div>
 
-            {/* 5. Editar Reserva (Solo Admin) */}
+            {/* 7. Editar Reserva (Solo Admin) */}
             <div className="flex items-center gap-1.5" title="Editar reserva (Solo Administrador)">
               <span className="p-1 rounded bg-neutral-800 text-amber-300 border border-amber-900/50 shrink-0 flex items-center justify-center">
                 <Pencil className="w-3.5 h-3.5" />
               </span>
               <span className="text-neutral-400">Editar</span>
-              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-800/40 shrink-0">
-                Solo Admin
-              </span>
-            </div>
-
-            {/* 6. Eliminar Reserva (Solo Admin) */}
-            <div className="flex items-center gap-1.5" title="Eliminar reserva permanentemente (Solo Administrador)">
-              <span className="p-1 rounded bg-neutral-800 text-red-400 border border-red-900/50 shrink-0 flex items-center justify-center">
-                <Trash2 className="w-3.5 h-3.5" />
-              </span>
-              <span className="text-neutral-400">Eliminar</span>
-              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-red-950/80 text-red-400 border border-red-800/40 shrink-0">
-                Solo Admin
-              </span>
             </div>
           </div>
         </div>
@@ -1012,20 +1073,35 @@ export const ReservasManager: React.FC = () => {
                 filteredBookings.map((b) => {
                   const saldo = Math.max(0, b.total_price_cents - b.advance_amount_cents);
                   const isExpanded = expandedBookingId === b.id;
+                  const hasPendingDeletion = Boolean(b.services && b.services.some((s) => s.solicitud_eliminacion === true));
 
                   return (
                     <React.Fragment key={b.id}>
-                      <tr className="hover:bg-[#1A1813]/40 transition group">
+                      <tr
+                        className={`transition group ${
+                          hasPendingDeletion
+                            ? 'bg-red-950/25 hover:bg-red-900/35 border-l-4 border-orange-500'
+                            : 'hover:bg-[#1A1813]/40'
+                        }`}
+                      >
                         {/* Code */}
                         <td className="py-3 px-4 font-mono font-bold text-[#E6C875]">
-                          <button
-                            type="button"
-                            onClick={() => setExpandedBookingId(isExpanded ? null : b.id)}
-                            className="flex items-center gap-1 hover:underline"
-                          >
-                            <span>#{b.code}</span>
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          </button>
+                          <div className="flex flex-col gap-1 items-start">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedBookingId(isExpanded ? null : b.id)}
+                              className="flex items-center gap-1 hover:underline"
+                            >
+                              <span>#{b.code}</span>
+                              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            </button>
+                            {hasPendingDeletion && (
+                              <span className="inline-flex items-center gap-1 text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-orange-950/90 text-orange-400 border border-orange-500/60 shadow-sm animate-pulse whitespace-nowrap">
+                                <AlertTriangle className="w-2.5 h-2.5 text-orange-400 shrink-0" />
+                                Eliminación Solicitada
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Client */}
@@ -1087,14 +1163,32 @@ export const ReservasManager: React.FC = () => {
                         {/* Actions */}
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
-                            {/* Pay Button */}
+                            {/* Pay Button con Bloqueo Estricto si hasPendingDeletion */}
                             <button
                               type="button"
+                              disabled={hasPendingDeletion}
                               onClick={() => handleOpenPaymentModal(b)}
-                              className="px-2.5 py-1 rounded bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-semibold text-[11px] transition shadow cursor-pointer"
-                              title="Registrar cobro"
+                              className={`px-2.5 py-1 rounded font-semibold text-[11px] transition shadow flex items-center gap-1.5 ${
+                                hasPendingDeletion
+                                  ? 'bg-neutral-800 text-neutral-500 border border-neutral-700/60 cursor-not-allowed opacity-85'
+                                  : 'bg-[#C8A45C] hover:bg-[#D4AF37] text-black cursor-pointer'
+                              }`}
+                              title={
+                                hasPendingDeletion
+                                  ? 'Cobro bloqueado: Existe una solicitud de eliminación pendiente de autorización por el Administrador'
+                                  : 'Registrar cobro de saldo'
+                              }
                             >
-                              💳 Cobrar
+                              {hasPendingDeletion ? (
+                                <>
+                                  <Shield className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+                                  <span>[ COBRAR SALDO ] (Bloqueado: Pendiente de Admin)</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>💳 [ COBRAR SALDO ]</span>
+                                </>
+                              )}
                             </button>
 
                             {/* Payment History & Audit */}
@@ -1175,50 +1269,143 @@ export const ReservasManager: React.FC = () => {
                               </div>
 
                               <div className="space-y-2">
-                                {b.services.map((srv, sIdx) => (
-                                  <div
-                                    key={sIdx}
-                                    className="p-3 rounded-lg bg-[#181818] border border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs"
-                                  >
-                                    <ServiceSpecialistSelector
-                                      booking={b}
-                                      service={srv}
-                                      serviceIndex={sIdx}
-                                      employees={employees}
-                                      services={services}
-                                      bookings={bookings}
-                                      employeeBlocks={employeeBlocks}
-                                      onReassign={reassignBookingService}
-                                    />
+                                {b.services.map((srv, sIdx) => {
+                                  const serviceKey = srv.id || `${b.id}-${sIdx}`;
+                                  const isActionLoading = actionLoadingServiceId === serviceKey;
+                                  const isSolicitado = Boolean(srv.solicitud_eliminacion);
 
-                                    <div className="flex items-center gap-3">
-                                      <ServicePriceEditor
-                                        bookingId={b.id}
+                                  return (
+                                    <div
+                                      key={sIdx}
+                                      className={`p-3 rounded-lg border transition-all text-xs flex flex-wrap items-center justify-between gap-3 ${
+                                        isSolicitado
+                                          ? 'bg-red-950/30 border-orange-500/70 shadow-md ring-1 ring-orange-500/30'
+                                          : 'bg-[#181818] border-neutral-800'
+                                      }`}
+                                    >
+                                      <ServiceSpecialistSelector
+                                        booking={b}
+                                        service={srv}
                                         serviceIndex={sIdx}
-                                        priceCents={srv.price_cents}
-                                        isAdmin={isAdmin}
-                                        onUpdatePrice={updateBookingServicePrice}
+                                        employees={employees}
+                                        services={services}
+                                        bookings={bookings}
+                                        employeeBlocks={employeeBlocks}
+                                        onReassign={reassignBookingService}
                                       />
 
-                                      {srv.liberado_at ? (
-                                        <span className="px-2.5 py-1 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 text-[10px] font-semibold flex items-center gap-1.5 shadow-sm">
-                                          <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                                          <span>Culminado a las {formatCompletionTime(srv.liberado_at)}</span>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => liberateServiceEarly(b.id, sIdx)}
-                                          className="px-2.5 py-1 rounded text-[10px] font-semibold bg-[#C8A45C]/15 hover:bg-emerald-600/30 text-[#E6C875] hover:text-emerald-200 border border-[#C8A45C]/35 hover:border-emerald-500/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                                          title="Culminar servicio y liberar disponibilidad del especialista de inmediato"
-                                        >
-                                          <Sparkles className="w-3 h-3 text-[#E6C875] shrink-0" />
-                                          <span>Culminar / Liberar</span>
-                                        </button>
-                                      )}
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        {/* Adelanto proporcional retenido por este servicio */}
+                                        {srv.advance_amount_cents != null && srv.advance_amount_cents > 0 && (
+                                          <div
+                                            className="flex items-center gap-1.5 bg-[#121212] px-2.5 py-1 rounded-lg border border-emerald-800/40 text-[11px]"
+                                            title="Adelanto proporcional retenido para este servicio"
+                                          >
+                                            <span className="text-[10px] text-neutral-400 font-medium">Adelanto:</span>
+                                            <span className="font-bold text-emerald-400 font-mono">
+                                              {formatSoles(srv.advance_amount_cents)}
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        <ServicePriceEditor
+                                          bookingId={b.id}
+                                          serviceIndex={sIdx}
+                                          priceCents={srv.price_cents}
+                                          isAdmin={isAdmin}
+                                          onUpdatePrice={updateBookingServicePrice}
+                                        />
+
+                                        {srv.liberado_at ? (
+                                          <span className="px-2.5 py-1 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 text-[10px] font-semibold flex items-center gap-1.5 shadow-sm">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                                            <span>Culminado a las {formatCompletionTime(srv.liberado_at)}</span>
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => liberateServiceEarly(b.id, sIdx)}
+                                            className="px-2.5 py-1 rounded text-[10px] font-semibold bg-[#C8A45C]/15 hover:bg-emerald-600/30 text-[#E6C875] hover:text-emerald-200 border border-[#C8A45C]/35 hover:border-emerald-500/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                            title="Culminar servicio y liberar disponibilidad del especialista de inmediato"
+                                          >
+                                            <Sparkles className="w-3 h-3 text-[#E6C875] shrink-0" />
+                                            <span>Culminar / Liberar</span>
+                                          </button>
+                                        )}
+
+                                        {/* ACCIONES RBAC: SOLICITUD DE ELIMINACIÓN Y EXTORNO */}
+                                        {!isAdmin ? (
+                                          /* Rol Recepcionista: Botón [⚠️ Solicitar Eliminación] / Estado Pendiente */
+                                          isSolicitado ? (
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="px-2.5 py-1 rounded bg-orange-950/70 text-orange-400 border border-orange-600/50 text-[10px] font-bold flex items-center gap-1 animate-pulse shadow-sm">
+                                                <AlertTriangle className="w-3 h-3 text-orange-400 shrink-0" />
+                                                <span>Solicitud Enviada (Pendiente Admin)</span>
+                                              </span>
+                                              <button
+                                                type="button"
+                                                disabled={isActionLoading}
+                                                onClick={() => handleCancelServiceDeletion(b.id, srv.id || '', sIdx)}
+                                                className="text-[10px] text-neutral-400 hover:text-white underline cursor-pointer disabled:opacity-50"
+                                                title="Deshacer solicitud de eliminación"
+                                              >
+                                                Deshacer
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              disabled={isActionLoading}
+                                              onClick={() => handleRequestServiceDeletion(b.id, srv.id || '', sIdx)}
+                                              className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-950/40 hover:bg-amber-900/60 text-amber-300 border border-amber-700/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                                              title="Solicitar al administrador la eliminación de este servicio para reasignar su adelanto"
+                                            >
+                                              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                              <span>[ ⚠️ Solicitar Eliminación ]</span>
+                                            </button>
+                                          )
+                                        ) : (
+                                          /* Rol Administrador: Alerta de solicitud y Botón [ 🗑️ Eliminar ] para ejecutar Extorno RPC */
+                                          <div className="flex items-center gap-1.5">
+                                            {isSolicitado && (
+                                              <span className="px-2 py-0.5 rounded bg-orange-950/90 text-orange-400 border border-orange-600/60 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 shadow-sm animate-pulse">
+                                                <AlertTriangle className="w-3 h-3 text-orange-400 shrink-0" />
+                                                <span>Solicitud Recepción</span>
+                                              </span>
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              disabled={isActionLoading}
+                                              onClick={() => handleOpenExtornoModal(b, srv, sIdx)}
+                                              className={`px-2.5 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm disabled:opacity-50 ${
+                                                isSolicitado
+                                                  ? 'bg-red-600 hover:bg-red-500 text-white border border-red-500 shadow-md ring-1 ring-red-400/40'
+                                                  : 'bg-neutral-800 hover:bg-red-950/60 text-neutral-300 hover:text-red-300 border border-neutral-700/60 hover:border-red-900/50'
+                                              }`}
+                                              title="Eliminar servicio y ejecutar extorno automático de su adelanto al servicio restante (RPC Supabase)"
+                                            >
+                                              <Trash2 className="w-3 h-3 shrink-0" />
+                                              <span>[ 🗑️ Eliminar ]</span>
+                                            </button>
+
+                                            {isSolicitado && (
+                                              <button
+                                                type="button"
+                                                disabled={isActionLoading}
+                                                onClick={() => handleCancelServiceDeletion(b.id, srv.id || '', sIdx)}
+                                                className="px-2 py-1 rounded text-[10px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 transition cursor-pointer disabled:opacity-50"
+                                                title="Desestimar solicitud y mantener el servicio"
+                                              >
+                                                Rechazar
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                           </td>
@@ -1255,32 +1442,60 @@ export const ReservasManager: React.FC = () => {
               </button>
             </div>
 
-            {/* Financial Summary */}
-            <div className="bg-[#181818] p-3 rounded-xl border border-neutral-800 grid grid-cols-3 gap-2 text-xs text-center">
-              <div>
-                <span className="text-neutral-500 block text-[10px]">Total Cita:</span>
-                <span className="font-bold text-white">
-                  {formatSoles(selectedBookingForPayment.total_price_cents)}
-                </span>
+            {/* Financial Summary (Matemáticamente Cuadrado) */}
+            <div className="bg-[#181818] p-3.5 rounded-xl border border-neutral-800 space-y-3">
+              <div className="grid grid-cols-3 gap-2 text-xs text-center divide-x divide-neutral-800">
+                <div className="px-1">
+                  <span className="text-neutral-500 block text-[10px] uppercase font-medium">Nuevo Costo Total:</span>
+                  <span className="font-bold text-white text-sm">
+                    {formatSoles(selectedBookingForPayment.total_price_cents)}
+                  </span>
+                </div>
+                <div className="px-1">
+                  <span className="text-neutral-500 block text-[10px] uppercase font-medium">Adelanto (100% Reasignado):</span>
+                  <span className="font-bold text-emerald-400 text-sm">
+                    {formatSoles(selectedBookingForPayment.advance_amount_cents)}
+                  </span>
+                </div>
+                <div className="px-1">
+                  <span className="text-neutral-500 block text-[10px] uppercase font-medium">Nuevo Saldo Pendiente:</span>
+                  <span className="font-bold text-[#E6C875] text-sm">
+                    {formatSoles(
+                      Math.max(
+                        0,
+                        selectedBookingForPayment.total_price_cents -
+                          selectedBookingForPayment.advance_amount_cents
+                      )
+                    )}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-neutral-500 block text-[10px]">Ya Cobrado:</span>
-                <span className="font-bold text-emerald-400">
-                  {formatSoles(selectedBookingForPayment.advance_amount_cents)}
-                </span>
-              </div>
-              <div>
-                <span className="text-neutral-500 block text-[10px]">Saldo Pendiente:</span>
-                <span className="font-bold text-[#E6C875]">
-                  {formatSoles(
-                    Math.max(
-                      0,
-                      selectedBookingForPayment.total_price_cents -
-                        selectedBookingForPayment.advance_amount_cents
-                    )
-                  )}
-                </span>
-              </div>
+
+              {/* Lista de servicios activos en la cita */}
+              {selectedBookingForPayment.services && selectedBookingForPayment.services.length > 0 && (
+                <div className="pt-2 border-t border-neutral-800/80 space-y-1.5">
+                  <span className="text-[10px] text-neutral-400 uppercase font-semibold block tracking-wider">
+                    Servicios a liquidar en caja:
+                  </span>
+                  <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                    {selectedBookingForPayment.services.map((s, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-[11px] bg-[#121212] px-2 py-1 rounded border border-neutral-800/60">
+                        <span className="text-neutral-300 font-medium">
+                          • {s.service_name} <span className="text-neutral-500 text-[10px]">({s.employee_name || 'Especialista'})</span>
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-white font-semibold">{formatSoles(s.price_cents)}</span>
+                          {s.advance_amount_cents != null && s.advance_amount_cents > 0 && (
+                            <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-900/40 font-mono">
+                              Adelanto: {formatSoles(s.advance_amount_cents)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Payment Form */}
@@ -1702,6 +1917,114 @@ export const ReservasManager: React.FC = () => {
                 className="px-5 py-2 rounded-xl text-xs font-semibold bg-red-600 hover:bg-red-500 text-white shadow cursor-pointer disabled:opacity-50"
               >
                 {isDeleting ? 'Eliminando...' : 'Sí, Eliminar Reserva'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: Autorizar Eliminación de Servicio y Extorno de Adelanto (Exclusivo Administrador) */}
+      {extornoModalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-[#141414] border border-orange-500/50 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 border-b border-neutral-800 pb-3">
+              <div className="w-10 h-10 rounded-full bg-orange-950/60 border border-orange-600/60 text-orange-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="font-serif-luxury text-base font-bold text-white">
+                  Autorizar Eliminación de Servicio y Extorno
+                </h3>
+                <p className="text-xs text-neutral-400">
+                  Reserva #{extornoModalData.booking.code} - {extornoModalData.booking.client_name}
+                </p>
+              </div>
+            </div>
+
+            {(() => {
+              const b = extornoModalData.booking;
+              const srv = extornoModalData.service;
+              const remainingServices = (b.services || []).filter((_, idx) => idx !== extornoModalData.serviceIndex);
+              const newTotal = remainingServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+              const totalAdvance = b.advance_amount_cents || 0;
+              const trappedAdvance = srv.advance_amount_cents || 0;
+              const newBalance = Math.max(0, newTotal - totalAdvance);
+
+              return (
+                <div className="space-y-3 text-xs">
+                  <div className="bg-[#1c1414] p-3 rounded-xl border border-red-900/40 space-y-2">
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span>Servicio a remover:</span>
+                      <span className="font-bold text-white">{srv.service_name}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span>Costo a descontar del Total:</span>
+                      <span className="font-mono text-red-400 font-bold">-{formatSoles(srv.price_cents)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span>Adelanto atrapado en este ítem:</span>
+                      <span className="font-mono text-orange-400 font-bold">{formatSoles(trappedAdvance)}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#141d14] p-3 rounded-xl border border-emerald-900/40 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>Extorno Interno Automático (RPC Atómica)</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-300 leading-relaxed">
+                      El adelanto de <span className="font-bold text-emerald-400">{formatSoles(trappedAdvance)}</span> no se pierde ni se descuadra: el backend en Supabase lo reasignará al 100% al/los servicio(s) restante(s).
+                    </p>
+                  </div>
+
+                  {/* Recálculo Matemático */}
+                  <div className="bg-[#181818] p-3 rounded-xl border border-neutral-800 grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div>
+                      <span className="text-neutral-500 block text-[10px] uppercase font-medium">Nuevo Costo Total:</span>
+                      <span className="font-bold text-white text-xs">{formatSoles(newTotal)}</span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-500 block text-[10px] uppercase font-medium">Adelanto Total (100%):</span>
+                      <span className="font-bold text-emerald-400 text-xs">{formatSoles(totalAdvance)}</span>
+                    </div>
+                    <div>
+                      <span className="text-neutral-500 block text-[10px] uppercase font-medium">Nuevo Saldo Pendiente:</span>
+                      <span className="font-bold text-[#E6C875] text-xs">{formatSoles(newBalance)}</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-neutral-400">
+                    Al confirmar, el servicio se eliminará atómicamente, la fila perderá el fondo rojo de alerta y el botón global <span className="text-[#E6C875] font-semibold">[ COBRAR SALDO ]</span> se desbloqueará de inmediato para Recepción con los montos exactos.
+                  </p>
+                </div>
+              );
+            })()}
+
+            <div className="pt-2 flex justify-end gap-2 border-t border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setExtornoModalData(null)}
+                disabled={isExecutingExtorno}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-white bg-neutral-800 cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmExtorno}
+                disabled={isExecutingExtorno}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isExecutingExtorno ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Ejecutando Extorno...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirmar Extorno y Eliminar</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

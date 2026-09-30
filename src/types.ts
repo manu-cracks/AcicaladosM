@@ -204,6 +204,8 @@ export interface BookingServiceItem {
   start_time?: string; // HH:mm
   end_time?: string; // HH:mm
   liberado_at?: string; // If service finished early
+  solicitud_eliminacion?: boolean; // Solicitud de eliminación pendiente de autorización de Administrador
+  advance_amount_cents?: number; // Adelanto proporcional retenido por este servicio
 }
 
 export interface EmployeeAppointmentItem {
