@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Check,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import {
   sanitizePhone,
@@ -86,6 +87,7 @@ export const PublicBookingFlow: React.FC = () => {
     }
   }, [currentUser]);
   const [bookingFormError, setBookingFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Generated Booking Result
   const [createdBooking, setCreatedBooking] = useState<any | null>(null);
@@ -154,7 +156,7 @@ export const PublicBookingFlow: React.FC = () => {
     }
   }, [computedSlots, selectedSlot, selectedSlotObj]);
 
-  const handleFinishBooking = () => {
+  const handleFinishBooking = async () => {
     setBookingFormError(null);
     if (!clientName.trim()) {
       setBookingFormError('Por favor ingresa tu nombre completo.');
@@ -203,34 +205,44 @@ export const PublicBookingFlow: React.FC = () => {
 
     const primaryEmployeeId = mappedServices[0]?.employee_id;
 
-    const newBooking = addBooking({
-      client_name: clientName,
-      client_phone: clientPhone,
-      client_email: clientEmail || 'cliente@acicalados.pe',
-      client_dni: clientDni,
-      date: bookingDate,
-      start_time: selectedSlot,
-      end_time: overallEnd,
-      type: selectedType,
-      services: mappedServices,
-      total_price_cents: totalPriceCents,
-      advance_amount_cents: 0,
-      payment_status: 'sin_pago',
-      notes,
-    });
-
-    setCreatedBooking(newBooking);
-    setCurrentStep(5);
-
+    setIsSubmitting(true);
     try {
-      confetti({
-        particleCount: 80,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#C8A45C', '#DFCA8D', '#22C55E', '#FFFFFF'],
+      const newBooking = await addBooking({
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail || 'cliente@acicalados.pe',
+        client_dni: clientDni,
+        date: bookingDate,
+        start_time: selectedSlot,
+        end_time: overallEnd,
+        type: selectedType,
+        services: mappedServices,
+        total_price_cents: totalPriceCents,
+        advance_amount_cents: 0,
+        payment_status: 'sin_pago',
+        notes,
       });
-    } catch {
-      // ignore
+
+      setCreatedBooking(newBooking);
+      setCurrentStep(5);
+
+      try {
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#C8A45C', '#DFCA8D', '#22C55E', '#FFFFFF'],
+        });
+      } catch {
+        // ignore
+      }
+    } catch (err: any) {
+      console.error('Error al registrar la reserva:', err);
+      setBookingFormError(
+        err?.message || 'Error de base de datos al registrar la reserva. Intente nuevamente.'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -848,16 +860,25 @@ export const PublicBookingFlow: React.FC = () => {
 
             <button
               type="button"
-              disabled={!clientName.trim() || !isValidPhone(clientPhone) || (Boolean(clientDni.trim()) && !isValidDni(clientDni))}
+              disabled={isSubmitting || !clientName.trim() || !isValidPhone(clientPhone) || (Boolean(clientDni.trim()) && !isValidDni(clientDni))}
               onClick={handleFinishBooking}
               className={`px-7 py-3 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
-                clientName.trim() && isValidPhone(clientPhone) && (!clientDni.trim() || isValidDni(clientDni))
-                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] text-black shadow-lg hover:from-[#DFCA8D] hover:to-[#D4AF37]'
+                !isSubmitting && clientName.trim() && isValidPhone(clientPhone) && (!clientDni.trim() || isValidDni(clientDni))
+                  ? 'bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] text-black shadow-lg hover:from-[#DFCA8D] hover:to-[#D4AF37] cursor-pointer'
                   : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
               }`}
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Confirmar y Ver Instrucciones de Pago</span>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-black" />
+                  <span>Guardando Reserva...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirmar y Ver Instrucciones de Pago</span>
+                </>
+              )}
             </button>
           </div>
         </div>

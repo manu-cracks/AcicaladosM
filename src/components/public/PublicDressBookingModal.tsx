@@ -165,11 +165,20 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
       if (result) {
         setCreatedRental(result);
         setStep(4);
+        // Limpiar formulario tras éxito confirmado en BD
+        setClientName('');
+        setClientLastName('');
+        setClientDni('');
+        setClientPhone('');
+        setEventName('');
+        setDestinationPlace('');
+        setVoucherUrl('');
+        setVoucherFile(null);
       } else {
-        setErrorMsg('No se pudo registrar la reserva. Por favor intenta nuevamente.');
+        setErrorMsg('Error de conexión con la base de datos. No se pudo registrar la reserva.');
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Error al procesar la reserva.');
+      setErrorMsg(err?.message || 'Error de conexión con la base de datos. No se pudo registrar la reserva.');
     } finally {
       setIsSubmitting(false);
     }
@@ -242,7 +251,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
 
         {/* Error Alert */}
         {errorMsg && (
-          <div className="mx-5 mt-4 p-3 rounded-xl bg-rose-950/50 border border-rose-900/60 text-rose-300 text-xs flex items-center gap-2">
+          <div data-testid="error-alert" className="mx-5 mt-4 p-3 rounded-xl bg-rose-950/50 border border-rose-900/60 text-rose-300 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -652,7 +661,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Enviar Comprobante y Reservar</span>
+                      <span>Confirmar y Enviar Comprobante</span>
                     </>
                   )}
                 </button>

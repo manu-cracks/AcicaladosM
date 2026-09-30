@@ -537,7 +537,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
       });
 
       // 3. Crear reserva
-      const newBooking = addBooking({
+      const newBooking = await addBooking({
         client_name: clientName.trim(),
         client_phone: clientPhone.trim() || '',
         client_dni: clientDni.trim() || undefined,
