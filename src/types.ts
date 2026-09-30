@@ -118,14 +118,14 @@ export interface DressRental {
   updated_at: string;
 }
 
-export type EmployeeType = 'barbero' | 'spa' | 'recepcionista';
+export type EmployeeType = 'barbero' | 'spa' | 'recepcionista' | 'vestuario' | 'modista';
 
 export interface Employee {
   id: string;
   first_name?: string;
   last_name?: string;
   full_name: string;
-  role?: 'admin' | 'recepcionista' | 'empleado';
+  role?: 'admin' | 'recepcionista' | 'empleado' | 'vestuario_admin';
   type: string;
   skills: string[]; // Service IDs
   active: boolean;

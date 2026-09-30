@@ -37,7 +37,8 @@ import {
   Printer,
   Camera,
   Trophy,
-  TrendingUp
+  TrendingUp,
+  Shirt,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../../lib/supabase/client';
@@ -54,7 +55,7 @@ import {
   DNI_ERROR_MESSAGE,
 } from '../../lib/validators';
 
-export type SalonRoleId = 'barbero' | 'spa' | 'recepcionista';
+export type SalonRoleId = 'barbero' | 'spa' | 'recepcionista' | 'vestuario';
 
 export interface SalonRoleConfig {
   id: SalonRoleId;
@@ -122,6 +123,22 @@ export const SALON_ROLES: SalonRoleConfig[] = [
       iconColor: 'text-blue-400',
     },
   },
+  {
+    id: 'vestuario',
+    name: 'Modista',
+    badgeLabel: 'MODISTA',
+    category: null,
+    description: 'Personal enfocado en gestión de vestidos, catálogo de prendas, alquileres y modistería.',
+    skillsHeader: 'Gestión de Alquileres & Vestuario',
+    areaDesc: 'Área: Vestuario & Alquileres',
+    icon: Shirt,
+    colorClasses: {
+      badge: 'bg-rose-950/40 text-rose-300 border-rose-800/50',
+      borderActive: 'border-rose-500',
+      bgActive: 'bg-rose-950/30',
+      iconColor: 'text-rose-400',
+    },
+  },
 ];
 
 export const getRoleMeta = (rawType: string) => {
@@ -131,6 +148,9 @@ export const getRoleMeta = (rawType: string) => {
   }
   if (t === 'spa' || t === 'terapeuta_spa' || t === 'masajista' || t === 'cosmiatra' || t === 'estilista') {
     return SALON_ROLES[1];
+  }
+  if (t === 'vestuario' || t === 'modista' || t === 'vestuario_admin' || t === 'sastre') {
+    return SALON_ROLES[3];
   }
   return SALON_ROLES[2];
 };
@@ -214,7 +234,7 @@ export const ColaboradoresView: React.FC = () => {
 
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterRole, setFilterRole] = useState<'todos' | 'barbero' | 'spa' | 'recepcionista'>('todos');
+  const [filterRole, setFilterRole] = useState<'todos' | 'barbero' | 'spa' | 'recepcionista' | 'vestuario'>('todos');
 
   // --- MODALS STATE ---
   // 1. Create Employee Modal
@@ -350,13 +370,17 @@ export const ColaboradoresView: React.FC = () => {
     let barberos = 0;
     let spas = 0;
     let recepcionistas = 0;
+    let modistas = 0;
     employees.forEach((emp) => {
       const meta = getRoleMeta(emp.type);
       if (meta.id === 'barbero') barberos++;
       else if (meta.id === 'spa') spas++;
       else if (meta.id === 'recepcionista') recepcionistas++;
+      else if (meta.id === 'vestuario') {
+        if (emp.active !== false) modistas++;
+      }
     });
-    return { barberos, spas, recepcionistas };
+    return { barberos, spas, recepcionistas, modistas };
   }, [employees]);
 
   // Filtered employees
@@ -404,6 +428,9 @@ export const ColaboradoresView: React.FC = () => {
     if (roleId === 'recepcionista') {
       setNewHandlesReception(true);
       setNewSelectedSkills([]);
+    } else if (roleId === 'vestuario') {
+      setNewHandlesReception(false);
+      setNewSelectedSkills([]);
     } else {
       // Filter existing skills to only those that match the category
       const targetCategory = roleId === 'barbero' ? 'barberia' : 'spa';
@@ -419,6 +446,9 @@ export const ColaboradoresView: React.FC = () => {
     setEditType(roleId);
     if (roleId === 'recepcionista') {
       setEditHandlesReception(true);
+      setEditSelectedSkills([]);
+    } else if (roleId === 'vestuario') {
+      setEditHandlesReception(false);
       setEditSelectedSkills([]);
     } else {
       const targetCategory = roleId === 'barbero' ? 'barberia' : 'spa';
@@ -828,6 +858,8 @@ export const ColaboradoresView: React.FC = () => {
           ? 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&q=80'
           : newType === 'spa'
           ? 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80'
+          : newType === 'vestuario'
+          ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80'
           : 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80';
 
       const finalAvatar = uploadedPhotoUrl || defaultAvatar;
@@ -845,7 +877,7 @@ export const ColaboradoresView: React.FC = () => {
         shift_end: newShiftEnd,
         commission_percentage: Number(newCommissionPct),
         active: true,
-        skills: newType === 'recepcionista' ? [] : newSelectedSkills,
+        skills: (newType === 'recepcionista' || newType === 'vestuario') ? [] : newSelectedSkills,
         foto_url: uploadedPhotoUrl || undefined,
         avatar_url: finalAvatar,
         avatar: finalAvatar,
@@ -932,7 +964,7 @@ export const ColaboradoresView: React.FC = () => {
         shift_start: editShiftStart,
         shift_end: editShiftEnd,
         commission_percentage: Number(editCommissionPct),
-        skills: editType === 'recepcionista' ? [] : editSelectedSkills,
+        skills: (editType === 'recepcionista' || editType === 'vestuario') ? [] : editSelectedSkills,
         foto_url: finalFotoUrl === null ? undefined : (finalFotoUrl || undefined),
         avatar_url: finalAvatar,
         avatar: finalAvatar,
@@ -1238,7 +1270,7 @@ export const ColaboradoresView: React.FC = () => {
       )}
 
       {/* METRIC CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-4 space-y-1">
           <span className="text-[11px] text-neutral-400">Total Personal</span>
           <div className="text-2xl font-bold font-serif-luxury text-white flex items-center gap-2">
@@ -1276,6 +1308,15 @@ export const ColaboradoresView: React.FC = () => {
           </div>
           <span className="text-[10px] text-neutral-500">Caja & Mostrador</span>
         </div>
+
+        <div className="bg-[#141414] border border-neutral-800 rounded-2xl p-4 space-y-1">
+          <span className="text-[11px] text-neutral-400">Modistas</span>
+          <div className="text-2xl font-bold font-serif-luxury text-rose-400 flex items-center gap-2">
+            <Shirt className="w-5 h-5 text-rose-400" />
+            {roleCounts.modistas}
+          </div>
+          <span className="text-[10px] text-neutral-500">Área de Vestuario & Alquileres</span>
+        </div>
       </div>
 
       {/* SEARCH AND ROLE FILTER BAR */}
@@ -1297,6 +1338,7 @@ export const ColaboradoresView: React.FC = () => {
             { id: 'barbero' as const, label: 'Barberos' },
             { id: 'spa' as const, label: 'Spa' },
             { id: 'recepcionista' as const, label: 'Recepcionistas' },
+            { id: 'vestuario' as const, label: 'Vestuario' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1440,7 +1482,7 @@ export const ColaboradoresView: React.FC = () => {
                       <span className="font-medium text-white truncate max-w-[150px]">{emp.email}</span>
                     </div>
                   )}
-                  {isAdmin && roleMeta.id !== 'recepcionista' && (
+                  {isAdmin && roleMeta.id !== 'recepcionista' && roleMeta.id !== 'vestuario' && (
                     <div className="flex justify-between items-center pt-1 border-t border-neutral-800">
                       <span className="text-neutral-500">Comisión por servicio:</span>
                       <span className="font-bold text-[#E6C875]">{emp.commission_percentage || 40}%</span>
@@ -1451,13 +1493,20 @@ export const ColaboradoresView: React.FC = () => {
                 {/* Specialties / Skills Tags according to Role */}
                 <div className="space-y-1">
                   <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">
-                    {roleMeta.id === 'recepcionista' ? 'Área de Desempeño:' : `Especialidades (${emp.skills?.length || 0}):`}
+                    {roleMeta.id === 'recepcionista' || roleMeta.id === 'vestuario'
+                      ? 'Área de Desempeño:'
+                      : `Especialidades (${emp.skills?.length || 0}):`}
                   </span>
 
                   {roleMeta.id === 'recepcionista' ? (
                     <div className="bg-[#181818] border border-neutral-800 rounded-lg p-2 text-[11px] text-neutral-300 flex items-center gap-2">
                       <Briefcase className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                       <span>Caja, Agenda & Atención al Cliente en Mostrador</span>
+                    </div>
+                  ) : roleMeta.id === 'vestuario' ? (
+                    <div className="bg-[#181818] border border-neutral-800 rounded-lg p-2 text-[11px] text-neutral-300 flex items-center gap-2">
+                      <Shirt className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                      <span>Gestión de Alquileres y Vestuario</span>
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-1">
@@ -1631,7 +1680,7 @@ export const ColaboradoresView: React.FC = () => {
                 <label className="text-neutral-200 font-semibold block text-xs">
                   Tipo de Personal / Rol en el Salón *
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   {SALON_ROLES.map((role) => {
                     const isSelected = newType === role.id;
                     const Icon = role.icon;
@@ -1772,27 +1821,29 @@ export const ColaboradoresView: React.FC = () => {
               </div>
 
               {/* Switch de Recepción (para Barbero/Spa, o bloqueado en true para Recepcionista) */}
-              <div className="space-y-1">
-                <label className="flex items-center justify-between gap-3 bg-[#181818] border border-neutral-800 rounded-xl p-3 cursor-pointer hover:border-neutral-700">
-                  <div className="space-y-0.5">
-                    <span className="text-white font-medium text-xs block">
-                      {newType === 'recepcionista' ? 'Atención en Recepción & Mostrador (Habilitado por Rol)' : '¿Habilitar también para atención en recepción y caja?'}
-                    </span>
-                    <span className="text-[11px] text-neutral-400 block">
-                      {newType === 'recepcionista'
-                        ? 'Este colaborador atiende principalmente caja y recepción.'
-                        : 'Permite que este especialista cubra turnos de recepción de ser necesario.'}
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={newType === 'recepcionista' ? true : newHandlesReception}
-                    disabled={newType === 'recepcionista'}
-                    onChange={(e) => setNewHandlesReception(e.target.checked)}
-                    className="w-4 h-4 accent-[#C8A45C] rounded cursor-pointer shrink-0"
-                  />
-                </label>
-              </div>
+              {newType !== 'vestuario' && (
+                <div className="space-y-1">
+                  <label className="flex items-center justify-between gap-3 bg-[#181818] border border-neutral-800 rounded-xl p-3 cursor-pointer hover:border-neutral-700">
+                    <div className="space-y-0.5">
+                      <span className="text-white font-medium text-xs block">
+                        {newType === 'recepcionista' ? 'Atención en Recepción & Mostrador (Habilitado por Rol)' : '¿Habilitar también para atención en recepción y caja?'}
+                      </span>
+                      <span className="text-[11px] text-neutral-400 block">
+                        {newType === 'recepcionista'
+                          ? 'Este colaborador atiende principalmente caja y recepción.'
+                          : 'Permite que este especialista cubra turnos de recepción de ser necesario.'}
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={newType === 'recepcionista' ? true : newHandlesReception}
+                      disabled={newType === 'recepcionista'}
+                      onChange={(e) => setNewHandlesReception(e.target.checked)}
+                      className="w-4 h-4 accent-[#C8A45C] rounded cursor-pointer shrink-0"
+                    />
+                  </label>
+                </div>
+              )}
 
               {/* DNI, Teléfono & Email */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1886,6 +1937,16 @@ export const ColaboradoresView: React.FC = () => {
                     </div>
                     <p className="text-[11px] text-neutral-300 leading-relaxed">
                       El personal con rol de Recepcionista está enfocado en atención presencial, caja, cobranzas y control de turnos en mostrador. No requiere vinculación a especialidades técnicas de corte o spa.
+                    </p>
+                  </div>
+                ) : newType === 'vestuario' ? (
+                  <div className="bg-rose-950/25 border border-rose-800/40 rounded-xl p-3.5 space-y-1 text-rose-200">
+                    <div className="flex items-center gap-2 font-bold text-white text-xs">
+                      <Shirt className="w-4 h-4 text-rose-400" />
+                      <span>Área Operativa: Vestuario & Alquileres</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-300 leading-relaxed">
+                      El personal con rol de Modista / Vestuario está enfocado en la gestión de vestidos, catálogo de prendas, contratos de alquiler, control de garantías y pruebas. No requiere vinculación a servicios de corte o spa.
                     </p>
                   </div>
                 ) : (
@@ -2008,7 +2069,7 @@ export const ColaboradoresView: React.FC = () => {
                 <label className="text-neutral-200 font-semibold block text-xs">
                   Tipo de Personal / Rol en el Salón *
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                   {SALON_ROLES.map((role) => {
                     const isSelected = editType === role.id;
                     const Icon = role.icon;
@@ -2200,27 +2261,29 @@ export const ColaboradoresView: React.FC = () => {
               </div>
 
               {/* Switch de Recepción */}
-              <div className="space-y-1">
-                <label className="flex items-center justify-between gap-3 bg-[#181818] border border-neutral-800 rounded-xl p-3 cursor-pointer hover:border-neutral-700">
-                  <div className="space-y-0.5">
-                    <span className="text-white font-medium text-xs block">
-                      {editType === 'recepcionista' ? 'Atención en Recepción & Mostrador (Habilitado por Rol)' : '¿Habilitar también para atención en recepción y caja?'}
-                    </span>
-                    <span className="text-[11px] text-neutral-400 block">
-                      {editType === 'recepcionista'
-                        ? 'Este colaborador atiende principalmente caja y recepción.'
-                        : 'Permite que este especialista cubra turnos de recepción de ser necesario.'}
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={editType === 'recepcionista' ? true : editHandlesReception}
-                    disabled={editType === 'recepcionista'}
-                    onChange={(e) => setEditHandlesReception(e.target.checked)}
-                    className="w-4 h-4 accent-[#C8A45C] rounded cursor-pointer shrink-0"
-                  />
-                </label>
-              </div>
+              {editType !== 'vestuario' && (
+                <div className="space-y-1">
+                  <label className="flex items-center justify-between gap-3 bg-[#181818] border border-neutral-800 rounded-xl p-3 cursor-pointer hover:border-neutral-700">
+                    <div className="space-y-0.5">
+                      <span className="text-white font-medium text-xs block">
+                        {editType === 'recepcionista' ? 'Atención en Recepción & Mostrador (Habilitado por Rol)' : '¿Habilitar también para atención en recepción y caja?'}
+                      </span>
+                      <span className="text-[11px] text-neutral-400 block">
+                        {editType === 'recepcionista'
+                          ? 'Este colaborador atiende principalmente caja y recepción.'
+                          : 'Permite que este especialista cubra turnos de recepción de ser necesario.'}
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={editType === 'recepcionista' ? true : editHandlesReception}
+                      disabled={editType === 'recepcionista'}
+                      onChange={(e) => setEditHandlesReception(e.target.checked)}
+                      className="w-4 h-4 accent-[#C8A45C] rounded cursor-pointer shrink-0"
+                    />
+                  </label>
+                </div>
+              )}
 
               {/* DNI, Teléfono & Email */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2313,6 +2376,16 @@ export const ColaboradoresView: React.FC = () => {
                     </div>
                     <p className="text-[11px] text-neutral-300 leading-relaxed">
                       El personal con rol de Recepcionista está enfocado en atención presencial, caja, cobranzas y control de turnos en mostrador. No requiere vinculación a especialidades técnicas de corte o spa.
+                    </p>
+                  </div>
+                ) : editType === 'vestuario' ? (
+                  <div className="bg-rose-950/25 border border-rose-800/40 rounded-xl p-3.5 space-y-1 text-rose-200">
+                    <div className="flex items-center gap-2 font-bold text-white text-xs">
+                      <Shirt className="w-4 h-4 text-rose-400" />
+                      <span>Área Operativa: Vestuario & Alquileres</span>
+                    </div>
+                    <p className="text-[11px] text-neutral-300 leading-relaxed">
+                      El personal con rol de Modista / Vestuario está enfocado en la gestión de vestidos, catálogo de prendas, contratos de alquiler, control de garantías y pruebas. No requiere vinculación a servicios de corte o spa.
                     </p>
                   </div>
                 ) : (

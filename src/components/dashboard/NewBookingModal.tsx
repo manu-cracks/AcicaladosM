@@ -176,7 +176,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   // Colaboradores activos aptos (excluyendo recepcionistas puros)
   const availableEmployeesList = useMemo(() => {
     return employees.filter(
-      (e) => e.active && e.type !== 'recepcionista' && e.role !== 'recepcionista'
+      (e) =>
+        e.active &&
+        e.type !== 'recepcionista' &&
+        e.type !== 'vestuario' &&
+        e.type !== 'modista' &&
+        e.role !== 'recepcionista' &&
+        (e.role as any) !== 'vestuario_admin'
     );
   }, [employees]);
 
