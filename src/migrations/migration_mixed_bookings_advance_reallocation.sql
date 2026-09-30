@@ -12,7 +12,7 @@ ADD COLUMN IF NOT EXISTS solicitud_eliminacion BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.booking_services
 ADD COLUMN IF NOT EXISTS advance_amount_cents INTEGER NOT NULL DEFAULT 0;
 
--- 2. Función para distribuir adelantos proporcionalmente en los servicios de una reserva
+-- 2. Función para distribuir adelantos proporcionalmente en los servicios de una reserva (Strictly Integers)
 CREATE OR REPLACE FUNCTION public.distribuir_adelanto_reserva(p_booking_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -20,25 +20,29 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_advance_amount integer := 0;
+  v_advance_amount_cents integer := 0;
+  v_advance_soles integer := 0;
+  v_cents_remainder integer := 0;
   v_srv_count integer := 0;
-  v_srv_total integer := 0;
+  v_srv_total_cents integer := 0;
   v_rec record;
-  v_accumulated integer := 0;
-  v_allocated integer := 0;
-  v_idx integer := 0;
+  v_temp_sum_soles integer := 0;
+  v_residue_soles integer := 0;
+  v_max_price_id uuid := NULL;
+  v_max_price_cents integer := -1;
+  v_allocated_soles integer := 0;
 BEGIN
   IF p_booking_id IS NULL THEN
     RETURN;
   END IF;
 
   SELECT COALESCE(advance_amount_cents, 0)
-  INTO v_advance_amount
+  INTO v_advance_amount_cents
   FROM public.bookings
   WHERE id = p_booking_id;
 
   SELECT COUNT(*), COALESCE(SUM(service_price_cents), 0)
-  INTO v_srv_count, v_srv_total
+  INTO v_srv_count, v_srv_total_cents
   FROM public.booking_services
   WHERE booking_id = p_booking_id;
 
@@ -46,38 +50,70 @@ BEGIN
     RETURN;
   END IF;
 
-  IF v_advance_amount <= 0 THEN
+  IF v_advance_amount_cents <= 0 THEN
     UPDATE public.booking_services
     SET advance_amount_cents = 0
     WHERE booking_id = p_booking_id;
     RETURN;
   END IF;
 
-  v_idx := 0;
-  v_accumulated := 0;
+  -- Caso de 1 solo servicio: recibe el total del adelanto
+  IF v_srv_count = 1 THEN
+    UPDATE public.booking_services
+    SET advance_amount_cents = v_advance_amount_cents
+    WHERE booking_id = p_booking_id;
+    RETURN;
+  END IF;
+
+  -- Si el adelanto cubre o supera el 100% del total
+  IF v_advance_amount_cents >= v_srv_total_cents AND v_srv_total_cents > 0 THEN
+    UPDATE public.booking_services
+    SET advance_amount_cents = service_price_cents
+    WHERE booking_id = p_booking_id;
+    RETURN;
+  END IF;
+
+  -- ALGORITMO: Proporcional Truncado + Ajuste de Residuo en Números ENTEROS (sin céntimos)
+  v_advance_soles := FLOOR(v_advance_amount_cents / 100)::integer;
+  v_cents_remainder := v_advance_amount_cents - (v_advance_soles * 100);
+
+  -- Paso 1 y Paso 2: Truncamiento Absoluto (FLOOR) y Sumatoria Temporal
+  v_temp_sum_soles := 0;
 
   FOR v_rec IN
     SELECT id, service_price_cents
     FROM public.booking_services
     WHERE booking_id = p_booking_id
-    ORDER BY created_at ASC
+    ORDER BY service_price_cents DESC, created_at ASC
   LOOP
-    v_idx := v_idx + 1;
-    IF v_idx = v_srv_count THEN
-      v_allocated := GREATEST(0, v_advance_amount - v_accumulated);
-    ELSE
-      IF v_srv_total > 0 THEN
-        v_allocated := ROUND((v_rec.service_price_cents::numeric / v_srv_total::numeric) * v_advance_amount)::integer;
-      ELSE
-        v_allocated := 0;
-      END IF;
-      v_accumulated := v_accumulated + v_allocated;
+    IF v_max_price_id IS NULL OR v_rec.service_price_cents > v_max_price_cents THEN
+      v_max_price_id := v_rec.id;
+      v_max_price_cents := v_rec.service_price_cents;
     END IF;
 
+    IF v_srv_total_cents > 0 THEN
+      v_allocated_soles := FLOOR((v_rec.service_price_cents::numeric / v_srv_total_cents::numeric) * v_advance_soles)::integer;
+    ELSE
+      v_allocated_soles := 0;
+    END IF;
+
+    v_temp_sum_soles := v_temp_sum_soles + v_allocated_soles;
+
+    -- Asignamos provisionalmente el adelanto truncado en enteros (soles * 100)
     UPDATE public.booking_services
-    SET advance_amount_cents = v_allocated
+    SET advance_amount_cents = (v_allocated_soles * 100)
     WHERE id = v_rec.id;
   END LOOP;
+
+  -- Paso 3: Cálculo del Residuo Entero
+  v_residue_soles := v_advance_soles - v_temp_sum_soles;
+
+  -- Paso 4: Inyección del Residuo (Cuadre de Caja) al servicio más caro
+  IF v_max_price_id IS NOT NULL THEN
+    UPDATE public.booking_services
+    SET advance_amount_cents = advance_amount_cents + (v_residue_soles * 100) + v_cents_remainder
+    WHERE id = v_max_price_id;
+  END IF;
 END;
 $$;
 
@@ -184,35 +220,54 @@ BEGIN
   FROM public.booking_services
   WHERE booking_id = v_booking_id;
 
-  -- 6. b) Extorno Interno: Reasignar el 100% del adelanto disponible a los servicios restantes
-  IF v_remaining_count > 0 THEN
-    v_accumulated_advance := 0;
-    v_idx := 0;
+  -- 6. b) Extorno Interno: Reasignar el 100% del adelanto disponible a los servicios restantes (Enteros estrictos: Proporcional Truncado + Ajuste de Residuo)
+  IF v_remaining_count = 1 THEN
+    UPDATE public.booking_services
+    SET advance_amount_cents = v_total_advance,
+        solicitud_eliminacion = false
+    WHERE booking_id = v_booking_id;
+  ELSIF v_remaining_count > 1 THEN
+    v_advance_soles := FLOOR(v_total_advance / 100)::integer;
+    v_cents_remainder := v_total_advance - (v_advance_soles * 100);
+    v_temp_sum_soles := 0;
+    v_max_price_id := NULL;
+    v_max_price_cents := -1;
 
+    -- Paso 1 y 2: Truncamiento Absoluto (FLOOR) y Sumatoria Temporal
     FOR v_remaining_rec IN
       SELECT id, service_price_cents
       FROM public.booking_services
       WHERE booking_id = v_booking_id
-      ORDER BY created_at ASC
+      ORDER BY service_price_cents DESC, created_at ASC
     LOOP
-      v_idx := v_idx + 1;
-      IF v_idx = v_remaining_count THEN
-        -- El último servicio absorbe cualquier remanente de centavos
-        v_allocated := GREATEST(0, v_total_advance - v_accumulated_advance);
-      ELSE
-        IF v_new_total_price > 0 THEN
-          v_allocated := ROUND((v_remaining_rec.service_price_cents::numeric / v_new_total_price::numeric) * v_total_advance)::integer;
-        ELSE
-          v_allocated := 0;
-        END IF;
-        v_accumulated_advance := v_accumulated_advance + v_allocated;
+      IF v_max_price_id IS NULL OR v_remaining_rec.service_price_cents > v_max_price_cents THEN
+        v_max_price_id := v_remaining_rec.id;
+        v_max_price_cents := v_remaining_rec.service_price_cents;
       END IF;
 
+      IF v_new_total_price > 0 THEN
+        v_allocated_soles := FLOOR((v_remaining_rec.service_price_cents::numeric / v_new_total_price::numeric) * v_advance_soles)::integer;
+      ELSE
+        v_allocated_soles := 0;
+      END IF;
+
+      v_temp_sum_soles := v_temp_sum_soles + v_allocated_soles;
+
       UPDATE public.booking_services
-      SET advance_amount_cents = v_allocated,
+      SET advance_amount_cents = (v_allocated_soles * 100),
           solicitud_eliminacion = false
       WHERE id = v_remaining_rec.id;
     END LOOP;
+
+    -- Paso 3: Cálculo del Residuo Entero
+    v_residue_soles := v_advance_soles - v_temp_sum_soles;
+
+    -- Paso 4: Inyección del Residuo (Cuadre de Caja) al servicio más caro
+    IF v_max_price_id IS NOT NULL THEN
+      UPDATE public.booking_services
+      SET advance_amount_cents = advance_amount_cents + (v_residue_soles * 100) + v_cents_remainder
+      WHERE id = v_max_price_id;
+    END IF;
   END IF;
 
   -- 7. c) Recalcular nuevo Saldo Pendiente: (Nuevo Total) - (Nuevo Adelanto Reasignado)

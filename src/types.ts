@@ -486,8 +486,80 @@ export function getBookingCollectedAmountCents(b: Booking): number {
 }
 
 /**
+ * Algoritmo de Distribución de Adelantos Estrictamente Entero (Proporcional Truncado + Ajuste de Residuo)
+ * 1. Truncamiento Absoluto (Math.floor) de la proporción de cada servicio en Soles enteros.
+ * 2. Sumatoria Temporal de los enteros truncados.
+ * 3. Cálculo del Residuo Entero: Total Adelanto - Sumatoria Temporal.
+ * 4. Inyección del Residuo al servicio con mayor precio (o primer ítem del array).
+ */
+export function distributeAdvanceStrictInteger(
+  services: Array<{ price_cents?: number }>,
+  totalAdvanceCents: number
+): number[] {
+  if (!services || services.length === 0 || totalAdvanceCents <= 0) {
+    return (services || []).map(() => 0);
+  }
+
+  if (services.length === 1) {
+    return [totalAdvanceCents];
+  }
+
+  const totalServicesPriceCents = services.reduce(
+    (sum, s) => sum + (s.price_cents || 0),
+    0
+  );
+
+  if (totalServicesPriceCents <= 0) {
+    return services.map(() => 0);
+  }
+
+  // Si cubre o supera el 100%, cada servicio cubre su precio
+  if (totalAdvanceCents >= totalServicesPriceCents) {
+    return services.map((s) => s.price_cents || 0);
+  }
+
+  // Cálculo en unidades enteras de Soles
+  const advanceSoles = Math.floor(totalAdvanceCents / 100);
+  const centsRemainder = totalAdvanceCents - advanceSoles * 100;
+
+  // Encontrar el servicio de mayor precio para inyectar el residuo
+  let maxPriceIdx = 0;
+  let maxPrice = -1;
+  services.forEach((s, idx) => {
+    const p = s.price_cents || 0;
+    if (p > maxPrice) {
+      maxPrice = p;
+      maxPriceIdx = idx;
+    }
+  });
+
+  // Paso 1: Truncamiento Absoluto (Math.floor)
+  const truncatedSoles: number[] = services.map((s) => {
+    const price = s.price_cents || 0;
+    const proportion = (price / totalServicesPriceCents) * advanceSoles;
+    return Math.floor(proportion);
+  });
+
+  // Paso 2: Sumatoria Temporal
+  const tempSumSoles = truncatedSoles.reduce((acc, val) => acc + val, 0);
+
+  // Paso 3: Cálculo del Residuo Entero
+  const residueSoles = advanceSoles - tempSumSoles;
+
+  // Paso 4: Inyección del Residuo al servicio de mayor precio
+  const allocatedSoles = [...truncatedSoles];
+  allocatedSoles[maxPriceIdx] += residueSoles;
+
+  // Conversión a centavos exactos (sin decimales ni céntimos fraccionados)
+  return allocatedSoles.map((soles, idx) => {
+    const cents = soles * 100;
+    return idx === maxPriceIdx ? cents + centsRemainder : cents;
+  });
+}
+
+/**
  * Prorratea el monto efectivamente cobrado de una cita entre sus servicios asignados.
- * Garantiza que la suma de los servicios sea idéntica al total cobrado real.
+ * Garantiza que la suma de los servicios sea idéntica al total cobrado real en números estrictamente enteros.
  */
 export function getBookingServicesWithCollectedCents(
   b: Booking
@@ -516,7 +588,7 @@ export function getBookingServicesWithCollectedCents(
 
   const totalPrice = b.total_price_cents || 0;
   if (totalPrice <= 0) {
-    const perService = Math.round(collectedTotal / b.services.length);
+    const perService = Math.floor(collectedTotal / b.services.length);
     return b.services.map((s, idx) => ({
       ...s,
       collected_cents:
@@ -538,16 +610,28 @@ export function getBookingServicesWithCollectedCents(
     });
   }
 
-  // Prorrateo proporcional con ajuste en el último ítem
-  let accumulated = 0;
-  return b.services.map((s, idx) => {
-    if (idx === b.services.length - 1) {
-      const remainder = Math.max(0, collectedTotal - accumulated);
-      return { ...s, collected_cents: remainder };
+  // Si cada ítem ya tiene su advance_amount_cents guardado y suma exactamente el collectedTotal
+  const hasSavedItemAdvances = b.services.some(
+    (s) => s.advance_amount_cents != null && s.advance_amount_cents > 0
+  );
+  if (hasSavedItemAdvances) {
+    const savedSum = b.services.reduce(
+      (sum, s) => sum + (s.advance_amount_cents || 0),
+      0
+    );
+    if (savedSum === collectedTotal) {
+      return b.services.map((s) => ({
+        ...s,
+        collected_cents: s.advance_amount_cents || 0,
+      }));
     }
-    const ratio = (s.price_cents || 0) / totalPrice;
-    const allocated = Math.round(collectedTotal * ratio);
-    accumulated += allocated;
-    return { ...s, collected_cents: allocated };
-  });
+  }
+
+  // Distribución Proporcional Truncada Estricta a Enteros + Inyección de Residuo
+  const distributed = distributeAdvanceStrictInteger(b.services, collectedTotal);
+  return b.services.map((s, idx) => ({
+    ...s,
+    collected_cents: distributed[idx] || 0,
+  }));
 }
+

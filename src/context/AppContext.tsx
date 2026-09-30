@@ -24,6 +24,7 @@ import {
   PaymentStatus,
   getBookingCollectedAmountCents,
   BusinessCategory,
+  distributeAdvanceStrictInteger,
 } from '../types';
 import {
   INITIAL_PAYMENT_SETTINGS,
@@ -1129,7 +1130,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const today = getTodayDateString();
       const randomCode = `AC-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const sanitizedServices = (bookingData.services || []).map((srv) => {
+      const advanceAmount = bookingData.advance_amount_cents || 0;
+      const advancePercentage = Math.max(1, paymentSettings?.advance_percentage || 25);
+      const totalPrice = bookingData.total_price_cents || 0;
+      const balance = Math.max(0, totalPrice - advanceAmount);
+
+      // Algoritmo Estricto de Números Enteros: Proporcional Truncado + Ajuste de Residuo
+      const distributedAdvances = distributeAdvanceStrictInteger(
+        bookingData.services || [],
+        advanceAmount
+      );
+
+      const sanitizedServices = (bookingData.services || []).map((srv, idx) => {
         const srvStart = (srv.hora_inicio || srv.start_time || bookingData.start_time)?.substring(0, 5) || '10:00';
         const srvDuration = srv.duration_minutes || 30;
         const calcEnd = minutesToTime(timeToMinutes(srvStart) + srvDuration);
@@ -1142,6 +1154,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           start_time: srvStart,
           end_time: effectiveEnd,
           duration_minutes: srvDuration,
+          solicitud_eliminacion: false,
+          advance_amount_cents: distributedAdvances[idx] || 0,
         };
       });
 
@@ -1160,11 +1174,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : validEmp && validEmp.id.includes('-') && validEmp.id.length === 36
           ? validEmp.id
           : null;
-
-      const advanceAmount = bookingData.advance_amount_cents || 0;
-      const advancePercentage = Math.max(1, paymentSettings?.advance_percentage || 25);
-      const totalPrice = bookingData.total_price_cents || 0;
-      const balance = Math.max(0, totalPrice - advanceAmount);
 
       const authUid =
         currentUserOverride?.id && currentUserOverride.id.includes('-')
@@ -1208,9 +1217,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. Insertar servicios asociados si existen
       if (bookingData.services && bookingData.services.length > 0) {
-        const totalServicesPrice = bookingData.services.reduce((acc, s) => acc + (s.price_cents || 0), 0);
-        let accumulatedAdvance = 0;
-
         const serviceRows = bookingData.services.map((srv, idx) => {
           const matchedService = services.find(
             (s) => s.id === srv.service_id || s.name === srv.service_name
@@ -1238,16 +1244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const rawFin = (srv.hora_fin || srv.end_time)?.substring(0, 5) || calcFin;
           const srvHoraFin = (timeToMinutes(rawFin) - timeToMinutes(srvHoraInicio) > srvDuration + 5) ? calcFin : rawFin;
 
-          // Lógica proporcional: fraccionar el dinero según el peso de cada servicio
-          let srvAdvance = 0;
-          if (advanceAmount > 0) {
-            if (idx === bookingData.services.length - 1) {
-              srvAdvance = Math.max(0, advanceAmount - accumulatedAdvance);
-            } else if (totalServicesPrice > 0) {
-              srvAdvance = Math.round((srv.price_cents / totalServicesPrice) * advanceAmount);
-              accumulatedAdvance += srvAdvance;
-            }
-          }
+          const srvAdvance = distributedAdvances[idx] || 0;
 
           return {
             booking_id: insertedBooking.id,
@@ -1618,13 +1615,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? 'parcial'
           : 'sin_pago';
 
+      const distributedAdvances = distributeAdvanceStrictInteger(updatedServices, advance);
+      const servicesWithDistributedAdvances = updatedServices.map((s, idx) => ({
+        ...s,
+        advance_amount_cents: distributedAdvances[idx] || 0,
+      }));
+
       // 2. Actualización optimista inmediata en estado local de React
       setBookings((prev) =>
         prev.map((b) => {
           if (b.id === bookingId) {
             return {
               ...b,
-              services: updatedServices,
+              services: servicesWithDistributedAdvances,
               total_price_cents: newTotal,
               balance_cents: newBalance,
               payment_status: newStatus,
@@ -1674,6 +1677,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             })
             .eq('id', bookingId);
           if (bookingErr) throw bookingErr;
+
+          if (advance > 0 && updatedServices.length > 1) {
+            await supabase.rpc('distribuir_adelanto_reserva', { p_booking_id: bookingId });
+          }
 
           pulseRealtime();
         } catch (err: any) {
@@ -1856,19 +1863,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const newBalance = parsedResult?.new_balance_cents ?? Math.max(0, newTotal - newAdvance);
             const newPaymentStatus = parsedResult?.new_payment_status ?? (newAdvance >= newTotal && newTotal > 0 ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago');
 
-            let acc = 0;
+            // Reasignación de adelanto estrictamente en números enteros (Proporcional Truncado + Ajuste de Residuo)
+            const distributedAdvances = distributeAdvanceStrictInteger(
+              filteredServices,
+              newAdvance
+            );
+
             const reallocatedServices = filteredServices.map((srv, idx) => {
-              let sAdv = 0;
-              if (idx === filteredServices.length - 1) {
-                sAdv = Math.max(0, newAdvance - acc);
-              } else if (newTotal > 0) {
-                sAdv = Math.round((srv.price_cents / newTotal) * newAdvance);
-                acc += sAdv;
-              }
               return {
                 ...srv,
                 solicitud_eliminacion: false,
-                advance_amount_cents: sAdv,
+                advance_amount_cents: distributedAdvances[idx] || 0,
               };
             });
 
