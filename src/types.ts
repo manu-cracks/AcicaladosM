@@ -284,6 +284,8 @@ export interface Booking {
   completed_at?: string;
   cancelled_at?: string;
   expired_at?: string;
+  numero_ticket?: string;
+  fecha_emision_ticket?: string;
   notes?: string;
   payment_method?: string;
   cash_cents?: number;

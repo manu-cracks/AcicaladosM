@@ -326,6 +326,8 @@ export type Database = {
           start_time: string
           total_duration_minutes: number
           total_price_cents: number
+          numero_ticket: string | null
+          fecha_emision_ticket: string | null
           updated_at: string
           user_id: string | null
         }
@@ -366,6 +368,8 @@ export type Database = {
           start_time: string
           total_duration_minutes: number
           total_price_cents: number
+          numero_ticket?: string | null
+          fecha_emision_ticket?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -406,6 +410,8 @@ export type Database = {
           start_time?: string
           total_duration_minutes?: number
           total_price_cents?: number
+          numero_ticket?: string | null
+          fecha_emision_ticket?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -1722,6 +1728,10 @@ export type Database = {
       distribuir_adelanto_reserva: {
         Args: { p_booking_id: string }
         Returns: undefined
+      }
+      get_or_create_booking_ticket: {
+        Args: { p_booking_id: string }
+        Returns: Json
       }
       solicitar_eliminacion_servicio: {
         Args: { p_service_item_id: string; p_solicitar?: boolean }

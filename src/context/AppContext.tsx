@@ -709,6 +709,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             balance_cents: b.balance_cents != null ? b.balance_cents : Math.max(0, (b.total_price_cents || 0) - (b.advance_amount_cents || 0)),
             payment_status: b.payment_status as any,
             created_at: b.created_at,
+            numero_ticket: b.numero_ticket || undefined,
+            fecha_emision_ticket: b.fecha_emision_ticket || undefined,
             confirmed_at: b.confirmed_at || undefined,
             completed_at: b.completed_at || undefined,
             cancelled_at: b.cancelled_at || undefined,
