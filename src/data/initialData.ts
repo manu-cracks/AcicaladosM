@@ -77,4 +77,8 @@ export const INITIAL_ATTENDANCE_SETTINGS: AttendanceSettings = {
   shift_exit_time: '21:00',
   entry_tolerance_minutes: 15,
   exit_tolerance_minutes: 15,
+  sunday_entry_time: '09:00',
+  sunday_exit_time: '19:00',
+  sunday_entry_tolerance_minutes: 15,
+  sunday_exit_tolerance_minutes: 15,
 };

@@ -136,6 +136,10 @@ export type Database = {
           id: string
           shift_entry_time: string
           shift_exit_time: string
+          sunday_entry_time: string | null
+          sunday_exit_time: string | null
+          sunday_entry_tolerance_minutes: number | null
+          sunday_exit_tolerance_minutes: number | null
           updated_at: string
         }
         Insert: {
@@ -145,6 +149,10 @@ export type Database = {
           id?: string
           shift_entry_time?: string
           shift_exit_time?: string
+          sunday_entry_time?: string | null
+          sunday_exit_time?: string | null
+          sunday_entry_tolerance_minutes?: number | null
+          sunday_exit_tolerance_minutes?: number | null
           updated_at?: string
         }
         Update: {
@@ -154,6 +162,10 @@ export type Database = {
           id?: string
           shift_entry_time?: string
           shift_exit_time?: string
+          sunday_entry_time?: string | null
+          sunday_exit_time?: string | null
+          sunday_entry_tolerance_minutes?: number | null
+          sunday_exit_tolerance_minutes?: number | null
           updated_at?: string
         }
         Relationships: []
@@ -621,6 +633,7 @@ export type Database = {
       }
       employee_attendances: {
         Row: {
+          absence_minutes: number | null
           bonus_adjusted_at: string | null
           bonus_adjusted_by: string | null
           bonus_adjustment_reason: string | null
@@ -650,6 +663,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          absence_minutes?: number | null
           bonus_adjusted_at?: string | null
           bonus_adjusted_by?: string | null
           bonus_adjustment_reason?: string | null
@@ -679,6 +693,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          absence_minutes?: number | null
           bonus_adjusted_at?: string | null
           bonus_adjusted_by?: string | null
           bonus_adjustment_reason?: string | null

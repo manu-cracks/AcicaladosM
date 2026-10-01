@@ -142,13 +142,13 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
     }, 3000);
   }, []);
 
-  // Manejador de confirmación de salida (Definitiva o Emergencia)
+  // Manejador de confirmación de salida o permiso (Definitiva vs. Salida Temporal)
   const handleConfirmExitModal = useCallback(
     async ({
       exitType,
       exitReason,
     }: {
-      exitType: 'definitiva' | 'emergencia';
+      exitType: 'definitiva' | 'permiso';
       exitReason?: string;
     }) => {
       if (!pendingExit) return;
@@ -165,7 +165,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
         success: true,
         message: exitResult.message,
         employee,
-        type: 'check_out',
+        type: exitType === 'permiso' ? 'check_in' : 'check_out',
         record: exitResult.record,
         punctuality: exitResult.overtimeMinutes > 0 ? 'horas_extra' : 'puntual',
         minutes: exitResult.overtimeMinutes,
@@ -183,7 +183,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
     [pendingExit, playBeep, registerAttendanceExit]
   );
 
-  // Interceptación de lectura QR: evalúa entrada vs salida (Definitiva vs Emergencia)
+  // Interceptación de lectura QR: delega en la máquina de estados inteligente
   const handleDecodedQR = useCallback(
     (rawCode: string) => {
       if (!rawCode || rawCode === lastScannedCodeRef.current || pendingExit) {
@@ -206,50 +206,29 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
         return;
       }
 
-      // 2. Evaluar estado de asistencia para el día de hoy
-      const today = getTodayDateString();
-      const currentAtt = attendance.find(
-        (a) => a.employee_id === emp.id && a.date === today
-      );
+      // 2. Ejecutar la máquina de estados de asistencia (Entrada, Re-ingreso, Auto-cierre o Modal de Salida)
+      const result = scanAttendanceQR(rawCode);
 
-      // CASO A: No tiene entrada hoy -> Ejecuta flujo de ingreso normal existente
-      if (!currentAtt) {
-        const result = scanAttendanceQR(rawCode);
-        setScanResult(result);
-        playBeep(result.success);
-
-        if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
-        cooldownTimerRef.current = setTimeout(() => {
-          lastScannedCodeRef.current = null;
-        }, 4000);
-        return;
-      }
-
-      // CASO B: Ya tiene entrada y le falta salida -> Detiene guardado automático y abre modal de salida
-      if (!currentAtt.check_out) {
+      // Si requiere confirmación (escaneo antes de hora oficial de salida para pausa o retiro)
+      if (result.requiresExitModal && result.record) {
         setIsScanning(false);
         setPendingExit({
           employee: emp,
-          attendanceRecord: currentAtt,
+          attendanceRecord: result.record,
         });
         return;
       }
 
-      // CASO C: Ya completó su jornada (entrada y salida)
-      setScanResult({
-        success: false,
-        message: `${emp.full_name} ya completó su jornada de hoy (Entrada: ${currentAtt.check_in}, Salida: ${currentAtt.check_out}).`,
-        employee: emp,
-        record: currentAtt,
-      });
-      playBeep(false);
+      // De lo contrario (Entrada, Re-ingreso, Auto-cierre definitivo o ya completado)
+      setScanResult(result);
+      playBeep(result.success);
 
       if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
       cooldownTimerRef.current = setTimeout(() => {
         lastScannedCodeRef.current = null;
       }, 4000);
     },
-    [attendance, pendingExit, playBeep, resolveEmployeeFromCode, scanAttendanceQR]
+    [pendingExit, playBeep, resolveEmployeeFromCode, scanAttendanceQR]
   );
 
   // QR Scanning Loop using canvas + jsQR

@@ -165,9 +165,12 @@ export interface EmployeeAttendance {
   overtime_minutes?: number;
   justification_note?: string;
   justification_document_url?: string;
-  exit_time?: string | null;
-  exit_type?: 'definitiva' | 'emergencia' | null;
+  exit_type?: 'definitiva' | 'permiso' | 'emergencia' | null;
   exit_reason?: string | null;
+  is_on_leave?: boolean;
+  leave_start_time?: string | null;
+  leave_reason?: string | null;
+  absence_minutes?: number;
 }
 
 export interface EmployeeBlock {
@@ -388,10 +391,14 @@ export interface BonusSettings {
 
 export interface AttendanceSettings {
   id?: string;
-  shift_entry_time: string; // e.g. "09:00"
-  shift_exit_time: string; // e.g. "19:00"
+  shift_entry_time: string; // "09:00" (Lunes a Sábado)
+  shift_exit_time: string; // "21:00" (Lunes a Sábado)
   entry_tolerance_minutes: number; // e.g. 15
   exit_tolerance_minutes: number; // e.g. 15
+  sunday_entry_time?: string; // "09:00" (Domingos)
+  sunday_exit_time?: string; // "19:00" (Domingos)
+  sunday_entry_tolerance_minutes?: number; // e.g. 15
+  sunday_exit_tolerance_minutes?: number; // e.g. 15
 }
 
 export interface CartItem {

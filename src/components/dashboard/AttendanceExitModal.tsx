@@ -4,12 +4,15 @@ import {
   X,
   LogOut,
   Clock,
-  AlertTriangle,
   CheckCircle2,
   Sparkles,
-  UserCheck,
-  FileText,
-  Loader2,
+  PauseCircle,
+  Utensils,
+  Stethoscope,
+  Users,
+  User,
+  HelpCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface AttendanceExitModalProps {
@@ -19,10 +22,18 @@ interface AttendanceExitModalProps {
   attendanceRecord: EmployeeAttendance;
   currentLimaTime: string;
   onConfirmExit: (params: {
-    exitType: 'definitiva' | 'emergencia';
+    exitType: 'definitiva' | 'permiso';
     exitReason?: string;
   }) => Promise<void>;
 }
+
+const QUICK_LEAVE_REASONS = [
+  { id: 'Almuerzo', label: 'Almuerzo', icon: Utensils, desc: 'Refrigerio habitual' },
+  { id: 'Médico', label: 'Médico', icon: Stethoscope, desc: 'Cita o consulta de salud' },
+  { id: 'Familiar', label: 'Familiar', icon: Users, desc: 'Urgencia o tema familiar' },
+  { id: 'Personal', label: 'Personal', icon: User, desc: 'Diligencia personal' },
+  { id: 'Otros', label: 'Otros', icon: HelpCircle, desc: 'Otro motivo autorizado' },
+];
 
 export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
   isOpen,
@@ -32,8 +43,8 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
   currentLimaTime,
   onConfirmExit,
 }) => {
-  const [exitType, setExitType] = useState<'definitiva' | 'emergencia'>('definitiva');
-  const [exitReason, setExitReason] = useState<string>('');
+  const [exitType, setExitType] = useState<'permiso' | 'definitiva'>('permiso');
+  const [selectedReason, setSelectedReason] = useState<string>('Almuerzo');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
@@ -43,22 +54,14 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
     e.preventDefault();
     setErrorMsg(null);
 
-    if (exitType === 'emergencia') {
-      const trimmed = exitReason.trim();
-      if (!trimmed || trimmed.length < 4) {
-        setErrorMsg('Por favor especifica un motivo detallado para la salida de emergencia (mínimo 4 caracteres).');
-        return;
-      }
-    }
-
     try {
       setIsSaving(true);
       await onConfirmExit({
         exitType,
-        exitReason: exitType === 'emergencia' ? exitReason.trim() : undefined,
+        exitReason: exitType === 'permiso' ? selectedReason : undefined,
       });
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error al registrar la salida. Intenta nuevamente.');
+      setErrorMsg(err.message || 'Error al registrar la salida o pausa. Intenta nuevamente.');
       setIsSaving(false);
     }
   };
@@ -70,17 +73,21 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
         <div className="px-5 py-4 border-b border-neutral-800 flex items-center justify-between bg-gradient-to-r from-[#181818] to-[#141414]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[#C8A45C]/15 border border-[#C8A45C]/40 flex items-center justify-center text-[#E6C875]">
-              <LogOut className="w-5 h-5" />
+              {exitType === 'permiso' ? (
+                <PauseCircle className="w-5 h-5 text-amber-400" />
+              ) : (
+                <LogOut className="w-5 h-5 text-blue-400" />
+              )}
             </div>
             <div>
               <h2 className="font-serif-luxury text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
-                <span>Confirmación de Salida</span>
+                <span>Marcación Anticipada de Turno</span>
                 <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/35">
-                  Marcación
+                  Lector QR
                 </span>
               </h2>
               <p className="text-[11px] text-neutral-400">
-                Selecciona la modalidad de salida para registrar el término de turno
+                Escaneo realizado antes del horario oficial de cierre
               </p>
             </div>
           </div>
@@ -88,7 +95,7 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition disabled:opacity-50"
+            className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition disabled:opacity-50 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -130,11 +137,11 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
             </div>
           </div>
 
-          {/* Time notice */}
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-[#161616] border border-neutral-800/80 text-xs">
+          {/* Time Notice */}
+          <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-[#161616] border border-neutral-800/80 text-xs">
             <span className="text-neutral-400 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-[#C8A45C]" />
-              <span>Hora de salida propuesta:</span>
+              <span>Hora de marcación actual:</span>
             </span>
             <span className="font-mono font-bold text-[#E6C875] text-sm">
               {currentLimaTime}
@@ -144,17 +151,48 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
           {/* Exit Type Selector */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-neutral-300 block">
-              Tipo de Salida:
+              Modalidad de Salida:
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Option 1: Salida Definitiva */}
+              {/* Option 1: Salida Temporal / Permiso (Default) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setExitType('permiso');
+                  setErrorMsg(null);
+                }}
+                className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2 cursor-pointer ${
+                  exitType === 'permiso'
+                    ? 'bg-amber-500/15 border-amber-500 text-white shadow-md'
+                    : 'bg-[#181818] border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <PauseCircle
+                      className={`w-4 h-4 ${
+                        exitType === 'permiso' ? 'text-amber-400' : 'text-neutral-500'
+                      }`}
+                    />
+                    <span className="font-bold text-xs text-white">Salida Temporal / Permiso</span>
+                  </div>
+                  {exitType === 'permiso' && (
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  )}
+                </div>
+                <p className="text-[11px] text-neutral-400 leading-snug">
+                  Pausa la jornada sin cerrarla. El tiempo fuera se auditará y descontará de la jornada neta.
+                </p>
+              </button>
+
+              {/* Option 2: Salida Definitiva Anticipada */}
               <button
                 type="button"
                 onClick={() => {
                   setExitType('definitiva');
                   setErrorMsg(null);
                 }}
-                className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2 ${
+                className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2 cursor-pointer ${
                   exitType === 'definitiva'
                     ? 'bg-[#C8A45C]/15 border-[#C8A45C] text-white shadow-md'
                     : 'bg-[#181818] border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
@@ -174,72 +212,68 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-neutral-400 leading-snug">
-                  Cierra la jornada normal y calcula el tiempo total trabajado.
-                </p>
-              </button>
-
-              {/* Option 2: Salida de Emergencia */}
-              <button
-                type="button"
-                onClick={() => {
-                  setExitType('emergencia');
-                  setErrorMsg(null);
-                }}
-                className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between gap-2 ${
-                  exitType === 'emergencia'
-                    ? 'bg-rose-950/30 border-rose-500/80 text-white shadow-md'
-                    : 'bg-[#181818] border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-700'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle
-                      className={`w-4 h-4 ${
-                        exitType === 'emergencia' ? 'text-rose-400' : 'text-neutral-500'
-                      }`}
-                    />
-                    <span className="font-bold text-xs text-white">Salida de Emergencia</span>
-                  </div>
-                  {exitType === 'emergencia' && (
-                    <span className="w-2 h-2 rounded-full bg-rose-400" />
-                  )}
-                </div>
-                <p className="text-[11px] text-neutral-400 leading-snug">
-                  Retiro anticipado por causa médica, fuerza mayor o urgencia.
+                  Cierra la jornada laboral de hoy de forma final. No se permitirán reingresos posteriores.
                 </p>
               </button>
             </div>
           </div>
 
-          {/* Conditional Textarea for Emergency Justification */}
-          {exitType === 'emergencia' && (
-            <div className="space-y-2 pt-1 animate-in fade-in duration-200">
-              <label
-                htmlFor="exit-reason-input"
-                className="text-xs font-bold text-rose-300 flex items-center gap-1.5"
-              >
-                <FileText className="w-3.5 h-3.5 text-rose-400" />
-                <span>Motivo de la Emergencia (Obligatorio):</span>
+          {/* Quick Buttons for Temporary Leave Reason */}
+          {exitType === 'permiso' && (
+            <div className="space-y-2.5 pt-1 animate-in fade-in duration-200">
+              <label className="text-xs font-bold text-amber-300 flex items-center justify-between">
+                <span>Selecciona el motivo del permiso:</span>
+                <span className="text-[10px] text-neutral-400 font-normal">
+                  (Clic para seleccionar)
+                </span>
               </label>
-              <textarea
-                id="exit-reason-input"
-                rows={3}
-                value={exitReason}
-                onChange={(e) => {
-                  setExitReason(e.target.value);
-                  if (errorMsg) setErrorMsg(null);
-                }}
-                placeholder="Describe el motivo de la salida anticipada (ej: cita médica imprevista, emergencia familiar, malestar)..."
-                className="w-full bg-[#181818] border border-rose-500/40 focus:border-rose-400 text-white rounded-xl p-3 text-xs outline-none focus:ring-1 focus:ring-rose-500/40 transition placeholder:text-neutral-500 resize-none"
-                autoFocus
-              />
-              <span className="text-[10px] text-neutral-400 block">
-                Este motivo quedará auditado en el historial de asistencia del colaborador.
-              </span>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {QUICK_LEAVE_REASONS.map((item) => {
+                  const Icon = item.icon;
+                  const isSelected = selectedReason === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setSelectedReason(item.id)}
+                      className={`p-2.5 rounded-xl border flex items-center gap-2.5 transition text-left cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-400 text-black border-amber-400 shadow-md font-bold'
+                          : 'bg-[#181818] text-neutral-300 border-neutral-800 hover:bg-neutral-800/80 hover:text-white'
+                      }`}
+                    >
+                      <div
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                          isSelected
+                            ? 'bg-black/15 text-black'
+                            : 'bg-neutral-900 text-amber-400 border border-neutral-800'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <span className="block text-xs leading-none">{item.label}</span>
+                        <span
+                          className={`text-[9px] block truncate mt-0.5 ${
+                            isSelected ? 'text-black/75' : 'text-neutral-500'
+                          }`}
+                        >
+                          {item.desc}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-amber-950/20 border border-amber-800/40 text-[11px] text-amber-200/90 leading-relaxed">
+                ℹ️ Al elegir <span className="font-bold underline">{selectedReason}</span>, el estado del colaborador pasará a <span className="font-bold text-white">"En Permiso"</span>. Al regresar y escanear su carnet QR, el sistema calculará automáticamente el tiempo que estuvo ausente y reactivará su turno.
+              </div>
             </div>
           )}
 
-          {/* Error notice */}
+          {/* Error Notice */}
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/50 text-rose-200 text-xs flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
@@ -253,28 +287,28 @@ export const AttendanceExitModal: React.FC<AttendanceExitModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white transition disabled:opacity-50"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-white transition disabled:opacity-50 cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg ${
-                exitType === 'emergencia'
-                  ? 'bg-gradient-to-r from-rose-600 to-rose-500 text-white hover:brightness-110 shadow-rose-900/30'
-                  : 'bg-gradient-to-r from-[#D4AF37] via-[#E6C875] to-[#C8A45C] text-black hover:brightness-110 shadow-[#C8A45C]/20'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              className={`px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer ${
+                exitType === 'permiso'
+                  ? 'bg-amber-400 hover:bg-amber-300 text-black shadow-amber-950/40'
+                  : 'bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] hover:from-[#DFCA8D] hover:to-[#D4AF37] text-black shadow-[#C8A45C]/20'
+              }`}
             >
-              {isSaving ? (
+              {exitType === 'permiso' ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Guardando salida...</span>
+                  <PauseCircle className="w-4 h-4" />
+                  <span>{isSaving ? 'Pausando...' : `Iniciar Pausa (${selectedReason})`}</span>
                 </>
               ) : (
                 <>
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Confirmar {exitType === 'emergencia' ? 'Salida de Emergencia' : 'Salida Definitiva'}</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSaving ? 'Cerrando...' : 'Cerrar Jornada Definitivamente'}</span>
                 </>
               )}
             </button>

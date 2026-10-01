@@ -41,6 +41,11 @@ import {
   FinancialMetrics,
   FinancialFilterOptions,
 } from '../services/financialSSOT';
+import {
+  getShiftConfigForDate,
+  parseTimeToMinutes,
+  formatMinutesToHours,
+} from '../lib/attendanceUtils';
 
 interface AppContextType {
   // Navigation & Role
@@ -174,7 +179,7 @@ interface AppContextType {
   registerAttendanceExit: (params: {
     employeeId: string;
     attendanceId: string;
-    exitType: 'definitiva' | 'emergencia';
+    exitType: 'definitiva' | 'permiso' | 'emergencia';
     exitReason?: string;
   }) => Promise<{
     success: boolean;
@@ -815,9 +820,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAttendanceSettings({
             id: dbAttSettings.id,
             shift_entry_time: dbAttSettings.shift_entry_time || '09:00',
-            shift_exit_time: dbAttSettings.shift_exit_time || '19:00',
+            shift_exit_time: dbAttSettings.shift_exit_time || '21:00',
             entry_tolerance_minutes: Number(dbAttSettings.entry_tolerance_minutes ?? 15),
             exit_tolerance_minutes: Number(dbAttSettings.exit_tolerance_minutes ?? 15),
+            sunday_entry_time: dbAttSettings.sunday_entry_time || '09:00',
+            sunday_exit_time: dbAttSettings.sunday_exit_time || '19:00',
+            sunday_entry_tolerance_minutes: Number(dbAttSettings.sunday_entry_tolerance_minutes ?? 15),
+            sunday_exit_tolerance_minutes: Number(dbAttSettings.sunday_exit_tolerance_minutes ?? 15),
           });
         }
 
@@ -869,6 +878,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 exit_time: a.exit_time || a.check_out || null,
                 exit_type: a.exit_type || null,
                 exit_reason: a.exit_reason || a.exit_justification || null,
+                is_on_leave: !!a.is_on_leave,
+                leave_start_time: a.leave_start_time || null,
+                leave_reason: a.leave_reason || null,
+                absence_minutes: Number(a.absence_minutes || 0),
               };
             })
           );
@@ -2647,29 +2660,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [nowH, nowM] = nowLima.split(':').map(Number);
       const nowMinutes = nowH * 60 + nowM;
 
-      // Configuración de turnos y tolerancias
-      const [entryH, entryM] = (attendanceSettings.shift_entry_time || '09:00')
-        .split(':')
-        .map(Number);
-      const entryMinutes = entryH * 60 + entryM;
-      const entryTolerance = attendanceSettings.entry_tolerance_minutes ?? 15;
-      const maxEntryAllowed = entryMinutes + entryTolerance;
-
-      const [exitH, exitM] = (attendanceSettings.shift_exit_time || '19:00')
-        .split(':')
-        .map(Number);
-      const exitMinutes = exitH * 60 + exitM;
-      const exitTolerance = attendanceSettings.exit_tolerance_minutes ?? 15;
-      const overtimeThreshold = exitMinutes + exitTolerance;
+      // Configuración dinámica según día en America/Lima (Lunes a Sábado vs Domingos)
+      const shiftConfig = getShiftConfigForDate(attendanceSettings);
 
       const currentAttendance = attendance.find(
         (a) => a.employee_id === emp.id && a.date === today
       );
 
-      // CASO 1: ENTRADA (Check-In)
+      // CASO 1: ENTRADA (Check-In: No tiene registro hoy)
       if (!currentAttendance) {
-        const isLate = nowMinutes > maxEntryAllowed;
-        const tardyMinutes = isLate ? Math.max(0, nowMinutes - entryMinutes) : 0;
+        const isLate = nowMinutes > shiftConfig.maxEntryAllowed;
+        const tardyMinutes = isLate ? Math.max(0, nowMinutes - shiftConfig.entryMinutes) : 0;
         const status = isLate ? 'tardanza' : 'presente';
         const punctuality = isLate ? 'tardanza' : 'puntual';
 
@@ -2692,6 +2693,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status,
           tardy_minutes: tardyMinutes,
           overtime_minutes: 0,
+          is_on_leave: false,
+          absence_minutes: 0,
         };
 
         setAttendance((prev) => [newAtt, ...prev]);
@@ -2707,14 +2710,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status,
             tardy_minutes: tardyMinutes,
             overtime_minutes: 0,
+            is_on_leave: false,
+            absence_minutes: 0,
           })
           .then();
 
         return {
           success: true,
           message: isLate
-            ? `¡Entrada registrada a las ${nowLima}! Tardanza de ${tardyMinutes} min (tolerancia: ${entryTolerance} min).`
-            : `¡Entrada puntual registrada exitosamente a las ${nowLima}!`,
+            ? `¡Entrada registrada a las ${nowLima}! Tardanza de ${tardyMinutes} min (Horario oficial: ${shiftConfig.entryTime}, tolerancia: ${shiftConfig.entryTolerance} min).`
+            : `¡Entrada puntual registrada exitosamente a las ${nowLima}! (Horario oficial: ${shiftConfig.entryTime}).`,
           employee: emp,
           type: 'check_in',
           record: newAtt,
@@ -2723,11 +2728,136 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // CASO 2: SALIDA (Check-Out) -> Detener guardado automático y requerir confirmación (Definitiva vs Emergencia)
-      if (currentAttendance && !currentAttendance.check_out) {
+      // CASO 2: RE-INGRESO TRAS SALIDA TEMPORAL (Estaba en pausa/permiso)
+      if (currentAttendance && !currentAttendance.check_out && currentAttendance.is_on_leave) {
+        let elapsedMins = 0;
+        if (currentAttendance.leave_start_time) {
+          try {
+            const startMs = new Date(currentAttendance.leave_start_time).getTime();
+            const nowMs = new Date().getTime();
+            if (!isNaN(startMs) && nowMs > startMs) {
+              elapsedMins = Math.max(1, Math.round((nowMs - startMs) / 60000));
+            }
+          } catch {
+            elapsedMins = 0;
+          }
+        }
+
+        const prevAbsence = currentAttendance.absence_minutes || 0;
+        const newTotalAbsence = prevAbsence + elapsedMins;
+        const reasonLabel = currentAttendance.leave_reason || 'Permiso';
+
+        const updatedAtt: EmployeeAttendance = {
+          ...currentAttendance,
+          is_on_leave: false,
+          leave_start_time: null,
+          status: 'presente',
+          absence_minutes: newTotalAbsence,
+        };
+
+        setAttendance((prev) =>
+          prev.map((a) => (a.id === currentAttendance.id ? updatedAtt : a))
+        );
+        pulseRealtime();
+
+        // Actualizar en base de datos y auditar intervalo en attendance_breaks
+        supabase
+          .from('employee_attendances')
+          .update({
+            is_on_leave: false,
+            leave_start_time: null,
+            status: 'presente',
+            absence_minutes: newTotalAbsence,
+            updated_at: isoNow,
+          })
+          .eq('id', currentAttendance.id)
+          .then();
+
+        supabase
+          .from('attendance_breaks')
+          .insert({
+            attendance_id: currentAttendance.id,
+            employee_id: emp.id,
+            start_time: currentAttendance.leave_start_time || isoNow,
+            end_time: isoNow,
+            duration_minutes: elapsedMins,
+            reason: reasonLabel,
+          })
+          .then();
+
         return {
           success: true,
-          message: `${emp.full_name} ya cuenta con entrada hoy. Se requiere confirmar el tipo de salida (Definitiva o Emergencia).`,
+          message: `¡Re-ingreso exitoso de ${emp.full_name}! Estuvo fuera por ${elapsedMins} min (${reasonLabel}). Su jornada vuelve a estar activa.`,
+          employee: emp,
+          type: 'check_in',
+          record: updatedAtt,
+          punctuality: 'puntual',
+          minutes: 0,
+        };
+      }
+
+      // CASO 3: YA TIENE ENTRADA Y ESTÁ ACTIVO EN TURNO (Sin salida aún, no en permiso)
+      if (currentAttendance && !currentAttendance.check_out && !currentAttendance.is_on_leave) {
+        // ¿La hora actual es igual o posterior a la hora oficial de salida?
+        if (nowMinutes >= shiftConfig.exitMinutes) {
+          // AUTO-CIERRE DEFINITIVO: Sin menú ni opciones
+          const inTime = currentAttendance.check_in || shiftConfig.entryTime;
+          const [inH, inM] = inTime.split(':').map(Number);
+          const inMinutes = (inH || 0) * 60 + (inM || 0);
+
+          const grossWorkedMinutes = Math.max(0, nowMinutes - inMinutes);
+          const totalAbsence = currentAttendance.absence_minutes || 0;
+          const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
+
+          const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
+          const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
+          const workedHoursStr = formatMinutesToHours(netWorkedMinutes);
+
+          const updatedAtt: EmployeeAttendance = {
+            ...currentAttendance,
+            check_out: nowLima,
+            exit_time: isoNow,
+            exit_type: 'definitiva',
+            worked_minutes: netWorkedMinutes,
+            overtime_minutes: overtimeMinutes,
+            bonus_minutes: overtimeMinutes,
+            bonus_calculation_type: 'auto',
+          };
+
+          setAttendance((prev) =>
+            prev.map((a) => (a.id === currentAttendance.id ? updatedAtt : a))
+          );
+          pulseRealtime();
+
+          supabase
+            .from('employee_attendances')
+            .update({
+              check_out: isoNow,
+              exit_time: isoNow,
+              exit_type: 'definitiva',
+              overtime_minutes: overtimeMinutes,
+              bonus_minutes: overtimeMinutes,
+              bonus_calculation_type: 'auto',
+              updated_at: isoNow,
+            })
+            .eq('id', currentAttendance.id)
+            .then();
+
+          return {
+            success: true,
+            message: `¡Auto-Cierre de Jornada registrado a las ${nowLima}! Hora oficial de salida cumplida (${shiftConfig.exitTime}). Jornada neta: ${workedHoursStr}${overtimeMinutes > 0 ? ` (+${overtimeMinutes} min horas extra)` : ''}.`,
+            employee: emp,
+            type: 'check_out',
+            record: updatedAtt,
+            punctuality: overtimeMinutes > 0 ? 'horas_extra' : 'puntual',
+            minutes: overtimeMinutes,
+          };
+        }
+
+        // Si es antes de la hora oficial de salida -> Despliega modal de opciones (Salida Temporal/Permiso o Definitiva temprana)
+        return {
+          success: true,
+          message: `${emp.full_name} escaneó antes de la hora oficial de salida (${shiftConfig.exitTime}). Selecciona permiso o salida definitiva.`,
           employee: emp,
           type: 'check_out',
           record: currentAttendance,
@@ -2735,7 +2865,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
-      // CASO 3: YA MARCÓ ENTRADA Y SALIDA
+      // CASO 4: YA MARCÓ SALIDA DEFINITIVA
       return {
         success: false,
         message: `${emp.full_name} ya completó su jornada de hoy (Entrada: ${currentAttendance.check_in}, Salida: ${currentAttendance.check_out}).`,
@@ -2747,6 +2877,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   );
 
   // Registro de salida con selección de modalidad (Definitiva vs. Emergencia)
+  // Registro de salida o pausa (Definitiva vs. Salida Temporal/Permiso)
   const registerAttendanceExit = useCallback(
     async ({
       employeeId,
@@ -2756,7 +2887,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }: {
       employeeId: string;
       attendanceId: string;
-      exitType: 'definitiva' | 'emergencia';
+      exitType: 'definitiva' | 'permiso' | 'emergencia';
       exitReason?: string;
     }) => {
       const today = getTodayDateString();
@@ -2770,26 +2901,81 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [nowH, nowM] = nowLima.split(':').map(Number);
       const nowMinutes = nowH * 60 + nowM;
 
-      const [exitH, exitM] = (attendanceSettings.shift_exit_time || '19:00')
-        .split(':')
-        .map(Number);
-      const exitMinutes = exitH * 60 + exitM;
-      const exitTolerance = attendanceSettings.exit_tolerance_minutes ?? 15;
-      const overtimeThreshold = exitMinutes + exitTolerance;
+      const shiftConfig = getShiftConfigForDate(attendanceSettings);
 
       const currentAttendance = attendance.find(
         (a) => a.id === attendanceId || (a.employee_id === employeeId && a.date === today)
       );
 
-      const inTime = currentAttendance?.check_in || attendanceSettings.shift_entry_time || '09:00';
-      const [inH, inM] = inTime.split(':').map(Number);
-      const inMinutes = inH * 60 + inM;
-      const workedMinutes = Math.max(0, nowMinutes - inMinutes);
+      // CASO A: Salida Temporal / Permiso (Pausar Jornada)
+      if (exitType === 'permiso') {
+        const reason = (exitReason || 'Almuerzo').trim();
+        const updatedAtt: EmployeeAttendance = {
+          ...(currentAttendance || {
+            id: attendanceId,
+            employee_id: employeeId,
+            employee_name: '',
+            employee_type: 'barberia' as any,
+            date: today,
+            check_in: nowLima,
+            status: 'en_permiso',
+            bonus_calculation_type: 'auto',
+            bonus_minutes: 0,
+            worked_minutes: 0,
+          }),
+          is_on_leave: true,
+          leave_start_time: isoNow,
+          leave_reason: reason,
+          status: 'en_permiso',
+        };
 
-      const hasOvertime = nowMinutes > overtimeThreshold;
-      const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - exitMinutes) : 0;
-      const workedHoursStr = `${Math.floor(workedMinutes / 60)}h ${workedMinutes % 60}m`;
-      const cleanReason = exitType === 'emergencia' ? (exitReason || '').trim() : null;
+        setAttendance((prev) =>
+          prev.map((a) =>
+            a.id === attendanceId || (a.employee_id === employeeId && a.date === today)
+              ? updatedAtt
+              : a
+          )
+        );
+        pulseRealtime();
+
+        try {
+          await supabase
+            .from('employee_attendances')
+            .update({
+              is_on_leave: true,
+              leave_start_time: isoNow,
+              leave_reason: reason,
+              status: 'en_permiso',
+              updated_at: isoNow,
+            })
+            .eq('id', attendanceId);
+        } catch (err) {
+          console.error('Error al pausar asistencia en Supabase:', err);
+        }
+
+        return {
+          success: true,
+          message: `¡Salida Temporal registrada a las ${nowLima} por motivo de ${reason}! La jornada queda en pausa y se reanudará al reingresar.`,
+          overtimeMinutes: 0,
+          workedMinutes: 0,
+          workedDisplay: 'En pausa',
+          record: updatedAtt,
+        };
+      }
+
+      // CASO B: Salida Definitiva
+      const inTime = currentAttendance?.check_in || shiftConfig.entryTime;
+      const [inH, inM] = inTime.split(':').map(Number);
+      const inMinutes = (inH || 0) * 60 + (inM || 0);
+
+      const grossWorkedMinutes = Math.max(0, nowMinutes - inMinutes);
+      const totalAbsence = currentAttendance?.absence_minutes || 0;
+      const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
+
+      const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
+      const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
+      const workedHoursStr = formatMinutesToHours(netWorkedMinutes);
+      const cleanReason = (exitReason || '').trim() || null;
 
       const updatedAtt: EmployeeAttendance = {
         ...(currentAttendance || {
@@ -2805,9 +2991,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }),
         check_out: nowLima,
         exit_time: isoNow,
-        exit_type: exitType,
+        exit_type: 'definitiva',
         exit_reason: cleanReason,
-        worked_minutes: workedMinutes,
+        is_on_leave: false,
+        worked_minutes: netWorkedMinutes,
         overtime_minutes: overtimeMinutes,
         bonus_minutes: overtimeMinutes,
         bonus_calculation_type: 'auto',
@@ -2828,9 +3015,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .update({
             check_out: isoNow,
             exit_time: isoNow,
-            exit_type: exitType,
+            exit_type: 'definitiva',
             exit_reason: cleanReason,
             exit_justification: cleanReason,
+            is_on_leave: false,
             overtime_minutes: overtimeMinutes,
             bonus_minutes: overtimeMinutes,
             bonus_calculation_type: 'auto',
@@ -2843,14 +3031,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return {
         success: true,
-        message:
-          exitType === 'emergencia'
-            ? `¡Salida de Emergencia registrada a las ${nowLima}! Motivo: ${cleanReason || 'No especificado'}. Jornada cumplida: ${workedHoursStr}.`
-            : hasOvertime
-            ? `¡Salida Definitiva registrada a las ${nowLima}! Jornada: ${workedHoursStr}. Horas extra a favor: +${overtimeMinutes} min (${(overtimeMinutes / 60).toFixed(1)}h).`
-            : `¡Salida Definitiva registrada exitosamente a las ${nowLima}! Jornada cumplida: ${workedHoursStr}.`,
+        message: hasOvertime
+          ? `¡Salida Definitiva registrada a las ${nowLima}! Jornada neta: ${workedHoursStr}. Horas extra a favor: +${overtimeMinutes} min (${(overtimeMinutes / 60).toFixed(1)}h).`
+          : `¡Salida Definitiva registrada exitosamente a las ${nowLima}! Jornada neta: ${workedHoursStr}.`,
         overtimeMinutes,
-        workedMinutes,
+        workedMinutes: netWorkedMinutes,
         workedDisplay: workedHoursStr,
         record: updatedAtt,
       };
@@ -2874,23 +3059,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [nowH, nowM] = nowLima.split(':').map(Number);
       const nowMinutes = nowH * 60 + nowM;
 
-      const [entryH, entryM] = (attendanceSettings.shift_entry_time || '09:00')
-        .split(':')
-        .map(Number);
-      const entryMinutes = entryH * 60 + entryM;
-      const entryTolerance = attendanceSettings.entry_tolerance_minutes ?? 15;
-      const maxEntryAllowed = entryMinutes + entryTolerance;
-
-      const [exitH, exitM] = (attendanceSettings.shift_exit_time || '19:00')
-        .split(':')
-        .map(Number);
-      const exitMinutes = exitH * 60 + exitM;
-      const exitTolerance = attendanceSettings.exit_tolerance_minutes ?? 15;
-      const overtimeThreshold = exitMinutes + exitTolerance;
+      const shiftConfig = getShiftConfigForDate(attendanceSettings);
 
       if (punchType === 'check_in') {
-        const isLate = nowMinutes > maxEntryAllowed;
-        const tardyMinutes = isLate ? Math.max(0, nowMinutes - entryMinutes) : 0;
+        const isLate = nowMinutes > shiftConfig.maxEntryAllowed;
+        const tardyMinutes = isLate ? Math.max(0, nowMinutes - shiftConfig.entryMinutes) : 0;
         const status = isLate ? 'tardanza' : 'presente';
 
         const generatedId =
@@ -2921,6 +3094,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status,
             tardy_minutes: tardyMinutes,
             overtime_minutes: 0,
+            absence_minutes: 0,
+            is_on_leave: false,
           };
           return [newAtt, ...prev];
         });
@@ -2935,18 +3110,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status,
             tardy_minutes: tardyMinutes,
             overtime_minutes: 0,
+            absence_minutes: 0,
+            is_on_leave: false,
           })
           .then();
       } else {
         setAttendance((prev) => {
           const existing = prev.find((a) => a.employee_id === emp.id && a.date === today);
-          const inTime = existing?.check_in || attendanceSettings.shift_entry_time || '09:00';
+          const inTime = existing?.check_in || shiftConfig.entryTime;
           const [inH, inM] = inTime.split(':').map(Number);
-          const inMinutes = inH * 60 + inM;
-          const workedMinutes = Math.max(0, nowMinutes - inMinutes);
+          const inMinutes = (inH || 0) * 60 + (inM || 0);
+          const grossWorkedMinutes = Math.max(0, nowMinutes - inMinutes);
+          const totalAbsence = existing?.absence_minutes || 0;
+          const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
 
-          const hasOvertime = nowMinutes > overtimeThreshold;
-          const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - exitMinutes) : 0;
+          const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
+          const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
 
           if (existing) {
             if (existing.id.includes('-') && existing.id.length === 36) {
@@ -2954,6 +3133,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 .from('employee_attendances')
                 .update({
                   check_out: nowLima,
+                  exit_time: new Date().toISOString(),
+                  exit_type: 'definitiva',
                   overtime_minutes: overtimeMinutes,
                   bonus_minutes: overtimeMinutes,
                   bonus_calculation_type: 'auto',
@@ -2967,7 +3148,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 ? {
                     ...a,
                     check_out: nowLima,
-                    worked_minutes: workedMinutes,
+                    exit_type: 'definitiva',
+                    worked_minutes: netWorkedMinutes,
                     overtime_minutes: overtimeMinutes,
                     bonus_minutes: overtimeMinutes,
                     bonus_calculation_type: 'auto',
@@ -2985,14 +3167,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               employee_name: emp.full_name,
               employee_type: emp.type as any,
               date: today,
-              check_in: attendanceSettings.shift_entry_time || '09:00',
+              check_in: shiftConfig.entryTime,
               check_out: nowLima,
-              worked_minutes: workedMinutes,
+              worked_minutes: netWorkedMinutes,
               bonus_minutes: overtimeMinutes,
               bonus_calculation_type: 'auto',
               status: 'presente',
               tardy_minutes: 0,
               overtime_minutes: overtimeMinutes,
+              absence_minutes: 0,
+              is_on_leave: false,
             };
 
             supabase
@@ -3001,13 +3185,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 id: generatedId.length === 36 ? generatedId : undefined,
                 employee_id: emp.id,
                 date: today,
-                check_in: attendanceSettings.shift_entry_time || '09:00',
+                check_in: shiftConfig.entryTime,
                 check_out: nowLima,
                 bonus_minutes: overtimeMinutes,
                 bonus_calculation_type: 'auto',
                 status: 'presente',
                 tardy_minutes: 0,
                 overtime_minutes: overtimeMinutes,
+                absence_minutes: 0,
+                is_on_leave: false,
               })
               .then();
 
@@ -3093,6 +3279,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             shift_exit_time: merged.shift_exit_time,
             entry_tolerance_minutes: Number(merged.entry_tolerance_minutes),
             exit_tolerance_minutes: Number(merged.exit_tolerance_minutes),
+            sunday_entry_time: merged.sunday_entry_time || '09:00',
+            sunday_exit_time: merged.sunday_exit_time || '19:00',
+            sunday_entry_tolerance_minutes: Number(merged.sunday_entry_tolerance_minutes ?? 15),
+            sunday_exit_tolerance_minutes: Number(merged.sunday_exit_tolerance_minutes ?? 15),
             updated_at: new Date().toISOString(),
           })
           .select()
@@ -3105,6 +3295,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             shift_exit_time: data.shift_exit_time,
             entry_tolerance_minutes: Number(data.entry_tolerance_minutes),
             exit_tolerance_minutes: Number(data.exit_tolerance_minutes),
+            sunday_entry_time: data.sunday_entry_time || '09:00',
+            sunday_exit_time: data.sunday_exit_time || '19:00',
+            sunday_entry_tolerance_minutes: Number(data.sunday_entry_tolerance_minutes ?? 15),
+            sunday_exit_tolerance_minutes: Number(data.sunday_exit_tolerance_minutes ?? 15),
           });
         }
         pulseRealtime();
