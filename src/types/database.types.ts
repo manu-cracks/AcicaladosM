@@ -847,7 +847,6 @@ export type Database = {
       employees: {
         Row: {
           avatar_url: string | null
-          commission_percentage: number | null
           created_at: string
           dni: string | null
           email: string | null
@@ -861,14 +860,11 @@ export type Database = {
           profile_id: string | null
           qr_code: string | null
           rotation_order: number
-          shift_end: string | null
-          shift_start: string | null
           type: string
           updated_at: string
         }
         Insert: {
           avatar_url?: string | null
-          commission_percentage?: number | null
           created_at?: string
           dni?: string | null
           email?: string | null
@@ -882,14 +878,11 @@ export type Database = {
           profile_id?: string | null
           qr_code?: string | null
           rotation_order?: number
-          shift_end?: string | null
-          shift_start?: string | null
           type: string
           updated_at?: string
         }
         Update: {
           avatar_url?: string | null
-          commission_percentage?: number | null
           created_at?: string
           dni?: string | null
           email?: string | null
@@ -903,8 +896,6 @@ export type Database = {
           profile_id?: string | null
           qr_code?: string | null
           rotation_order?: number
-          shift_end?: string | null
-          shift_start?: string | null
           type?: string
           updated_at?: string
         }

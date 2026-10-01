@@ -138,9 +138,6 @@ export interface Employee {
   phone: string;
   dni?: string;
   email?: string;
-  shift_start?: string;
-  shift_end?: string;
-  commission_percentage?: number;
   rotation_order?: number;
 }
 

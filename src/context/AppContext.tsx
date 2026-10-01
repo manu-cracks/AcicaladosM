@@ -533,9 +533,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             email: e.email || '',
             dni: sanitizeDni(e.dni) || '',
             handles_reception: e.handles_reception || false,
-            shift_start: e.shift_start || '09:00',
-            shift_end: e.shift_end || '18:00',
-            commission_percentage: e.commission_percentage || 40,
             qr_code_uuid: e.id,
             qr_code: e.qr_code || `ACICALADOS-EMP-${e.id}-${e.dni || 'PASS'}`,
             rotation_order: e.rotation_order,
@@ -2326,9 +2323,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         foto_url: photoUrl,
         avatar_url: photoUrl,
         handles_reception: empData.handles_reception || false,
-        shift_start: empData.shift_start || '09:00',
-        shift_end: empData.shift_end || '18:00',
-        commission_percentage: empData.commission_percentage ?? 40,
         is_active: empData.active ?? true,
         rotation_order: empData.rotation_order || 0,
       };
@@ -2374,9 +2368,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: data.email || '',
         dni: data.dni || '',
         handles_reception: data.handles_reception || false,
-        shift_start: data.shift_start || '09:00',
-        shift_end: data.shift_end || '18:00',
-        commission_percentage: data.commission_percentage || 40,
         qr_code_uuid: data.id,
         rotation_order: data.rotation_order,
       };
@@ -2419,9 +2410,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           phone: sanitizePhone(updated.phone) || null,
           email: updated.email || null,
           handles_reception: updated.handles_reception || false,
-          shift_start: updated.shift_start || '09:00',
-          shift_end: updated.shift_end || '18:00',
-          commission_percentage: updated.commission_percentage ?? 40,
           is_active: updated.active,
         };
 

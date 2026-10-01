@@ -502,20 +502,7 @@ export function checkEmployeeAvailability(params: {
   const startMin = timeToMinutes(startTime);
   const endMin = startMin + durationMinutes;
 
-  // 1. Validar turnos de trabajo
-  if (employee.shift_start && employee.shift_end) {
-    const shiftStartMin = timeToMinutes(employee.shift_start);
-    const shiftEndMin = timeToMinutes(employee.shift_end);
-    if (startMin < shiftStartMin || endMin > shiftEndMin) {
-      return {
-        isAvailable: false,
-        reason: 'fuera_de_turno',
-        message: `Fuera de turno (Horario: ${employee.shift_start} a ${employee.shift_end})`,
-      };
-    }
-  }
-
-  // 2. Validar permisos / ausencias
+  // 1. Validar permisos / ausencias
   const blockConflict = (employeeBlocks || []).find((b) => {
     if (b.employee_id !== employee.id) return false;
     if (b.status && b.status !== 'aprobado' && b.status !== 'activo') return false;

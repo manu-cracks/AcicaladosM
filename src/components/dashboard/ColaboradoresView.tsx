@@ -9,7 +9,6 @@ import {
   QrCode,
   Phone,
   Mail,
-  Clock,
   Check,
   X,
   Shield,
@@ -246,9 +245,6 @@ export const ColaboradoresView: React.FC = () => {
   const [newEmail, setNewEmail] = useState('');
   const [newType, setNewType] = useState<SalonRoleId>('barbero');
   const [newHandlesReception, setNewHandlesReception] = useState(false);
-  const [newShiftStart, setNewShiftStart] = useState('09:00');
-  const [newShiftEnd, setNewShiftEnd] = useState('18:00');
-  const [newCommissionPct, setNewCommissionPct] = useState(40);
   const [newSelectedSkills, setNewSelectedSkills] = useState<string[]>([]);
   const [isSavingNew, setIsSavingNew] = useState(false);
   const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
@@ -264,9 +260,6 @@ export const ColaboradoresView: React.FC = () => {
   const [editEmail, setEditEmail] = useState('');
   const [editType, setEditType] = useState<SalonRoleId>('barbero');
   const [editHandlesReception, setEditHandlesReception] = useState(false);
-  const [editShiftStart, setEditShiftStart] = useState('09:00');
-  const [editShiftEnd, setEditShiftEnd] = useState('18:00');
-  const [editCommissionPct, setEditCommissionPct] = useState(40);
   const [editSelectedSkills, setEditSelectedSkills] = useState<string[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
@@ -758,9 +751,6 @@ export const ColaboradoresView: React.FC = () => {
     setEditEmail(emp.email || '');
     setEditType(roleMeta.id);
     setEditHandlesReception(emp.handles_reception || roleMeta.id === 'recepcionista');
-    setEditShiftStart(emp.shift_start || '09:00');
-    setEditShiftEnd(emp.shift_end || '18:00');
-    setEditCommissionPct(emp.commission_percentage ?? 40);
     setEditSelectedSkills(emp.skills || []);
 
     // Inicializar estado de fotografía de perfil para edición
@@ -873,9 +863,6 @@ export const ColaboradoresView: React.FC = () => {
         email: newEmail.trim() || `${newFirstName.toLowerCase().replace(/\s+/g, '')}@acicalados.pe`,
         type: newType,
         handles_reception: newType === 'recepcionista' ? true : newHandlesReception,
-        shift_start: newShiftStart,
-        shift_end: newShiftEnd,
-        commission_percentage: Number(newCommissionPct),
         active: true,
         skills: (newType === 'recepcionista' || newType === 'vestuario') ? [] : newSelectedSkills,
         foto_url: uploadedPhotoUrl || undefined,
@@ -961,9 +948,6 @@ export const ColaboradoresView: React.FC = () => {
         email: editEmail.trim(),
         type: editType,
         handles_reception: editType === 'recepcionista' ? true : editHandlesReception,
-        shift_start: editShiftStart,
-        shift_end: editShiftEnd,
-        commission_percentage: Number(editCommissionPct),
         skills: (editType === 'recepcionista' || editType === 'vestuario') ? [] : editSelectedSkills,
         foto_url: finalFotoUrl === null ? undefined : (finalFotoUrl || undefined),
         avatar_url: finalAvatar,
@@ -1459,15 +1443,6 @@ export const ColaboradoresView: React.FC = () => {
                 <div className="space-y-2 text-xs bg-[#181818] p-3 rounded-xl border border-neutral-800">
                   <div className="flex justify-between items-center">
                     <span className="text-neutral-500 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                      Turno:
-                    </span>
-                    <span className="font-medium text-white">
-                      {emp.shift_start || '09:00'} - {emp.shift_end || '18:00'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-neutral-500 flex items-center gap-1">
                       <Phone className="w-3.5 h-3.5 text-neutral-400" />
                       Teléfono:
                     </span>
@@ -1480,12 +1455,6 @@ export const ColaboradoresView: React.FC = () => {
                         Correo:
                       </span>
                       <span className="font-medium text-white truncate max-w-[150px]">{emp.email}</span>
-                    </div>
-                  )}
-                  {isAdmin && roleMeta.id !== 'recepcionista' && roleMeta.id !== 'vestuario' && (
-                    <div className="flex justify-between items-center pt-1 border-t border-neutral-800">
-                      <span className="text-neutral-500">Comisión por servicio:</span>
-                      <span className="font-bold text-[#E6C875]">{emp.commission_percentage || 40}%</span>
                     </div>
                   )}
                 </div>
@@ -1894,39 +1863,6 @@ export const ColaboradoresView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Horario y Comisión */}
-              <div className="grid grid-cols-3 gap-3 bg-[#181818] p-3 rounded-xl border border-neutral-800">
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Inicio Jornada</label>
-                  <input
-                    type="time"
-                    value={newShiftStart}
-                    onChange={(e) => setNewShiftStart(e.target.value)}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Fin Jornada</label>
-                  <input
-                    type="time"
-                    value={newShiftEnd}
-                    onChange={(e) => setNewShiftEnd(e.target.value)}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Comisión (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={newCommissionPct}
-                    onChange={(e) => setNewCommissionPct(Number(e.target.value))}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none font-bold text-[#E6C875]"
-                  />
-                </div>
-              </div>
-
               {/* Selector de Especialidades FILTRADO según Barbero o Spa, o informativo para Recepcionista */}
               <div className="space-y-2">
                 {newType === 'recepcionista' ? (
@@ -2329,39 +2265,6 @@ export const ColaboradoresView: React.FC = () => {
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
                     className="w-full bg-[#181818] border border-neutral-800 text-white rounded-xl p-2.5 outline-none focus:border-[#C8A45C]/50"
-                  />
-                </div>
-              </div>
-
-              {/* Horario y Comisión */}
-              <div className="grid grid-cols-3 gap-3 bg-[#181818] p-3 rounded-xl border border-neutral-800">
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Inicio Jornada</label>
-                  <input
-                    type="time"
-                    value={editShiftStart}
-                    onChange={(e) => setEditShiftStart(e.target.value)}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Fin Jornada</label>
-                  <input
-                    type="time"
-                    value={editShiftEnd}
-                    onChange={(e) => setEditShiftEnd(e.target.value)}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-neutral-400">Comisión (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={editCommissionPct}
-                    onChange={(e) => setEditCommissionPct(Number(e.target.value))}
-                    className="w-full bg-[#141414] border border-neutral-700 text-white rounded-lg p-2 outline-none font-bold text-[#E6C875]"
                   />
                 </div>
               </div>
@@ -2998,9 +2901,6 @@ export const ColaboradoresView: React.FC = () => {
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${roleMeta.colorClasses.badge}`}>
                         <RoleIcon className="w-3 h-3" />
                         <span>{roleMeta.badgeLabel}</span>
-                      </span>
-                      <span className="text-[11px] text-neutral-400">
-                        Turno {appointmentsEmp.shift_start || '09:00'} a {appointmentsEmp.shift_end || '18:00'}
                       </span>
                     </div>
                   </div>
