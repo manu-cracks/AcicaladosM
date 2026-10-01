@@ -120,6 +120,7 @@ function playErrorSound() {
 export const POSView: React.FC = () => {
   const {
     products,
+    employees,
     ventasMostrador,
     registerCounterSale,
     deleteVentaMostrador,
@@ -222,7 +223,32 @@ export const POSView: React.FC = () => {
     image_url?: string;
     quantity: number;
     unit_price: string;
+    employee_id?: string;
+    seller_name?: string;
   }
+
+  // Lista de colaboradores activos para el selector de vendedor
+  const activeEmployees = useMemo(() => {
+    return (employees || []).filter((e) => e.active);
+  }, [employees]);
+
+  /** Conversor numérico estricto para evitar NaN en cálculos y precios */
+  const parseSafeNumber = (val: any, fallback = 0): number => {
+    if (val === null || val === undefined || val === '') return fallback;
+    if (typeof val === 'number') return isNaN(val) ? fallback : val;
+    const cleaned = String(val).replace(/,/g, '.').replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) ? fallback : num;
+  };
+
+  /** Conversor entero estricto para evitar NaN en cantidades */
+  const parseSafeInteger = (val: any, fallback = 1): number => {
+    if (val === null || val === undefined || val === '') return fallback;
+    if (typeof val === 'number') return isNaN(val) || !Number.isFinite(val) ? fallback : Math.floor(val);
+    const cleaned = String(val).replace(/[^0-9-]/g, '');
+    const num = parseInt(cleaned, 10);
+    return isNaN(num) || num < 1 ? fallback : num;
+  };
 
   // Estados del Formulario de Venta
   const [clientName, setClientName] = useState<string>('');
@@ -344,6 +370,8 @@ export const POSView: React.FC = () => {
             image_url: found.image_url,
             quantity: 1,
             unit_price: (found.price_cents / 100).toFixed(2),
+            employee_id: '',
+            seller_name: 'Recepción',
           };
           setScanFeedback(`¡"${found.name}" agregado a la lista de venta!`);
           setTimeout(() => setScanFeedback(null), 2500);
@@ -410,6 +438,8 @@ export const POSView: React.FC = () => {
           image_url: product.image_url,
           quantity: 1,
           unit_price: (product.price_cents / 100).toFixed(2),
+          employee_id: '',
+          seller_name: 'Recepción',
         };
         setScanFeedback(`¡"${product.name}" agregado a la venta!`);
         setTimeout(() => setScanFeedback(null), 2500);
@@ -432,6 +462,8 @@ export const POSView: React.FC = () => {
       name: text,
       quantity: 1,
       unit_price: '0.00',
+      employee_id: '',
+      seller_name: 'Recepción',
     };
     setSaleItems((prev) => [...prev, newItem]);
     setProductSearch('');
@@ -441,8 +473,9 @@ export const POSView: React.FC = () => {
     setTimeout(() => setScanFeedback(null), 2500);
   };
 
-  // Modificar cantidad de una fila específica
-  const handleUpdateItemQuantity = (index: number, newQty: number) => {
+  // Modificar cantidad de una fila específica con validación estricta anti-NaN
+  const handleUpdateItemQuantity = (index: number, rawQty: any) => {
+    const newQty = parseSafeInteger(rawQty, 1);
     if (newQty < 1) return;
     const target = saleItems[index];
     if (target && target.stock != null && newQty > target.stock) {
@@ -456,16 +489,39 @@ export const POSView: React.FC = () => {
     }
     setSaleItems((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], quantity: newQty };
+      if (updated[index]) {
+        updated[index] = { ...updated[index], quantity: newQty };
+      }
       return updated;
     });
   };
 
-  // Modificar precio unitario de una fila específica
+  // Modificar precio unitario de una fila específica con sanitización estricta anti-NaN
   const handleUpdateItemPrice = (index: number, newPrice: string) => {
+    const sanitized = newPrice.replace(/[^0-9.]/g, '');
     setSaleItems((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], unit_price: newPrice };
+      if (updated[index]) {
+        updated[index] = { ...updated[index], unit_price: sanitized };
+      }
+      return updated;
+    });
+  };
+
+  // Modificar vendedor/especialista asignado de una fila específica (por defecto 'Recepción')
+  const handleUpdateItemSeller = (index: number, employeeId: string) => {
+    const selectedEmp = employees.find((e) => e.id === employeeId);
+    setSaleItems((prev) => {
+      const updated = [...prev];
+      if (updated[index]) {
+        updated[index] = {
+          ...updated[index],
+          employee_id: employeeId || undefined,
+          seller_name: selectedEmp
+            ? (selectedEmp.full_name || `${selectedEmp.first_name || ''} ${selectedEmp.last_name || ''}`.trim())
+            : 'Recepción',
+        };
+      }
       return updated;
     });
   };
@@ -475,19 +531,20 @@ export const POSView: React.FC = () => {
     setSaleItems((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  // Cálculo Matemático Estricto del Total en Vivo:
+  // Cálculo Matemático Estricto del Total en Vivo (Protegido contra NaN):
   // 1. Subtotal = Suma total de (Cantidad × Precio Unitario de cada fila)
   // 2. Descuento Global (S/) = No altera los precios unitarios individuales
   // 3. Total Calculado = Max(0, Subtotal - Descuento Global)
   const subtotalCents = useMemo(() => {
     return saleItems.reduce((acc, item) => {
-      const p = parseFloat(item.unit_price) || 0;
-      const q = item.quantity || 0;
-      return acc + Math.round(q * p * 100);
+      const p = parseSafeNumber(item.unit_price, 0);
+      const q = parseSafeInteger(item.quantity, 1);
+      const rowCents = Math.round(q * p * 100);
+      return acc + (isNaN(rowCents) ? 0 : rowCents);
     }, 0);
   }, [saleItems]);
 
-  const parsedDiscount = parseFloat(globalDiscount) || 0;
+  const parsedDiscount = parseSafeNumber(globalDiscount, 0);
   const discountCents = Math.max(0, Math.round(parsedDiscount * 100));
 
   const totalCents = Math.max(0, subtotalCents - discountCents);
@@ -520,9 +577,8 @@ export const POSView: React.FC = () => {
     subtotalCents <= 0 ||
     saleItems.some(
       (it) =>
-        it.quantity < 1 ||
-        isNaN(parseFloat(it.unit_price)) ||
-        parseFloat(it.unit_price) < 0
+        parseSafeInteger(it.quantity, 0) < 1 ||
+        parseSafeNumber(it.unit_price, -1) < 0
     ) ||
     (isMixtoMode && (!isMixtoBalanced || selectedSubMethods.length !== 2));
 
@@ -715,16 +771,17 @@ export const POSView: React.FC = () => {
     }
 
     for (const item of saleItems) {
-      if (item.quantity < 1 || !Number.isInteger(item.quantity)) {
+      const qty = parseSafeInteger(item.quantity, 0);
+      if (qty < 1) {
         setValidationError(`La cantidad del producto "${item.name}" debe ser un número entero mayor o igual a 1.`);
         return;
       }
-      const priceVal = parseFloat(item.unit_price);
-      if (isNaN(priceVal) || priceVal < 0) {
+      const priceVal = parseSafeNumber(item.unit_price, -1);
+      if (priceVal < 0) {
         setValidationError(`Por favor, ingresa un precio unitario válido para "${item.name}".`);
         return;
       }
-      if (item.stock != null && item.quantity > item.stock) {
+      if (item.stock != null && qty > item.stock) {
         setValidationError(`Stock insuficiente. Solo quedan ${item.stock} unidades de "${item.name}".`);
         return;
       }
@@ -778,7 +835,7 @@ export const POSView: React.FC = () => {
         }
       : undefined;
 
-    const totalQuantity = saleItems.reduce((acc, it) => acc + it.quantity, 0);
+    const totalQuantity = saleItems.reduce((acc, it) => acc + parseSafeInteger(it.quantity, 1), 0);
     const saleProductName =
       saleItems.length === 1
         ? saleItems[0].name
@@ -795,7 +852,10 @@ export const POSView: React.FC = () => {
       ? `${baseNotes}${discountNote} [Mixto: ${selectedSubMethods.map((m) => `${m.toUpperCase()}: S/ ${mixtoAmounts[m]}`).join(' + ')}]`
       : `${baseNotes}${discountNote}`;
 
+    const saleTicketCode = `VP-${Math.floor(10000000 + Math.random() * 90000000)}`;
+
     const salePayload = {
+      ticket_number: saleTicketCode,
       client_name: clientName.trim(),
       client_dni: clientDni.trim() || undefined,
       client_phone: clientPhone.trim() || undefined,
@@ -820,13 +880,19 @@ export const POSView: React.FC = () => {
     };
 
     const items = saleItems.map((it) => {
-      const price = parseFloat(it.unit_price) || 0;
+      const qty = Math.max(1, parseSafeInteger(it.quantity, 1));
+      const price = Math.max(0, parseSafeNumber(it.unit_price, 0));
+      const rowTotal = Math.round(qty * price * 100) / 100;
+      const seller = it.seller_name?.trim() || 'Recepción';
       return {
         product_id: it.product_id,
         product_name: it.name,
-        quantity: it.quantity,
+        quantity: qty,
         unit_price: price,
-        total: Math.round(it.quantity * price * 100) / 100,
+        total: isNaN(rowTotal) ? 0 : rowTotal,
+        employee_id: it.employee_id || undefined,
+        seller_name: seller,
+        vendedor: seller,
       };
     });
 
@@ -1308,146 +1374,177 @@ export const POSView: React.FC = () => {
                 ) : (
                   <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                     {saleItems.map((item, index) => {
-                      const itemSubtotalCents = Math.round(
-                        item.quantity * (parseFloat(item.unit_price) || 0) * 100
-                      );
+                      const itemQuantity = parseSafeInteger(item.quantity, 1);
+                      const itemUnitPrice = parseSafeNumber(item.unit_price, 0);
+                      const itemSubtotalCents = Math.round(itemQuantity * itemUnitPrice * 100);
                       const minStockThreshold = item.min_stock ?? 5;
                       const isLowStockWarning = item.stock != null && item.stock > 0 && item.stock <= minStockThreshold;
 
                       return (
                         <div
                           key={item.id}
-                          className={`rounded-xl p-3 sm:p-3.5 transition shadow-sm space-y-3 md:space-y-0 md:flex md:items-center md:justify-between md:gap-4 animate-in fade-in duration-150 ${
+                          className={`rounded-xl p-3 sm:p-3.5 transition shadow-sm space-y-3 animate-in fade-in duration-150 ${
                             isLowStockWarning
                               ? 'bg-[#181512] border-2 border-amber-500/70 shadow-amber-950/30'
                               : 'bg-[#181818] border border-neutral-800 hover:border-[#C8A45C]/40'
                           }`}
                         >
-                          {/* 1. Nombre e Info (Solo Lectura) */}
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            {item.image_url ? (
-                              <img
-                                src={item.image_url}
-                                alt={item.name}
-                                className="w-9 h-9 rounded-lg object-cover border border-neutral-700/80 bg-neutral-900 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-9 h-9 rounded-lg bg-neutral-800/80 border border-neutral-700/80 flex items-center justify-center shrink-0 text-[#C8A45C]">
-                                <Package className="w-4 h-4" />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className="text-white font-semibold text-xs truncate" title={item.name}>
-                                  {item.name}
-                                </h4>
-                                {isLowStockWarning && (
-                                  <span
-                                    className="inline-flex items-center gap-1 font-semibold text-[10px] text-amber-300 bg-amber-950/90 border border-amber-500/60 px-2 py-0.5 rounded-md animate-pulse"
-                                    title={`Venta permitida con advertencia: Stock bajo en mostrador (Quedan ${item.stock} un. ≤ mínimo ${minStockThreshold})`}
-                                  >
-                                    <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-                                    <span>Stock Bajo ({item.stock} un. restantes ≤ mín. {minStockThreshold})</span>
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                                {item.barcode && (
-                                  <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#E6C875] bg-[#C8A45C]/15 px-1.5 py-0.2 rounded border border-[#C8A45C]/30">
-                                    <BarcodeIcon className="w-2.5 h-2.5" />
-                                    {item.barcode}
-                                  </span>
-                                )}
-                                {item.stock != null ? (
-                                  <span className="text-[10px] text-neutral-400">
-                                    Stock disp.:{' '}
-                                    <strong
-                                      className={
-                                        item.stock <= minStockThreshold ? 'text-amber-400 font-bold' : 'text-emerald-400'
-                                      }
+                          <div className="space-y-3 md:space-y-0 md:flex md:items-center md:justify-between md:gap-4">
+                            {/* 1. Nombre e Info (Solo Lectura) */}
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              {item.image_url ? (
+                                <img
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  className="w-9 h-9 rounded-lg object-cover border border-neutral-700/80 bg-neutral-900 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-neutral-800/80 border border-neutral-700/80 flex items-center justify-center shrink-0 text-[#C8A45C]">
+                                  <Package className="w-4 h-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className="text-white font-semibold text-xs truncate" title={item.name}>
+                                    {item.name}
+                                  </h4>
+                                  {isLowStockWarning && (
+                                    <span
+                                      className="inline-flex items-center gap-1 font-semibold text-[10px] text-amber-300 bg-amber-950/90 border border-amber-500/60 px-2 py-0.5 rounded-md animate-pulse"
+                                      title={`Venta permitida con advertencia: Stock bajo en mostrador (Quedan ${item.stock} un. ≤ mínimo ${minStockThreshold})`}
                                     >
-                                      {item.stock} un.
-                                    </strong>
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-neutral-500 italic">Concepto libre</span>
-                                )}
+                                      <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                      <span>Stock Bajo ({item.stock} un. restantes ≤ mín. {minStockThreshold})</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                  {item.barcode && (
+                                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#E6C875] bg-[#C8A45C]/15 px-1.5 py-0.2 rounded border border-[#C8A45C]/30">
+                                      <BarcodeIcon className="w-2.5 h-2.5" />
+                                      {item.barcode}
+                                    </span>
+                                  )}
+                                  {item.stock != null ? (
+                                    <span className="text-[10px] text-neutral-400">
+                                      Stock disp.:{' '}
+                                      <strong
+                                        className={
+                                          item.stock <= minStockThreshold ? 'text-amber-400 font-bold' : 'text-emerald-400'
+                                        }
+                                      >
+                                        {item.stock} un.
+                                      </strong>
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-neutral-500 italic">Concepto libre</span>
+                                  )}
+                                </div>
                               </div>
+                            </div>
+
+                            {/* 2. Controles: Cantidad, Precio Unitario, Subtotal y Eliminar */}
+                            <div className="flex flex-wrap items-center justify-between md:justify-end gap-3 shrink-0">
+                              {/* Cantidad Stepper */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] uppercase font-bold text-neutral-400 md:hidden">Cant:</span>
+                                <div className="flex items-center rounded-lg bg-black/50 border border-neutral-700/80 p-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={itemQuantity <= 1}
+                                    onClick={() => handleUpdateItemQuantity(index, itemQuantity - 1)}
+                                    className="w-7 h-7 rounded-md bg-neutral-800 hover:bg-[#C8A45C] hover:text-black text-neutral-300 flex items-center justify-center transition disabled:opacity-20 cursor-pointer"
+                                    title="Disminuir cantidad"
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={item.quantity}
+                                    onChange={(e) => handleUpdateItemQuantity(index, e.target.value)}
+                                    className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none font-mono"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateItemQuantity(index, itemQuantity + 1)}
+                                    className="w-7 h-7 rounded-md bg-neutral-800 hover:bg-[#C8A45C] hover:text-black text-neutral-300 flex items-center justify-center transition cursor-pointer"
+                                    title="Incrementar cantidad"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Precio Unitario Editable */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] uppercase font-bold text-neutral-400 md:hidden">P. Unit:</span>
+                                <div className="relative w-24">
+                                  <span className="absolute left-2.5 top-1.5 font-bold text-[#E6C875] text-xs">S/</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.10"
+                                    value={item.unit_price}
+                                    onChange={(e) => handleUpdateItemPrice(index, e.target.value)}
+                                    placeholder="0.00"
+                                    className="w-full bg-black/50 border border-neutral-700/80 focus:border-[#C8A45C] text-white font-bold font-mono rounded-lg pl-7 pr-2 py-1 outline-none text-xs"
+                                    title="Precio Unitario (S/)"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Subtotal Fila */}
+                              <div className="w-24 text-right">
+                                <span className="text-[10px] text-neutral-400 block md:hidden">Subtotal:</span>
+                                <span className="font-bold text-[#E6C875] font-mono text-xs block">
+                                  {formatSoles(isNaN(itemSubtotalCents) ? 0 : itemSubtotalCents)}
+                                </span>
+                              </div>
+
+                              {/* Botón Eliminar Fila */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(index)}
+                                className="p-1.5 rounded-lg bg-neutral-800/80 hover:bg-rose-950/60 text-neutral-400 hover:text-rose-300 border border-transparent hover:border-rose-500/40 transition cursor-pointer"
+                                title="Eliminar este producto de la venta"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           </div>
 
-                          {/* 2. Controles: Cantidad, Precio Unitario, Subtotal y Eliminar */}
-                          <div className="flex flex-wrap items-center justify-between md:justify-end gap-3 shrink-0">
-                            {/* Cantidad Stepper */}
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] uppercase font-bold text-neutral-400 md:hidden">Cant:</span>
-                              <div className="flex items-center rounded-lg bg-black/50 border border-neutral-700/80 p-0.5">
-                                <button
-                                  type="button"
-                                  disabled={item.quantity <= 1}
-                                  onClick={() => handleUpdateItemQuantity(index, item.quantity - 1)}
-                                  className="w-7 h-7 rounded-md bg-neutral-800 hover:bg-[#C8A45C] hover:text-black text-neutral-300 flex items-center justify-center transition disabled:opacity-20 cursor-pointer"
-                                  title="Disminuir cantidad"
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  value={item.quantity}
-                                  onChange={(e) => {
-                                    const v = parseInt(e.target.value, 10);
-                                    handleUpdateItemQuantity(index, isNaN(v) || v < 1 ? 1 : v);
-                                  }}
-                                  className="w-10 text-center bg-transparent text-white font-bold text-xs outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateItemQuantity(index, item.quantity + 1)}
-                                  className="w-7 h-7 rounded-md bg-neutral-800 hover:bg-[#C8A45C] hover:text-black text-neutral-300 flex items-center justify-center transition cursor-pointer"
-                                  title="Incrementar cantidad"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </div>
+                          {/* 3. Selector de Vendedor / Especialista Asignado */}
+                          <div className="pt-2 border-t border-neutral-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <label
+                                htmlFor={`pos-seller-select-${item.id}`}
+                                className="text-[11px] font-medium text-neutral-400 flex items-center gap-1.5"
+                              >
+                                <User className="w-3.5 h-3.5 text-[#C8A45C]" />
+                                <span>Vendedor / Especialista Asignado:</span>
+                              </label>
+                              <select
+                                id={`pos-seller-select-${item.id}`}
+                                value={item.employee_id || ''}
+                                onChange={(e) => handleUpdateItemSeller(index, e.target.value)}
+                                className="bg-[#121212] border border-neutral-700/80 hover:border-[#C8A45C]/60 focus:border-[#C8A45C] text-neutral-200 text-xs rounded-lg px-2.5 py-1 outline-none transition cursor-pointer"
+                              >
+                                <option value="">Recepción (Venta Directa)</option>
+                                {activeEmployees.map((emp) => (
+                                  <option key={emp.id} value={emp.id}>
+                                    {emp.full_name} ({emp.type})
+                                  </option>
+                                ))}
+                              </select>
                             </div>
-
-                            {/* Precio Unitario Editable */}
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] uppercase font-bold text-neutral-400 md:hidden">P. Unit:</span>
-                              <div className="relative w-24">
-                                <span className="absolute left-2.5 top-1.5 font-bold text-[#E6C875] text-xs">S/</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.10"
-                                  value={item.unit_price}
-                                  onChange={(e) => handleUpdateItemPrice(index, e.target.value)}
-                                  placeholder="0.00"
-                                  className="w-full bg-black/50 border border-neutral-700/80 focus:border-[#C8A45C] text-white font-bold font-mono rounded-lg pl-7 pr-2 py-1 outline-none text-xs"
-                                  title="Precio Unitario (S/)"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Subtotal Fila */}
-                            <div className="w-24 text-right">
-                              <span className="text-[10px] text-neutral-400 block md:hidden">Subtotal:</span>
-                              <span className="font-bold text-[#E6C875] font-mono text-xs block">
-                                {formatSoles(itemSubtotalCents)}
+                            {item.seller_name && item.seller_name !== 'Recepción' && (
+                              <span className="text-[10px] text-[#E6C875] bg-[#C8A45C]/15 border border-[#C8A45C]/30 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                                <span>Asignado:</span>
+                                <strong>{item.seller_name.split(' ')[0]}</strong>
                               </span>
-                            </div>
-
-                            {/* Botón Eliminar Fila */}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(index)}
-                              className="p-1.5 rounded-lg bg-neutral-800/80 hover:bg-rose-950/60 text-neutral-400 hover:text-rose-300 border border-transparent hover:border-rose-500/40 transition cursor-pointer"
-                              title="Eliminar este producto de la venta"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            )}
                           </div>
                         </div>
                       );

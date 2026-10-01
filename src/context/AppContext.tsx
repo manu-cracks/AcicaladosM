@@ -137,8 +137,8 @@ interface AppContextType {
   registerVentaMostrador: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
   registerCounterSale: (venta: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string }) => VentaMostrador;
   processPosSaleWithStock: (
-    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
-    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
+    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string; ticket_number?: string },
+    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number; employee_id?: string; seller_name?: string; vendedor?: string }>
   ) => Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }>;
   deleteVentaMostrador: (id: string) => void;
 
@@ -2130,10 +2130,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [pulseRealtime]);
 
   const processPosSaleWithStock = useCallback(async (
-    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string },
-    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number }>
+    saleData: Omit<VentaMostrador, 'id' | 'ticket_number' | 'created_at'> & { created_at?: string; ticket_number?: string },
+    items: Array<{ product_id?: string; product_name: string; quantity: number; unit_price: number; total: number; employee_id?: string; seller_name?: string; vendedor?: string }>
   ): Promise<{ success: boolean; ticket_number: string; sales: VentaMostrador[] }> => {
-    const ticketNumber = `TK-${Math.floor(10000 + Math.random() * 90000)}`;
+    const ticketNumber = saleData.ticket_number || `VP-${Math.floor(10000000 + Math.random() * 90000000)}`;
     const nowIso = new Date().toISOString();
     const createdAt = saleData.created_at || nowIso;
 
@@ -2166,6 +2166,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       quantity: item.quantity,
       unit_price: item.unit_price,
       total: item.total,
+      employee_id: item.employee_id || null,
+      seller_name: item.seller_name || item.vendedor || 'Recepción',
+      vendedor: item.vendedor || item.seller_name || 'Recepción',
     }));
 
     const { data, error } = await supabase.rpc('process_pos_sale', {
@@ -2203,7 +2206,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       monto_descuento: (data as any)?.descuento ?? (saleData.discount_cents ? saleData.discount_cents / 100 : 0),
       discount_cents: saleData.discount_cents ?? 0,
       total_price_cents: saleData.total_price_cents,
-      detalles_items: items,
+      detalles_items: pItems,
       created_at: createdAt,
     };
 
