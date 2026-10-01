@@ -15,6 +15,7 @@ import { PublicWardrobe } from './components/public/PublicWardrobe';
 import { PublicLocation } from './components/public/PublicLocation';
 import { ClientPortal } from './components/public/ClientPortal';
 import { ClientLayout } from './components/public/ClientLayout';
+import { PublicTrackingPortal } from './components/public/PublicTrackingPortal';
 
 // Auth views
 import { LoginView } from './components/auth/LoginView';
@@ -158,6 +159,7 @@ const AppContent: React.FC = () => {
           {activeView === '/vestuario' && <PublicWardrobe />}
           {activeView === '/ubicacion' && <PublicLocation />}
           {activeView === '/mi-cuenta' && <ClientPortal />}
+          {activeView === '/rastrear' && <PublicTrackingPortal />}
         </ClientLayout>
       )}
     </div>

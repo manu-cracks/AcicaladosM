@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
-import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck } from 'lucide-react';
+import { supabase } from '../../lib/supabase/client';
+import { generateVoucherFilename } from '../../lib/ticketPdfGenerator';
+import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
 interface PaymentQRWidgetProps {
   amountCents: number;
   bookingCode?: string;
   clientName?: string;
+  clientDni?: string;
   onVoucherUploaded?: (voucherUrl: string) => void;
   title?: string;
 }
@@ -15,6 +18,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   amountCents,
   bookingCode = 'AC-ONLINE',
   clientName = 'Cliente',
+  clientDni = '',
   onVoucherUploaded,
   title = 'Pago de Adelanto con Yape',
 }) => {
@@ -23,6 +27,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [uploadedVoucher, setUploadedVoucher] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleCopyPhone = () => {
     navigator.clipboard.writeText(paymentSettings.yape_phone.replace(/\s+/g, ''));
@@ -30,18 +35,45 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSimulateVoucherUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVoucherUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setIsUploading(true);
-      setTimeout(() => {
-        const dummyUrl = URL.createObjectURL(file);
-        setUploadedVoucher(dummyUrl);
-        setIsUploading(false);
-        if (onVoucherUploaded) {
-          onVoucherUploaded(dummyUrl);
-        }
-      }, 1200);
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Por favor selecciona un comprobante en formato de imagen (JPG, PNG, WebP).');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const fileName = generateVoucherFilename(clientDni || 'invitado', file.name);
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('comprobantes')
+        .upload(fileName, file, { contentType: file.type, upsert: true });
+
+      if (uploadErr) {
+        console.error('Error al subir comprobante a Supabase Storage:', uploadErr);
+        setUploadError('No se pudo subir el comprobante. Inténtalo nuevamente.');
+        return;
+      }
+
+      const { data: pubData } = supabase.storage
+        .from('comprobantes')
+        .getPublicUrl(uploadData.path || fileName);
+
+      const finalUrl = pubData?.publicUrl || URL.createObjectURL(file);
+      setUploadedVoucher(finalUrl);
+
+      if (onVoucherUploaded) {
+        onVoucherUploaded(finalUrl);
+      }
+    } catch (err: any) {
+      console.error('Error en carga de comprobante:', err);
+      setUploadError('Error de red al subir la imagen.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -137,8 +169,9 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
             <input
               type="file"
               id={`voucher-upload-${bookingCode}`}
-              accept="image/*,.pdf"
-              onChange={handleSimulateVoucherUpload}
+              accept="image/*"
+              onChange={handleVoucherUpload}
+              disabled={isUploading}
               className="hidden"
             />
             {uploadedVoucher ? (
@@ -164,12 +197,23 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
                 htmlFor={`voucher-upload-${bookingCode}`}
                 className="cursor-pointer block py-1"
               >
-                <Upload className="w-5 h-5 text-[#C8A45C] mx-auto mb-1" />
+                {isUploading ? (
+                  <Loader2 className="w-5 h-5 text-[#C8A45C] animate-spin mx-auto mb-1" />
+                ) : (
+                  <Upload className="w-5 h-5 text-[#C8A45C] mx-auto mb-1" />
+                )}
                 <span className="text-xs font-medium text-neutral-300 block">
-                  {isUploading ? 'Subiendo comprobante...' : 'Subir Comprobante / Voucher (Opcional)'}
+                  {isUploading ? 'Subiendo comprobante a Supabase...' : 'Subir Comprobante / Voucher (Captura de Yape)'}
                 </span>
-                <span className="text-[10px] text-neutral-500">Captura de Yape en formato JPG o PNG</span>
+                <span className="text-[10px] text-neutral-500">Formato JPG, PNG o WebP</span>
               </label>
+            )}
+
+            {uploadError && (
+              <div className="mt-2 text-[11px] text-red-400 flex items-center justify-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>{uploadError}</span>
+              </div>
             )}
           </div>
         </div>

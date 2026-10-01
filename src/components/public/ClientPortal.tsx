@@ -384,14 +384,22 @@ export const ClientPortal: React.FC = () => {
                     Cuando reserves una cita en nuestra barbería o spa, podrás consultar aquí los detalles de tu servicio, el especialista asignado y liquidar saldos pendientes vía código QR.
                   </p>
                 </div>
-                <div className="pt-2">
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
                   <button
                     type="button"
                     onClick={() => setActiveView('/reservar')}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] hover:from-[#DFCA8D] hover:to-[#D4AF37] text-black shadow-lg shadow-[#C8A45C]/10 transition"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] hover:from-[#DFCA8D] hover:to-[#D4AF37] text-black shadow-lg shadow-[#C8A45C]/10 transition cursor-pointer"
                   >
                     <span>Reservar Mi Primera Cita</span>
                     <ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('/rastrear')}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-[#E6C875] border border-[#C8A45C]/35 transition cursor-pointer"
+                  >
+                    <span>🔍 Rastrear Reserva como Invitado</span>
                   </button>
                 </div>
               </div>

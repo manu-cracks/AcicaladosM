@@ -15,11 +15,13 @@ import {
   Tag,
   ShieldCheck,
   Send,
+  Download,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { WardrobeItem, formatSoles, DressRental } from '../../types';
 import { DressAvailabilityCalendar } from '../dashboard/vestuario/DressAvailabilityCalendar';
 import { supabase } from '../../lib/supabase/client';
+import { generateVoucherFilename, downloadTicketPdf } from '../../lib/ticketPdfGenerator';
 
 interface PublicDressBookingModalProps {
   item: WardrobeItem;
@@ -27,7 +29,7 @@ interface PublicDressBookingModalProps {
 }
 
 export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = ({ item, onClose }) => {
-  const { paymentSettings, addDressRental, dressRentals } = useApp();
+  const { paymentSettings, addDressRental, dressRentals, clearCart } = useApp();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
@@ -106,22 +108,26 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
     setErrorMsg(null);
 
     try {
-      const fileName = `voucher-${codeDisplay}-${Date.now()}.webp`;
+      // Nomenclatura oficial: [DNI]_yape_[TIMESTAMP].[EXT]
+      const fileName = generateVoucherFilename(clientDni, file.name);
       const { data: uploadData, error: uploadErr } = await supabase.storage
-        .from('wardrobe-images')
+        .from('comprobantes')
         .upload(fileName, file, { contentType: file.type, upsert: true });
 
       if (uploadErr) {
-        const localBlob = URL.createObjectURL(file);
-        setVoucherUrl(localBlob);
-      } else {
-        const { data: pubData } = supabase.storage
-          .from('wardrobe-images')
-          .getPublicUrl(uploadData.path || fileName);
-        setVoucherUrl(pubData?.publicUrl || URL.createObjectURL(file));
+        console.error('Error al subir comprobante a Supabase Storage (comprobantes):', uploadErr);
+        setErrorMsg('No se pudo subir la imagen del comprobante a Supabase. Inténtalo nuevamente.');
+        return;
       }
-    } catch (err) {
-      setVoucherUrl(URL.createObjectURL(file));
+
+      const { data: pubData } = supabase.storage
+        .from('comprobantes')
+        .getPublicUrl(uploadData.path || fileName);
+
+      setVoucherUrl(pubData?.publicUrl || URL.createObjectURL(file));
+    } catch (err: any) {
+      console.error('Excepción subiendo voucher:', err);
+      setErrorMsg('Error de conexión al cargar la captura de Yape.');
     } finally {
       setIsUploadingVoucher(false);
     }
@@ -165,6 +171,20 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
       if (result) {
         setCreatedRental(result);
         setStep(4);
+
+        // Limpiar carrito y persistir código en localStorage para banner de seguimiento
+        clearCart();
+        const formattedCode = result.ticket_code.startsWith('#') ? result.ticket_code : `#${result.ticket_code}`;
+        try {
+          localStorage.setItem('acicalados_last_booking_code', formattedCode);
+          localStorage.setItem('acicalados_last_booking_dni', clientDni.trim());
+          localStorage.setItem('acicalados_last_booking_phone', clientPhone.trim());
+          localStorage.setItem('acicalados_last_booking_status', '🟡 EN REVISIÓN');
+          window.dispatchEvent(new Event('storage'));
+        } catch (e) {
+          console.warn('Error guardando código de reserva en localStorage:', e);
+        }
+
         // Limpiar formulario tras éxito confirmado en BD
         setClientName('');
         setClientLastName('');
@@ -579,7 +599,35 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                 </p>
               </div>
 
-              <div className="flex items-center justify-center gap-3">
+              {/* Botones de Acción: Descarga Obligatoria de Ticket y Notificación WhatsApp */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    downloadTicketPdf({
+                      code: createdRental.ticket_code,
+                      type: 'vestuario',
+                      clientName: `${createdRental.client_first_name} ${createdRental.client_last_name}`,
+                      clientDni: createdRental.client_dni,
+                      clientPhone: createdRental.client_phone,
+                      eventOrBookingDate: createdRental.event_date,
+                      returnDate: createdRental.return_date,
+                      itemOrServices: `[${createdRental.item_code}] ${createdRental.item_name}`,
+                      totalPriceCents: createdRental.rental_price_cents,
+                      advanceCents: createdRental.advance_cents,
+                      pendingCents: createdRental.pending_cents,
+                      guaranteeCents: createdRental.guarantee_cents,
+                      statusLabel: '🟡 EN REVISIÓN',
+                      voucherUrl: createdRental.voucher_url,
+                      notes: createdRental.notes,
+                    });
+                  }}
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#E6C875] to-[#C8A45C] hover:brightness-110 active:scale-95 text-black text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-xl shadow-[#C8A45C]/20 transition cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-black" />
+                  <span>📥 DESCARGAR TICKET EN PDF</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -588,10 +636,10 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     );
                     window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${msg}`, '_blank');
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer"
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition cursor-pointer"
                 >
                   <Send className="w-4 h-4" />
-                  <span>Notificar a Recepción por WhatsApp</span>
+                  <span>Notificar por WhatsApp</span>
                 </button>
               </div>
             </div>

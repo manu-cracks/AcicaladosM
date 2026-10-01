@@ -204,7 +204,18 @@ export const Navbar: React.FC = () => {
         </nav>
 
         {/* 3. ÁREA DERECHA (Acciones, Perfil y Hamburguesa Móvil) */}
-        <div className="flex items-center gap-1 sm:gap-2.5 lg:gap-4 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2.5 lg:gap-3 shrink-0">
+          
+          {/* Botón Rastrear mi Reserva para Clientes Invitados */}
+          <button
+            type="button"
+            onClick={() => handleNavClick('/rastrear')}
+            className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#C8A45C]/10 hover:bg-[#C8A45C]/25 border border-[#C8A45C]/40 text-[#E6C875] text-xs font-semibold transition cursor-pointer"
+            title="Consultar estado de reserva para clientes invitados"
+          >
+            <Search className="w-3.5 h-3.5 text-[#C8A45C]" />
+            <span>Rastrear Reserva</span>
+          </button>
           
           {/* Ícono de búsqueda (lupa) */}
           <button
@@ -277,6 +288,15 @@ export const Navbar: React.FC = () => {
                         Inicia sesión o regístrate
                       </p>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleNavClick('/rastrear')}
+                      className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-sm text-[#E6C875] hover:text-white hover:bg-[#C8A45C]/15 transition-colors cursor-pointer group/item font-semibold border-b border-[#C8A45C]/20"
+                    >
+                      <Search className="w-4 h-4 text-[#C8A45C] group-hover/item:scale-110 transition-transform shrink-0" />
+                      <span>Rastrear mi Reserva</span>
+                    </button>
 
                     <button
                       type="button"
@@ -566,6 +586,17 @@ export const Navbar: React.FC = () => {
                       </button>
                     );
                   })}
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('/rastrear')}
+                    className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm transition-all duration-200 cursor-pointer bg-[#C8A45C]/10 hover:bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/35 font-semibold mt-1"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <Search className="w-4 h-4 text-[#C8A45C]" />
+                      <span className="tracking-wide">Rastrear mi Reserva</span>
+                    </div>
+                  </button>
                 </nav>
               </div>
             </div>

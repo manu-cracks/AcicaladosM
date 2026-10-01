@@ -1,7 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navbar } from '../common/Navbar';
 import { useApp } from '../../context/AppContext';
-import { MapPin, Phone, Scissors, ShieldCheck } from 'lucide-react';
+import { GuestTrackingBanner } from '../common/GuestTrackingBanner';
+import { PublicTrackingPortal } from './PublicTrackingPortal';
+import { MapPin, Phone, Scissors, ShieldCheck, Search } from 'lucide-react';
 
 interface ClientLayoutProps {
   children: React.ReactNode;
@@ -17,6 +19,7 @@ interface ClientLayoutProps {
 export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
   const { setActiveView } = useApp();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
 
   // Garantizar autoplay continuo en iOS Safari y Android Chrome
   useEffect(() => {
@@ -61,6 +64,17 @@ export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
 
       {/* Barra de navegación superior fija */}
       <Navbar />
+
+      {/* Banner flotante de seguimiento de reserva para invitados (localStorage) */}
+      <GuestTrackingBanner onOpenTracking={() => setIsTrackingModalOpen(true)} />
+
+      {/* Modal flotante de rastreo si fue solicitado desde el banner */}
+      {isTrackingModalOpen && (
+        <PublicTrackingPortal
+          isModal
+          onClose={() => setIsTrackingModalOpen(false)}
+        />
+      )}
 
       {/* Contenido principal dinámico según la ruta activa */}
       <main className="flex-1">
@@ -108,6 +122,15 @@ export const ClientLayout: React.FC<ClientLayoutProps> = ({ children }) => {
                 <li>
                   <button onClick={() => setActiveView('/vestuario')} className="hover:text-[#C8A45C] cursor-pointer">
                     Alquiler de Trajes
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => setActiveView('/rastrear')}
+                    className="hover:text-[#E6C875] text-[#C8A45C] font-semibold cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Search className="w-3 h-3" />
+                    <span>Rastrear mi Reserva</span>
                   </button>
                 </li>
               </ul>

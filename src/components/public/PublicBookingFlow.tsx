@@ -20,7 +20,9 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Download,
 } from 'lucide-react';
+import { downloadTicketPdf } from '../../lib/ticketPdfGenerator';
 import {
   sanitizePhone,
   sanitizeDni,
@@ -51,6 +53,7 @@ export const PublicBookingFlow: React.FC = () => {
     setActiveView,
     paymentSettings,
     attendanceSettings,
+    clearCart,
   } = useApp();
 
   // Step 1 to 5
@@ -225,6 +228,19 @@ export const PublicBookingFlow: React.FC = () => {
 
       setCreatedBooking(newBooking);
       setCurrentStep(5);
+
+      // Limpiar carrito y persistir código en localStorage para banner de seguimiento
+      clearCart();
+      const formattedCode = newBooking.code.startsWith('#') ? newBooking.code : `#${newBooking.code}`;
+      try {
+        localStorage.setItem('acicalados_last_booking_code', formattedCode);
+        localStorage.setItem('acicalados_last_booking_dni', clientDni.trim());
+        localStorage.setItem('acicalados_last_booking_phone', clientPhone.trim());
+        localStorage.setItem('acicalados_last_booking_status', '🟡 EN REVISIÓN');
+        window.dispatchEvent(new Event('storage'));
+      } catch (e) {
+        console.warn('Error guardando código de reserva en localStorage:', e);
+      }
 
       try {
         confetti({
@@ -949,15 +965,55 @@ export const PublicBookingFlow: React.FC = () => {
             amountCents={minAdvanceCents}
             bookingCode={createdBooking.code}
             clientName={createdBooking.client_name}
+            clientDni={createdBooking.client_dni || clientDni}
             title={`Abonar Adelanto Mínimo del 25% (${formatSoles(minAdvanceCents)})`}
           />
 
-          <div className="text-center pt-4">
+          {/* Botón Obligatorio Prominente: Descargar Ticket en PDF */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                downloadTicketPdf({
+                  code: createdBooking.code,
+                  type: 'servicio',
+                  clientName: createdBooking.client_name,
+                  clientDni: createdBooking.client_dni || clientDni,
+                  clientPhone: createdBooking.client_phone || clientPhone,
+                  eventOrBookingDate: createdBooking.date,
+                  timeSlot: `${createdBooking.start_time} - ${createdBooking.end_time}`,
+                  itemOrServices: createdBooking.services.map((s: any) => ({
+                    name: s.service_name,
+                    price_cents: s.price_cents,
+                    duration: s.duration_minutes,
+                  })),
+                  totalPriceCents: createdBooking.total_price_cents,
+                  advanceCents: createdBooking.advance_amount_cents || 0,
+                  pendingCents: Math.max(0, createdBooking.total_price_cents - (createdBooking.advance_amount_cents || 0)),
+                  statusLabel: '🟡 EN REVISIÓN',
+                });
+              }}
+              className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#E6C875] to-[#C8A45C] hover:brightness-110 active:scale-95 text-black text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-xl shadow-[#C8A45C]/20 transition cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-black" />
+              <span>📥 DESCARGAR TICKET EN PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('/rastrear')}
+              className="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <span>🔍 Rastrear Estado en Línea</span>
+            </button>
+          </div>
+
+          <div className="text-center pt-2">
             <button
               onClick={() => setActiveView('/mi-cuenta')}
-              className="text-xs text-[#C8A45C] hover:underline font-medium"
+              className="text-xs text-[#C8A45C] hover:underline font-medium cursor-pointer"
             >
-              Ir a Mi Cuenta para consultar el estado de esta reserva →
+              Ir a Mi Cuenta para consultar el historial completo →
             </button>
           </div>
         </div>

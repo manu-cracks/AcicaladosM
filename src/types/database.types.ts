@@ -1731,6 +1731,30 @@ export type Database = {
         Args: { p_service_item_id: string; p_booking_id?: string | null }
         Returns: Json
       }
+      get_guest_reservations_tracking: {
+        Args: { p_dni: string; p_phone: string }
+        Returns: {
+          reservation_id: string
+          code: string
+          reservation_type: string
+          client_name: string
+          client_dni: string
+          client_phone: string
+          reservation_date: string
+          return_date: string | null
+          start_time: string | null
+          end_time: string | null
+          item_or_services: string
+          total_price_cents: number
+          advance_cents: number
+          pending_cents: number
+          status: string
+          status_label: string
+          status_color: string
+          voucher_url: string | null
+          created_at: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

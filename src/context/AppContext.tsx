@@ -293,12 +293,28 @@ const getInitialView = (): string => {
       path === '/tienda' ||
       path === '/productos' ||
       path === '/vestuario' ||
-      path === '/ubicacion'
+      path === '/ubicacion' ||
+      path === '/rastrear'
     ) {
       return path;
     }
   }
   return '/';
+};
+
+const getInitialCart = (): CartItem[] => {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('acicalados_cart');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Error al cargar carrito desde localStorage:', e);
+    }
+  }
+  return [];
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -397,8 +413,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(INITIAL_PAYMENT_SETTINGS);
   const [bonusSettings, setBonusSettings] = useState<BonusSettings>(INITIAL_BONUS_SETTINGS);
   const [attendanceSettings, setAttendanceSettings] = useState<AttendanceSettings>(INITIAL_ATTENDANCE_SETTINGS);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(getInitialCart);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+
+  // Sincronizar carrito con localStorage para persistir selección si el cliente cierra pestaña por error
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        if (cart.length > 0) {
+          localStorage.setItem('acicalados_cart', JSON.stringify(cart));
+        } else {
+          localStorage.removeItem('acicalados_cart');
+        }
+      } catch (e) {
+        console.warn('Error guardando carrito en localStorage:', e);
+      }
+    }
+  }, [cart]);
   const [activeTicket, setActiveTicket] = useState<{ type: 'booking' | 'venta'; data: Booking | VentaMostrador } | null>(null);
   const [lightboxImage, setLightboxImage] = useState<LightboxData | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState<boolean>(true);
@@ -1140,6 +1171,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearCart = useCallback(() => {
     setCart([]);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('acicalados_cart');
+      } catch {}
+    }
   }, []);
 
   // BOOKING HANDLERS (Estrictamente Asíncrono / Pessimistic Update)
