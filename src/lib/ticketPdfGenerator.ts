@@ -25,13 +25,17 @@ export interface TicketPdfData {
 
 /**
  * Genera el nombre del archivo del voucher asegurando unicidad y trazabilidad:
- * Formato: [DNI]_yape_[TIMESTAMP].[EXT]
+ * Formato: [DNI]_[CATEGORIA]_[TIMESTAMP].[EXT] (Ej: 12345678_vestuario_1710000000000.jpg)
  */
-export const generateVoucherFilename = (dni: string, originalFileName: string): string => {
+export const generateVoucherFilename = (
+  dni: string,
+  originalFileName: string,
+  category: string = 'yape'
+): string => {
   const cleanDni = dni.replace(/\D/g, '') || 'invitado';
   const ext = originalFileName.split('.').pop()?.toLowerCase() || 'jpg';
   const timestamp = Date.now();
-  return `${cleanDni}_yape_${timestamp}.${ext}`;
+  return `${cleanDni}_${category}_${timestamp}.${ext}`;
 };
 
 /**

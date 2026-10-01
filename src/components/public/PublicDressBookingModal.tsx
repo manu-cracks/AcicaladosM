@@ -98,44 +98,63 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Limpiar errores previos en la UI al reintentar la selección
+    setErrorMsg(null);
+
     if (!file.type.startsWith('image/')) {
       setErrorMsg('Por favor selecciona un comprobante en formato de imagen (JPG, PNG, WebP).');
+      if (e.target) e.target.value = '';
       return;
     }
 
     setVoucherFile(file);
     setIsUploadingVoucher(true);
-    setErrorMsg(null);
 
     try {
-      // Nomenclatura oficial: [DNI]_yape_[TIMESTAMP].[EXT]
-      const fileName = generateVoucherFilename(clientDni, file.name);
+      // FASE 2: Nomenclatura única para vestuario [DNI_CLIENTE]_vestuario_[TIMESTAMP].[EXT]
+      const fileName = generateVoucherFilename(clientDni, file.name, 'vestuario');
+
+      // Puntero estricto al bucket 'comprobantes' con upsert: false para compatibilidad RLS con rol público/anon
       const { data: uploadData, error: uploadErr } = await supabase.storage
         .from('comprobantes')
-        .upload(fileName, file, { contentType: file.type, upsert: true });
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          contentType: file.type,
+          upsert: false,
+        });
 
       if (uploadErr) {
         console.error('Error al subir comprobante a Supabase Storage (comprobantes):', uploadErr);
         setErrorMsg('No se pudo subir la imagen del comprobante a Supabase. Inténtalo nuevamente.');
+        setVoucherUrl('');
         return;
       }
 
+      // Obtener URL pública oficial del archivo subido en el bucket comprobantes
       const { data: pubData } = supabase.storage
         .from('comprobantes')
-        .getPublicUrl(uploadData.path || fileName);
+        .getPublicUrl(uploadData?.path || fileName);
 
-      setVoucherUrl(pubData?.publicUrl || URL.createObjectURL(file));
+      if (!pubData?.publicUrl) {
+        setErrorMsg('No se pudo obtener el enlace del comprobante subido. Inténtalo nuevamente.');
+        setVoucherUrl('');
+        return;
+      }
+
+      setVoucherUrl(pubData.publicUrl);
     } catch (err: any) {
-      console.error('Excepción subiendo voucher:', err);
-      setErrorMsg('Error de conexión al cargar la captura de Yape.');
+      console.error('Excepción subiendo voucher de vestuario:', err);
+      setErrorMsg('No se pudo subir la imagen del comprobante a Supabase. Inténtalo nuevamente.');
+      setVoucherUrl('');
     } finally {
       setIsUploadingVoucher(false);
+      if (e.target) e.target.value = '';
     }
   };
 
   const handleConfirmReservation = async () => {
-    if (!voucherUrl && !voucherFile) {
-      setErrorMsg('Debes adjuntar la captura del comprobante (voucher) de Yape.');
+    if (!voucherUrl) {
+      setErrorMsg('Debes adjuntar la captura del comprobante (voucher) de Yape antes de confirmar.');
       return;
     }
 
@@ -145,6 +164,9 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
     const pendingBalance = Math.max(0, item.rental_price_cents - advanceAmountCents);
 
     try {
+      // FASE 3: Enlace Estricto a la BD de Vestuario (dress_rentals)
+      // La reserva y la ruta del comprobante se guardan EXCLUSIVAMENTE en 'dress_rentals',
+      // nunca en la tabla general de servicios ('bookings').
       const result = await addDressRental({
         origin: 'web',
         wardrobe_item_id: item.id,
@@ -164,7 +186,8 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
         guarantee_cents: item.deposit_cents || 5000,
         is_immediate_delivery: false,
         status: 'por_validar',
-        voucher_url: voucherUrl || 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80',
+        voucher_url: voucherUrl,
+        voucher_declared_amount_cents: advanceAmountCents,
         notes: `Solicitud de reserva online vía Yape por S/ ${(advanceAmountCents / 100).toFixed(2)}`,
       });
 
@@ -508,23 +531,32 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     className="hidden"
                   />
                   <label htmlFor="client-voucher-upload" className="cursor-pointer block">
-                    {voucherUrl ? (
+                    {isUploadingVoucher ? (
+                      <div className="py-3 flex flex-col items-center justify-center space-y-2">
+                        <div className="w-7 h-7 border-2 border-[#C8A45C] border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs font-semibold text-[#E6C875]">Subiendo comprobante a Supabase...</p>
+                        <p className="text-[10px] text-neutral-400">Generando enlace seguro para validación</p>
+                      </div>
+                    ) : voucherUrl ? (
                       <div className="flex items-center justify-center gap-3">
                         <img
                           src={voucherUrl}
                           alt="Voucher"
-                          className="w-16 h-16 rounded-xl object-cover border border-emerald-500/50"
+                          className="w-16 h-16 rounded-xl object-cover border border-emerald-500/50 shadow-md"
                         />
                         <div className="text-left text-xs">
-                          <p className="font-bold text-white">Comprobante seleccionado</p>
-                          <p className="text-[11px] text-neutral-400">Haz clic aquí para cambiar la captura</p>
+                          <p className="font-bold text-white flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+                            Comprobante cargado correctamente
+                          </p>
+                          <p className="text-[11px] text-neutral-400">Haz clic aquí si deseas cambiar la captura</p>
                         </div>
                       </div>
                     ) : (
                       <div className="space-y-1">
                         <Upload className="w-6 h-6 text-neutral-400 mx-auto" />
                         <p className="text-xs font-semibold text-white">
-                          {isUploadingVoucher ? 'Cargando captura...' : 'Seleccionar imagen o captura del Yape'}
+                          Seleccionar imagen o captura del Yape
                         </p>
                         <p className="text-[10px] text-neutral-500">Formatos permitidos: JPG, PNG, WebP</p>
                       </div>

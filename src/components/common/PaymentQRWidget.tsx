@@ -51,7 +51,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
       const fileName = generateVoucherFilename(clientDni || 'invitado', file.name);
       const { data: uploadData, error: uploadErr } = await supabase.storage
         .from('comprobantes')
-        .upload(fileName, file, { contentType: file.type, upsert: true });
+        .upload(fileName, file, { cacheControl: '3600', contentType: file.type, upsert: false });
 
       if (uploadErr) {
         console.error('Error al subir comprobante a Supabase Storage:', uploadErr);

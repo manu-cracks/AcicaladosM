@@ -10,11 +10,12 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('comprobantes', 'comprobantes', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Permitir a usuarios anon y autenticados subir comprobantes (INSERT)
+-- Permitir a usuarios anon, invitados y autenticados subir comprobantes (INSERT)
 DROP POLICY IF EXISTS "anon_insert_comprobantes" ON storage.objects;
-CREATE POLICY "anon_insert_comprobantes" ON storage.objects
+DROP POLICY IF EXISTS "public_insert_comprobantes" ON storage.objects;
+CREATE POLICY "public_insert_comprobantes" ON storage.objects
   FOR INSERT
-  TO anon, authenticated
+  TO public
   WITH CHECK (bucket_id = 'comprobantes');
 
 -- Restringir estrictamente la lectura/listado (SELECT) sólo a usuarios autenticados
