@@ -20,6 +20,8 @@ import {
   Image as ImageIcon,
   Barcode as BarcodeIcon,
   Printer,
+  ShoppingCart,
+  BellRing,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
@@ -28,6 +30,8 @@ import { supabase } from '../../lib/supabase/client';
 import { ProductBarcodeLabelModal } from './ProductBarcodeLabelModal';
 import { ConsumoInternoModal } from './ConsumoInternoModal';
 import { BarcodeNotFoundModal } from './BarcodeNotFoundModal';
+import { ShoppingListModal } from './ShoppingListModal';
+import { StockAdjustmentModal } from './StockAdjustmentModal';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 
 // Categorías oficiales del catálogo de productos
@@ -85,7 +89,17 @@ async function compressImageToWebP(file: File, quality = 0.85, maxWidth = 1200):
 }
 
 export const ProductosManager: React.FC = () => {
-  const { products, addProduct, updateProduct, deleteProduct, openLightbox, currentRole, isDataLoading, employees } = useApp();
+  const {
+    products,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    toggleProductShoppingList,
+    openLightbox,
+    currentRole,
+    isDataLoading,
+    employees,
+  } = useApp();
 
   const isAuthorized = currentRole === 'admin' || currentRole === 'recepcionista';
 
@@ -111,12 +125,16 @@ export const ProductosManager: React.FC = () => {
   const [formUseType, setFormUseType] = useState<'venta' | 'consumo_interno' | 'mixto'>('venta');
   const [formMinStock, setFormMinStock] = useState<string>('5');
 
-  // Modales adicionales
+  // Modales adicionales y Alertas Anti-Olvido
   const [selectedLabelProduct, setSelectedLabelProduct] = useState<Product | null>(null);
   const [isLabelModalOpen, setIsLabelModalOpen] = useState<boolean>(false);
   const [selectedConsumoProduct, setSelectedConsumoProduct] = useState<Product | null>(null);
   const [isConsumoModalOpen, setIsConsumoModalOpen] = useState<boolean>(false);
   const [notFoundBarcode, setNotFoundBarcode] = useState<string | null>(null);
+  const [isShoppingListModalOpen, setIsShoppingListModalOpen] = useState<boolean>(false);
+  const [selectedAdjustmentProduct, setSelectedAdjustmentProduct] = useState<Product | null>(null);
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState<boolean>(false);
+  const [isTogglingShoppingListId, setIsTogglingShoppingListId] = useState<string | null>(null);
 
   // Estado de Carga de Imagen
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -205,17 +223,73 @@ export const ProductosManager: React.FC = () => {
     setFormBarcode(code);
   };
 
-  // Escáner de código de barras activo en la vista de productos
+  // Alertas Anti-Olvido: Productos con stock <= stock_minimo individual cuya bandera in_shopping_list está apagada (false)
+  const unacknowledgedAlerts = useMemo(() => {
+    return products.filter((p) => (p.stock ?? 0) <= (p.min_stock ?? 5) && !p.in_shopping_list);
+  }, [products]);
+
+  // Productos actualmente reconocidos / en lista de compras
+  const shoppingListItems = useMemo(() => {
+    return products.filter((p) => Boolean(p.in_shopping_list));
+  }, [products]);
+
+  // Manejador para alternar individualmente el estado de lista de compras
+  const handleToggleShoppingList = async (product: Product) => {
+    setIsTogglingShoppingListId(product.id);
+    try {
+      const nextState = !product.in_shopping_list;
+      const ok = await toggleProductShoppingList(product.id, nextState);
+      if (ok) {
+        showToast(
+          'success',
+          nextState
+            ? `"${product.name}" añadido a la lista de compras. Alerta desactivada.`
+            : `"${product.name}" retirado de la lista de compras.`
+        );
+      } else {
+        showToast('error', 'No se pudo actualizar el estado en el catálogo.');
+      }
+    } catch (err: any) {
+      showToast('error', err?.message || 'Error al cambiar estado.');
+    } finally {
+      setIsTogglingShoppingListId(null);
+    }
+  };
+
+  // Manejador del Banner flotante para reconocer todas las alertas pendientes en bloque
+  const handleAcknowledgeAllAlerts = async () => {
+    if (unacknowledgedAlerts.length === 0) return;
+    try {
+      for (const prod of unacknowledgedAlerts) {
+        await toggleProductShoppingList(prod.id, true);
+      }
+      showToast('success', `${unacknowledgedAlerts.length} productos críticos reconocidos y añadidos a la lista de compras.`);
+    } catch (err: any) {
+      showToast('error', 'Error al procesar alertas.');
+    }
+  };
+
+  // Escáner de código de barras activo en la vista de productos:
+  // Al escanear, si el producto existe, abre inmediatamente el modal de Ingreso de Stock
   useBarcodeScanner({
-    enabled: isAuthorized && !isModalOpen && !isConsumoModalOpen && !isLabelModalOpen,
+    enabled:
+      isAuthorized &&
+      !isModalOpen &&
+      !isConsumoModalOpen &&
+      !isLabelModalOpen &&
+      !isShoppingListModalOpen &&
+      !isAdjustmentModalOpen,
     onScan: (code) => {
       const clean = code.trim();
       if (!clean) return;
 
-      const found = products.find((p) => p.barcode?.trim() === clean);
+      const found = products.find(
+        (p) => p.barcode?.trim() === clean || p.barcode?.replace(/\s+/g, '') === clean
+      );
       if (found) {
-        showToast('success', `Producto escaneado: "${found.name}" (Stock: ${found.stock})`);
-        setSearchQuery(found.name);
+        showToast('success', `Producto escaneado: "${found.name}" (Stock actual: ${found.stock})`);
+        setSelectedAdjustmentProduct(found);
+        setIsAdjustmentModalOpen(true);
       } else {
         if (currentRole === 'admin') {
           handleOpenCreateModalWithBarcode(clean);
@@ -499,6 +573,21 @@ export const ProductosManager: React.FC = () => {
 
         {/* Botones de Acción */}
         <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          {/* Botón de Lista de Compras */}
+          <button
+            type="button"
+            onClick={() => setIsShoppingListModalOpen(true)}
+            className="relative px-4 py-2.5 rounded-xl bg-[#1A1A1A] hover:bg-[#252525] border border-[#C8A45C]/50 text-[#E6C875] font-semibold text-xs flex items-center justify-center gap-2 shadow-sm transition-all duration-200 cursor-pointer"
+          >
+            <ShoppingCart className="w-4 h-4 text-[#C8A45C]" />
+            <span>Lista de Compras</span>
+            {shoppingListItems.length > 0 && (
+              <span className="px-1.5 py-0.2 bg-[#C8A45C] text-black font-mono font-bold text-[10px] rounded-full">
+                {shoppingListItems.length}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -554,13 +643,37 @@ export const ProductosManager: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-[#141414] border border-neutral-800/90 rounded-2xl p-4 flex items-center gap-3.5 shadow-md">
-          <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 flex-shrink-0">
+        {/* Tarjeta General de Agotados / Bajo Stock: Animación de pulso constante si hay alertas pendientes sin reconocer */}
+        <div
+          className={`border rounded-2xl p-4 flex items-center gap-3.5 shadow-md transition-all duration-300 ${
+            unacknowledgedAlerts.length > 0
+              ? 'bg-rose-950/30 border-rose-500/80 ring-2 ring-rose-500/60 animate-pulse'
+              : 'bg-[#141414] border-neutral-800/90'
+          }`}
+        >
+          <div
+            className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              unacknowledgedAlerts.length > 0
+                ? 'bg-rose-500/20 border border-rose-500/50 text-rose-400'
+                : 'bg-amber-500/10 border border-amber-500/25 text-amber-400'
+            }`}
+          >
             <AlertTriangle className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-medium text-neutral-400 uppercase tracking-wider">Bajo Stock / Agotado</p>
-            <p className="text-xl font-bold text-amber-400 tracking-tight">
+            <p className="text-[11px] font-medium text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span>Bajo Stock / Agotado</span>
+              {unacknowledgedAlerts.length > 0 && (
+                <span className="px-1.5 py-0.2 text-[9px] bg-rose-500 text-white font-bold rounded-full animate-bounce">
+                  {unacknowledgedAlerts.length} sin reconocer
+                </span>
+              )}
+            </p>
+            <p
+              className={`text-xl font-bold tracking-tight ${
+                unacknowledgedAlerts.length > 0 ? 'text-rose-400' : 'text-amber-400'
+              }`}
+            >
               {inventoryStats.lowStockCount + inventoryStats.outOfStockCount}{' '}
               <span className="text-[11px] text-neutral-500 font-normal">({inventoryStats.outOfStockCount} agt.)</span>
             </p>
@@ -645,15 +758,23 @@ export const ProductosManager: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filteredProducts.map((product) => {
-            const isOutOfStock = product.stock === 0;
-            const isLowStock = product.stock > 0 && product.stock <= 5;
+            const minStockThreshold = product.min_stock ?? 5;
+            const currentStock = product.stock ?? 0;
+            const isOutOfStock = currentStock === 0;
+            const isLowStock = currentStock > 0 && currentStock <= minStockThreshold;
+            const isCritical = currentStock <= minStockThreshold;
+            const isUnacknowledged = isCritical && !product.in_shopping_list;
             const catLabel =
               PRODUCT_CATEGORIES.find((c) => c.id === product.category)?.label || product.category;
 
             return (
               <div
                 key={product.id}
-                className="bg-[#141414] border border-neutral-800/90 hover:border-[#C8A45C]/40 rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between group transition-all duration-300 select-none"
+                className={`rounded-2xl overflow-hidden shadow-lg flex flex-col justify-between group transition-all duration-300 select-none ${
+                  isUnacknowledged
+                    ? 'bg-[#180e10] border-2 border-rose-500 shadow-rose-950/60 shadow-xl ring-1 ring-rose-500/50'
+                    : 'bg-[#141414] border border-neutral-800/90 hover:border-[#C8A45C]/40'
+                }`}
               >
                 {/* Imagen y Zoom Lightbox */}
                 <div className="relative h-44 bg-neutral-900 overflow-hidden group/img">
@@ -679,7 +800,7 @@ export const ProductosManager: React.FC = () => {
                         description: product.description,
                         category: catLabel,
                         price: formatSoles(product.price_cents),
-                        metadata: `Stock: ${product.stock} unidades`,
+                        metadata: `Stock: ${product.stock} unidades | Mínimo: ${minStockThreshold}`,
                       })
                     }
                     className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-200 flex items-center justify-center cursor-zoom-in"
@@ -691,11 +812,17 @@ export const ProductosManager: React.FC = () => {
                     </span>
                   </button>
 
-                  {/* Badge de Categoría */}
-                  <div className="absolute top-2.5 left-2.5 pointer-events-none">
+                  {/* Badge de Categoría y Estado de Lista de Compras */}
+                  <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 pointer-events-none">
                     <span className="text-[10px] bg-black/75 backdrop-blur-sm text-neutral-300 px-2.5 py-0.5 rounded-lg border border-neutral-800 font-medium">
                       {catLabel}
                     </span>
+                    {product.in_shopping_list && (
+                      <span className="text-[9px] bg-emerald-950/90 backdrop-blur-sm text-emerald-300 border border-emerald-500/60 px-2 py-0.5 rounded-lg font-bold flex items-center gap-1">
+                        <Check className="w-2.5 h-2.5" />
+                        <span>En Lista Compras</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Badge de Stock Semántico */}
@@ -703,13 +830,13 @@ export const ProductosManager: React.FC = () => {
                     <span
                       className={`text-[10px] backdrop-blur-sm px-2.5 py-0.5 rounded-lg border font-bold ${
                         isOutOfStock
-                          ? 'bg-rose-950/80 text-rose-300 border-rose-800/80'
+                          ? 'bg-rose-950/90 text-rose-300 border-rose-600'
                           : isLowStock
-                          ? 'bg-amber-950/80 text-amber-300 border-amber-800/80'
+                          ? 'bg-amber-950/90 text-amber-300 border-amber-600'
                           : 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
                       }`}
                     >
-                      {isOutOfStock ? 'Agotado' : `${product.stock} un.`}
+                      {isOutOfStock ? 'Agotado (0 un.)' : `${product.stock} un. (Mín: ${minStockThreshold})`}
                     </span>
                   </div>
                 </div>
@@ -717,9 +844,17 @@ export const ProductosManager: React.FC = () => {
                 {/* Contenido de la Tarjeta */}
                 <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
                   <div className="space-y-1">
-                    <h3 className="text-sm font-bold text-white group-hover:text-[#E6C875] transition line-clamp-1">
-                      {product.name}
-                    </h3>
+                    <div className="flex items-center justify-between gap-1">
+                      <h3 className="text-sm font-bold text-white group-hover:text-[#E6C875] transition line-clamp-1">
+                        {product.name}
+                      </h3>
+                      {isUnacknowledged && (
+                        <span className="shrink-0 text-[10px] font-bold text-rose-400 bg-rose-500/15 border border-rose-500/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 text-rose-400" />
+                          <span>Crítico</span>
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-neutral-400 line-clamp-2 leading-relaxed">
                       {product.description || 'Sin descripción disponible.'}
                     </p>
@@ -753,15 +888,58 @@ export const ProductosManager: React.FC = () => {
                     </span>
                   </div>
 
+                  {/* Botón Anti-Olvido: Añadir a Lista de Compras si está en alerta */}
+                  {isCritical && (
+                    <div className="pt-1">
+                      {!product.in_shopping_list ? (
+                        <button
+                          type="button"
+                          disabled={isTogglingShoppingListId === product.id}
+                          onClick={() => handleToggleShoppingList(product)}
+                          className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center gap-1.5 shadow-md shadow-rose-950 transition cursor-pointer disabled:opacity-50"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Añadir a lista de compras</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isTogglingShoppingListId === product.id}
+                          onClick={() => handleToggleShoppingList(product)}
+                          className="w-full py-1.5 px-3 rounded-xl text-[11px] font-semibold bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 hover:bg-rose-950/40 hover:border-rose-500/40 hover:text-rose-300 flex items-center justify-center gap-1.5 transition cursor-pointer group/btn disabled:opacity-50"
+                          title="Clic para retirar de la lista de compras"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 group-hover/btn:hidden" />
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400 hidden group-hover/btn:inline" />
+                          <span className="group-hover/btn:hidden">En lista de compras</span>
+                          <span className="hidden group-hover/btn:inline">Quitar de lista</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Botones de Operación y Gestión */}
-                  <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-2 gap-1.5">
+                  <div className="pt-2 border-t border-neutral-800/80 grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedAdjustmentProduct(product);
+                        setIsAdjustmentModalOpen(true);
+                      }}
+                      className="py-1 px-1.5 rounded-lg text-[10px] font-medium bg-[#161616] hover:bg-[#222222] border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 transition flex items-center justify-center gap-1"
+                      title="Registrar ingreso rápido de stock"
+                    >
+                      <Plus className="w-3 h-3 text-emerald-400" />
+                      <span>+ Stock</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => {
                         setSelectedConsumoProduct(product);
                         setIsConsumoModalOpen(true);
                       }}
-                      className="py-1 px-2 rounded-lg text-[11px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-amber-300 hover:text-amber-200 transition flex items-center justify-center gap-1"
+                      className="py-1 px-1.5 rounded-lg text-[10px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-amber-300 hover:text-amber-200 transition flex items-center justify-center gap-1"
                       title="Registrar salida para consumo interno"
                     >
                       <Boxes className="w-3 h-3 text-amber-400" />
@@ -774,7 +952,7 @@ export const ProductosManager: React.FC = () => {
                         setSelectedLabelProduct(product);
                         setIsLabelModalOpen(true);
                       }}
-                      className="py-1 px-2 rounded-lg text-[11px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-neutral-300 hover:text-white transition flex items-center justify-center gap-1"
+                      className="py-1 px-1.5 rounded-lg text-[10px] font-medium bg-[#161616] hover:bg-[#222222] border border-neutral-800 text-neutral-300 hover:text-white transition flex items-center justify-center gap-1"
                       title="Generar e imprimir etiqueta de código de barras"
                     >
                       <Printer className="w-3 h-3 text-[#C8A45C]" />
@@ -1188,6 +1366,71 @@ export const ProductosManager: React.FC = () => {
           handleOpenCreateModalWithBarcode(barcode);
         }}
       />
+
+      {/* Modal de Lista Consolidada de Compras */}
+      <ShoppingListModal
+        isOpen={isShoppingListModalOpen}
+        onClose={() => setIsShoppingListModalOpen(false)}
+        onOpenStockIngress={(prod) => {
+          setSelectedAdjustmentProduct(prod);
+          setIsAdjustmentModalOpen(true);
+        }}
+      />
+
+      {/* Modal de Ingreso Rápido de Stock */}
+      <StockAdjustmentModal
+        isOpen={isAdjustmentModalOpen}
+        product={selectedAdjustmentProduct}
+        onClose={() => {
+          setIsAdjustmentModalOpen(false);
+          setSelectedAdjustmentProduct(null);
+        }}
+        onSuccess={(msg) => {
+          showToast('success', msg);
+        }}
+      />
+
+      {/* Banner Flotante Fijo Anti-Olvido (No se puede cerrar con "X") */}
+      {unacknowledgedAlerts.length > 0 && (
+        <div className="fixed bottom-0 inset-x-0 z-40 bg-gradient-to-r from-rose-950 via-[#180a0c] to-rose-950 border-t-2 border-rose-500 backdrop-blur-md px-4 py-3 sm:px-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-rose-400 shrink-0 animate-bounce">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="space-y-0.5">
+                <p className="font-bold text-white text-sm flex items-center gap-2">
+                  <span>¡Alerta Anti-Olvido: {unacknowledgedAlerts.length} {unacknowledgedAlerts.length === 1 ? 'producto en stock crítico sin reconocer' : 'productos en stock crítico sin reconocer'}!</span>
+                </p>
+                <p className="text-neutral-400 text-[11px]">
+                  Existen productos en o por debajo de su stock mínimo individual. Debe añadirlos a la lista de compras o registrar un reabastecimiento.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedStockFilter('low_stock');
+                  window.scrollTo({ top: 300, behavior: 'smooth' });
+                }}
+                className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white font-semibold border border-neutral-700 transition cursor-pointer"
+              >
+                Filtrar Críticos
+              </button>
+              <button
+                type="button"
+                onClick={handleAcknowledgeAllAlerts}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/60 cursor-pointer"
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>Reconocer Todo a Lista</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

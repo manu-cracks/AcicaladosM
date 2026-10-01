@@ -1198,6 +1198,7 @@ export type Database = {
           features: string[] | null
           id: string
           images: string[]
+          in_shopping_list: boolean
           is_active: boolean
           min_stock: number | null
           name: string
@@ -1218,6 +1219,7 @@ export type Database = {
           features?: string[] | null
           id?: string
           images?: string[]
+          in_shopping_list?: boolean
           is_active?: boolean
           min_stock?: number | null
           name: string
@@ -1238,6 +1240,7 @@ export type Database = {
           features?: string[] | null
           id?: string
           images?: string[]
+          in_shopping_list?: boolean
           is_active?: boolean
           min_stock?: number | null
           name?: string

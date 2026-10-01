@@ -29,6 +29,8 @@ import {
   FileText,
   Barcode as BarcodeIcon,
   ShoppingCart,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { BarcodeNotFoundModal } from './BarcodeNotFoundModal';
@@ -90,6 +92,28 @@ function formatDateTimeLima(dateStr: string): string {
     });
   } catch {
     return dateStr;
+  }
+}
+
+/** Emite un pitido de error acústico mediante la Web Audio API nativa */
+function playErrorSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audioCtx = new AudioContextClass();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(70, audioCtx.currentTime + 0.35);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.35);
+  } catch {
+    // Autoplay policy or unsupported audio environment
   }
 }
 
@@ -194,6 +218,7 @@ export const POSView: React.FC = () => {
     barcode?: string;
     name: string;
     stock?: number;
+    min_stock?: number;
     image_url?: string;
     quantity: number;
     unit_price: string;
@@ -255,6 +280,7 @@ export const POSView: React.FC = () => {
   const [manualBarcodeInput, setManualBarcodeInput] = useState<string>('');
   const [notFoundBarcode, setNotFoundBarcode] = useState<string | null>(null);
   const [stockAlert, setStockAlert] = useState<{ productName: string; availableStock: number } | null>(null);
+  const [blockedZeroStockProduct, setBlockedZeroStockProduct] = useState<Product | null>(null);
   const [scanFeedback, setScanFeedback] = useState<string | null>(null);
   const [isSubmittingSale, setIsSubmittingSale] = useState<boolean>(false);
 
@@ -277,12 +303,10 @@ export const POSView: React.FC = () => {
         return;
       }
 
-      if (found.stock <= 0) {
-        setStockAlert({
-          productName: found.name,
-          availableStock: found.stock,
-        });
-        setTimeout(() => setStockAlert(null), 4500);
+      // REGLA 2: Bloqueo Total por Stock Cero
+      if (found.stock === 0) {
+        playErrorSound();
+        setBlockedZeroStockProduct(found);
         return;
       }
 
@@ -291,6 +315,7 @@ export const POSView: React.FC = () => {
         if (existingIndex >= 0) {
           const currentQty = prev[existingIndex].quantity;
           if (currentQty + 1 > found.stock) {
+            playErrorSound();
             setStockAlert({
               productName: found.name,
               availableStock: found.stock,
@@ -308,13 +333,14 @@ export const POSView: React.FC = () => {
           setTimeout(() => setScanFeedback(null), 2500);
           return updated;
         } else {
-          // Agregar nueva fila a la lista de venta
+          // Agregar nueva fila a la lista de venta (Venta permitida con advertencia si stock <= min_stock)
           const newItem: POSSaleItemRow = {
             id: `prod-${found.id}-${Date.now()}`,
             product_id: found.id,
             barcode: found.barcode,
             name: found.name,
             stock: found.stock,
+            min_stock: found.min_stock ?? 5,
             image_url: found.image_url,
             quantity: 1,
             unit_price: (found.price_cents / 100).toFixed(2),
@@ -344,12 +370,10 @@ export const POSView: React.FC = () => {
 
   // Selección de una sugerencia del catálogo
   const handleSelectProductSuggestion = (product: Product) => {
-    if (product.stock <= 0) {
-      setStockAlert({
-        productName: product.name,
-        availableStock: product.stock,
-      });
-      setTimeout(() => setStockAlert(null), 4000);
+    // REGLA 2: Bloqueo Total por Stock Cero
+    if (product.stock === 0) {
+      playErrorSound();
+      setBlockedZeroStockProduct(product);
       return;
     }
 
@@ -358,6 +382,7 @@ export const POSView: React.FC = () => {
       if (existingIndex >= 0) {
         const currentQty = prev[existingIndex].quantity;
         if (currentQty + 1 > product.stock) {
+          playErrorSound();
           setStockAlert({
             productName: product.name,
             availableStock: product.stock,
@@ -381,6 +406,7 @@ export const POSView: React.FC = () => {
           barcode: product.barcode,
           name: product.name,
           stock: product.stock,
+          min_stock: product.min_stock ?? 5,
           image_url: product.image_url,
           quantity: 1,
           unit_price: (product.price_cents / 100).toFixed(2),
@@ -420,6 +446,7 @@ export const POSView: React.FC = () => {
     if (newQty < 1) return;
     const target = saleItems[index];
     if (target && target.stock != null && newQty > target.stock) {
+      playErrorSound();
       setStockAlert({
         productName: target.name,
         availableStock: target.stock,
@@ -1196,17 +1223,28 @@ export const POSView: React.FC = () => {
                                   {p.barcode}
                                 </span>
                               )}
-                              <span className="text-[10px] text-neutral-400">
-                                Stock: {p.stock} un.
-                              </span>
+                              {p.stock === 0 ? (
+                                <span className="text-[10px] text-rose-400 font-bold bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.2 rounded">
+                                  ⛔ Agotado (0 un.)
+                                </span>
+                              ) : p.stock <= (p.min_stock ?? 5) ? (
+                                <span className="text-[10px] text-amber-400 font-semibold bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-1">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>Stock Bajo: {p.stock} un. (Mín: {p.min_stock ?? 5})</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-neutral-400">
+                                  Stock: {p.stock} un.
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="text-right shrink-0">
                             <span className="font-bold text-[#E6C875] block font-mono text-xs">
                               {formatSoles(p.price_cents)}
                             </span>
-                            <span className="text-[9px] text-[#C8A45C] opacity-0 group-hover:opacity-100 transition">
-                              + Agregar ↗
+                            <span className={`text-[9px] block transition ${p.stock === 0 ? 'text-rose-400 font-semibold' : 'text-[#C8A45C]'}`}>
+                              {p.stock === 0 ? 'Bloqueado' : '+ Agregar ↗'}
                             </span>
                           </div>
                         </button>
@@ -1273,10 +1311,17 @@ export const POSView: React.FC = () => {
                       const itemSubtotalCents = Math.round(
                         item.quantity * (parseFloat(item.unit_price) || 0) * 100
                       );
+                      const minStockThreshold = item.min_stock ?? 5;
+                      const isLowStockWarning = item.stock != null && item.stock > 0 && item.stock <= minStockThreshold;
+
                       return (
                         <div
                           key={item.id}
-                          className="bg-[#181818] border border-neutral-800 hover:border-[#C8A45C]/40 rounded-xl p-3 sm:p-3.5 transition shadow-sm space-y-3 md:space-y-0 md:flex md:items-center md:justify-between md:gap-4 animate-in fade-in duration-150"
+                          className={`rounded-xl p-3 sm:p-3.5 transition shadow-sm space-y-3 md:space-y-0 md:flex md:items-center md:justify-between md:gap-4 animate-in fade-in duration-150 ${
+                            isLowStockWarning
+                              ? 'bg-[#181512] border-2 border-amber-500/70 shadow-amber-950/30'
+                              : 'bg-[#181818] border border-neutral-800 hover:border-[#C8A45C]/40'
+                          }`}
                         >
                           {/* 1. Nombre e Info (Solo Lectura) */}
                           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1292,9 +1337,20 @@ export const POSView: React.FC = () => {
                               </div>
                             )}
                             <div className="min-w-0 flex-1">
-                              <h4 className="text-white font-semibold text-xs truncate" title={item.name}>
-                                {item.name}
-                              </h4>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-white font-semibold text-xs truncate" title={item.name}>
+                                  {item.name}
+                                </h4>
+                                {isLowStockWarning && (
+                                  <span
+                                    className="inline-flex items-center gap-1 font-semibold text-[10px] text-amber-300 bg-amber-950/90 border border-amber-500/60 px-2 py-0.5 rounded-md animate-pulse"
+                                    title={`Venta permitida con advertencia: Stock bajo en mostrador (Quedan ${item.stock} un. ≤ mínimo ${minStockThreshold})`}
+                                  >
+                                    <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                    <span>Stock Bajo ({item.stock} un. restantes ≤ mín. {minStockThreshold})</span>
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex flex-wrap items-center gap-2 mt-0.5">
                                 {item.barcode && (
                                   <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#E6C875] bg-[#C8A45C]/15 px-1.5 py-0.2 rounded border border-[#C8A45C]/30">
@@ -1304,7 +1360,14 @@ export const POSView: React.FC = () => {
                                 )}
                                 {item.stock != null ? (
                                   <span className="text-[10px] text-neutral-400">
-                                    Stock: <strong className={item.stock <= 3 ? 'text-amber-400' : 'text-emerald-400'}>{item.stock} un.</strong>
+                                    Stock disp.:{' '}
+                                    <strong
+                                      className={
+                                        item.stock <= minStockThreshold ? 'text-amber-400 font-bold' : 'text-emerald-400'
+                                      }
+                                    >
+                                      {item.stock} un.
+                                    </strong>
                                   </span>
                                 ) : (
                                   <span className="text-[10px] text-neutral-500 italic">Concepto libre</span>
@@ -1917,6 +1980,58 @@ export const POSView: React.FC = () => {
           setActiveView('/dashboard/productos');
         }}
       />
+
+      {/* Modal Crítico de Bloqueo por Stock Cero (Regla 2 Anti-Negativos) */}
+      {blockedZeroStockProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#170e10] border-2 border-rose-500 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl text-white shadow-rose-950/70 animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center text-rose-400 mx-auto animate-bounce">
+              <AlertCircle className="w-7 h-7" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-rose-400 font-bold bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full inline-block">
+                Acción Denegada • Bloqueo Estricto POS
+              </span>
+              <h3 className="text-base sm:text-lg font-bold text-white">
+                Stock Agotado (0 Unidades)
+              </h3>
+              <p className="text-xs text-neutral-300 leading-relaxed">
+                No es posible agregar <strong className="text-white underline">&ldquo;{blockedZeroStockProduct.name}&rdquo;</strong> a la venta porque su stock disponible en el inventario es exactamente <strong className="text-rose-400 font-mono">0 unidades</strong>.
+              </p>
+              <div className="p-3 bg-black/50 border border-neutral-800 rounded-xl text-[11px] text-neutral-400 text-left space-y-1">
+                <p className="flex items-center gap-1.5 text-neutral-300 font-semibold">
+                  <Info className="w-3.5 h-3.5 text-[#C8A45C]" />
+                  <span>Regla de Protección de Inventario:</span>
+                </p>
+                <p>
+                  Para prevenir inventarios negativos y descuadres contables, registre un ingreso de inventario en el catálogo antes de poder comercializar este ítem.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setBlockedZeroStockProduct(null)}
+                className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs transition cursor-pointer"
+              >
+                Entendido
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBlockedZeroStockProduct(null);
+                  setActiveView('/dashboard/productos');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-bold text-xs transition cursor-pointer shadow-lg shadow-[#C8A45C]/20"
+              >
+                Ir a Inventario
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -33,6 +33,7 @@ export interface Product {
   price_cents: number;
   stock: number;
   min_stock?: number;
+  in_shopping_list?: boolean;
   barcode?: string;
   unit_measure?: ProductUnitMeasure;
   use_type?: ProductUseType;

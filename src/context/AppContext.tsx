@@ -4,6 +4,7 @@ import {
   Service,
   Product,
   ProductUseType,
+  InventoryMovementType,
   WardrobeItem,
   Employee,
   EmployeeBlock,
@@ -206,6 +207,12 @@ interface AppContextType {
   addProduct: (prod: Omit<Product, 'id'>) => Promise<boolean>;
   updateProduct: (prod: Product) => Promise<boolean>;
   deleteProduct: (productId: string) => Promise<boolean>;
+  toggleProductShoppingList: (productId: string, inShoppingList: boolean) => Promise<boolean>;
+  adjustProductStock: (
+    productId: string,
+    quantityToAdd: number,
+    reason?: string
+  ) => Promise<{ success: boolean; newStock: number; message: string }>;
   addWardrobeItem: (item: Omit<WardrobeItem, 'id'>) => Promise<boolean>;
   updateWardrobeItem: (item: WardrobeItem) => Promise<boolean>;
   deleteWardrobeItem: (id: string) => Promise<boolean>;
@@ -435,6 +442,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             price_cents: p.price_cents,
             stock: p.stock ?? 0,
             min_stock: p.min_stock ?? 5,
+            in_shopping_list: p.in_shopping_list ?? false,
             barcode: p.barcode || undefined,
             unit_measure: p.unit_measure || 'unidad',
             use_type: (p.use_type as ProductUseType) || 'venta',
@@ -3468,6 +3476,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currency: 'PEN',
         stock: prodData.stock,
         min_stock: prodData.min_stock ?? 5,
+        in_shopping_list: false,
         barcode: prodData.barcode || null,
         unit_measure: prodData.unit_measure || 'unidad',
         use_type: prodData.use_type || 'venta',
@@ -3505,6 +3514,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           price_cents: data.price_cents,
           stock: data.stock,
           min_stock: data.min_stock ?? 5,
+          in_shopping_list: data.in_shopping_list ?? false,
           barcode: data.barcode || undefined,
           unit_measure: data.unit_measure || 'unidad',
           use_type: (data.use_type as ProductUseType) || 'venta',
@@ -3538,7 +3548,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateProduct = useCallback(async (prod: Product): Promise<boolean> => {
     try {
-      setProducts((prev) => prev.map((p) => (p.id === prod.id ? prod : p)));
+      // Regla de Oro: Si el nuevo stock supera el mínimo individual de ese producto,
+      // la bandera de "reconocido/lista de compras" se apaga o reinicia automáticamente.
+      const minStockThreshold = prod.min_stock ?? 5;
+      const shouldResetShoppingList = prod.stock > minStockThreshold;
+      const finalInShoppingList = shouldResetShoppingList ? false : (prod.in_shopping_list ?? false);
+
+      const updatedProd: Product = {
+        ...prod,
+        min_stock: minStockThreshold,
+        in_shopping_list: finalInShoppingList,
+      };
+
+      setProducts((prev) => prev.map((p) => (p.id === prod.id ? updatedProd : p)));
       pulseRealtime();
 
       if (!prod.id.startsWith('prod-')) {
@@ -3550,7 +3572,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             description: prod.description || null,
             price_cents: prod.price_cents,
             stock: prod.stock,
-            min_stock: prod.min_stock ?? 5,
+            min_stock: minStockThreshold,
+            in_shopping_list: finalInShoppingList,
             barcode: prod.barcode || null,
             unit_measure: prod.unit_measure || 'unidad',
             use_type: prod.use_type || 'venta',
@@ -3571,6 +3594,118 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return false;
     }
   }, [pulseRealtime]);
+
+  // Alterna o asigna manualmente la bandera de Lista de Compras (reconocimiento de bajo stock)
+  const toggleProductShoppingList = useCallback(
+    async (productId: string, inShoppingList: boolean): Promise<boolean> => {
+      try {
+        setProducts((prev) =>
+          prev.map((p) => (p.id === productId ? { ...p, in_shopping_list: inShoppingList } : p))
+        );
+        pulseRealtime();
+
+        if (!productId.startsWith('prod-')) {
+          const { error } = await supabase
+            .from('products')
+            .update({
+              in_shopping_list: inShoppingList,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', productId);
+
+          if (error) {
+            console.error('Error al actualizar in_shopping_list en Supabase:', error);
+            return false;
+          }
+        }
+        return true;
+      } catch (err) {
+        console.error('Error toggling shopping list flag:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  // Registro de ingreso de inventario (manual o por escáner)
+  // Regla de Negocio: Si el nuevo stock supera el mínimo individual de ese producto,
+  // la bandera de "reconocido/lista de compras" se apaga o reinicia automáticamente.
+  const adjustProductStock = useCallback(
+    async (
+      productId: string,
+      quantityToAdd: number,
+      reason?: string
+    ): Promise<{ success: boolean; newStock: number; message: string }> => {
+      try {
+        const target = products.find((p) => p.id === productId);
+        if (!target) {
+          return { success: false, newStock: 0, message: 'Producto no encontrado en el catálogo.' };
+        }
+
+        const currentStock = target.stock ?? 0;
+        const newStock = Math.max(0, currentStock + quantityToAdd);
+        const minStockThreshold = target.min_stock ?? 5;
+        const shouldResetShoppingList = newStock > minStockThreshold;
+        const finalInShoppingList = shouldResetShoppingList ? false : (target.in_shopping_list ?? false);
+
+        const updatedProd: Product = {
+          ...target,
+          stock: newStock,
+          in_shopping_list: finalInShoppingList,
+        };
+
+        setProducts((prev) => prev.map((p) => (p.id === productId ? updatedProd : p)));
+        pulseRealtime();
+
+        if (!productId.startsWith('prod-')) {
+          // 1. Actualizar tabla products en Supabase
+          const { error: prodError } = await supabase
+            .from('products')
+            .update({
+              stock: newStock,
+              in_shopping_list: finalInShoppingList,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', productId);
+
+          if (prodError) {
+            console.error('Error al actualizar stock de producto en Supabase:', prodError);
+            return { success: false, newStock: currentStock, message: prodError.message };
+          }
+
+          // 2. Registrar movimiento de inventario en inventory_movements
+          const movementType: InventoryMovementType = quantityToAdd >= 0 ? 'INGRESO' : 'AJUSTE';
+          await supabase.from('inventory_movements').insert({
+            product_id: productId,
+            movement_type: movementType,
+            quantity: Math.abs(quantityToAdd),
+            user_id: currentUser?.id || null,
+            area_destination: 'Almacén Principal',
+            notes:
+              reason ||
+              (quantityToAdd >= 0
+                ? `Ingreso de inventario (+${quantityToAdd} un.)`
+                : `Ajuste manual de inventario (${quantityToAdd} un.)`),
+          });
+        }
+
+        const msg =
+          shouldResetShoppingList && target.in_shopping_list
+            ? `Stock actualizado a ${newStock} un. Al superar el mínimo individual (${minStockThreshold} un.), el producto se retiró automáticamente de la lista de compras.`
+            : `Stock actualizado a ${newStock} unidades con éxito.`;
+
+        return {
+          success: true,
+          newStock,
+          message: msg,
+        };
+      } catch (err: any) {
+        console.error('Error in adjustProductStock:', err);
+        return { success: false, newStock: 0, message: err?.message || 'Error inesperado al registrar ingreso.' };
+      }
+    },
+    [products, currentUser, pulseRealtime]
+  );
 
   const deleteProduct = useCallback(async (id: string): Promise<boolean> => {
     try {
@@ -4113,6 +4248,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addProduct,
         updateProduct,
         deleteProduct,
+        toggleProductShoppingList,
+        adjustProductStock,
         addWardrobeItem,
         updateWardrobeItem,
         deleteWardrobeItem,
