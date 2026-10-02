@@ -277,12 +277,25 @@ export const TicketTermicoModal: React.FC = () => {
 
   if (!activeTicket) return null;
 
-  const handlePrint = async () => {
-    if (isBooking && bookingData && (!preparedBooking || isLoading)) {
-      await prepareRealtimeBookingData(bookingData);
-    }
+  const handlePrint = () => {
     window.print();
   };
+
+  const servicesToRender: PreparedTicketService[] = useMemo(() => {
+    if (preparedBooking?.services && preparedBooking.services.length > 0) {
+      return preparedBooking.services;
+    }
+    if (bookingData?.services && Array.isArray(bookingData.services) && bookingData.services.length > 0) {
+      return bookingData.services.map((srv: any, idx: number) => ({
+        code: `SERV-${String(idx + 1).padStart(2, '0')}`,
+        service_name: formatServiceName(srv.service_name || srv.name || 'Servicio'),
+        price_cents: srv.service_price_cents ?? srv.price_cents ?? 0,
+        specialist: extractFirstName(srv.employee_name || 'Especialista'),
+        category: getServiceCategory({ service_id: srv.service_id, service_name: srv.service_name }, services || []) === 'barberia' ? 'Barbería' : 'Spa',
+      }));
+    }
+    return [];
+  }, [preparedBooking, bookingData, services]);
 
   const SEPARATOR_DASH = '----------------------------------------------------------------------';
   const SEPARATOR_EQUAL = '======================================================================';
@@ -357,10 +370,13 @@ export const TicketTermicoModal: React.FC = () => {
   const ventaHoraEmision = formatHoraEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-xl max-w-lg w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+    <div
+      id="thermal-ticket-modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto print:static print:inset-auto print:p-0 print:m-0 print:bg-white print:backdrop-blur-none print:overflow-visible print:block print:z-auto"
+    >
+      <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-xl max-w-lg w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 thermal-modal-container print:bg-white print:border-none print:shadow-none print:max-w-none print:w-auto print:m-0 print:p-0 print:overflow-visible print:transform-none print:animate-none">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-[#1A1A1A]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800 bg-[#1A1A1A] thermal-modal-header print:hidden">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C]">
               <Printer className="w-4 h-4" />
@@ -410,22 +426,23 @@ export const TicketTermicoModal: React.FC = () => {
         </div>
 
         {/* Modal Body: Thermal Paper Preview */}
-        <div className="p-6 bg-neutral-900/60 flex justify-center max-h-[70vh] overflow-y-auto">
-          {isLoading && !preparedBooking ? (
-            <div className="flex flex-col items-center justify-center p-12 text-[#C8A45C] gap-3">
-              <Loader2 className="w-8 h-8 animate-spin" />
-              <p className="text-xs font-mono text-neutral-300">Consultando auditoría contable y especialistas...</p>
+        <div className="p-6 bg-neutral-900/60 flex justify-center max-h-[70vh] overflow-y-auto relative thermal-modal-body print:p-0 print:m-0 print:bg-white print:max-h-none print:overflow-visible print:block">
+          {isLoading && !preparedBooking && (
+            <div className="absolute inset-0 bg-neutral-900/80 backdrop-blur-xs flex flex-col items-center justify-center text-[#C8A45C] gap-2 z-10 print:hidden">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <p className="text-[11px] font-mono text-neutral-300">Consultando auditoría contable y especialistas...</p>
             </div>
-          ) : (
-            <div
-              id="thermal-ticket-print"
-              className={`bg-white text-black p-4 shadow-xl border border-neutral-300 font-mono text-[11px] leading-tight select-text ${
-                paperWidth === '80mm' ? 'w-[340px]' : 'w-[260px]'
-              }`}
-              style={{
-                fontFamily: "'Courier New', Courier, monospace",
-              }}
-            >
+          )}
+          <div
+            id="thermal-ticket-print"
+            data-paper-width={paperWidth}
+            className={`bg-white text-black p-4 shadow-xl border border-neutral-300 font-mono text-[11px] leading-tight select-text print:p-1 print:m-0 print:border-none print:shadow-none ${
+              paperWidth === '80mm' ? 'w-[340px] print:w-[80mm]' : 'w-[260px] print:w-[58mm]'
+            }`}
+            style={{
+              fontFamily: "'Courier New', Courier, monospace",
+            }}
+          >
               {/* ============================================================ */}
               {/* ENCABEZADO CORPORATIVO OFICIAL CON LOGO LOCAL                */}
               {/* [ Imagen: public/logoTicket.png / Base64 spooler térmico ]   */}
@@ -518,7 +535,7 @@ export const TicketTermicoModal: React.FC = () => {
 
                   {/* DETALLE AISLADO POR SERVICIO */}
                   <div className="py-1 space-y-2 text-[11px]">
-                    {(preparedBooking?.services || []).map((srv, idx) => (
+                    {servicesToRender.map((srv, idx) => (
                       <div key={idx} className="space-y-0.5">
                         <div className="text-[10px] text-neutral-800 font-bold">
                           {srv.code}
@@ -737,11 +754,10 @@ export const TicketTermicoModal: React.FC = () => {
                 </>
               ) : null}
             </div>
-          )}
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-800 bg-[#1A1A1A]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-800 bg-[#1A1A1A] thermal-modal-footer print:hidden">
           <div className="flex items-center gap-2 text-xs text-neutral-400">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
             <span>Listo para impresora térmica ESC/POS (80mm)</span>
