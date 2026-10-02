@@ -142,6 +142,23 @@
   mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
 }
 
+/* Thermal Ticket POS Specific Styles */
+.social-icons-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.social-icon {
+  width: 18px;
+  height: 18px;
+  fill: #000000;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
 /* Thermal Ticket Printing Optimizations (80mm & 58mm) */
 @media print {
   body * {
@@ -163,8 +180,23 @@
     font-size: 11px !important;
     line-height: 1.25 !important;
   }
+  .social-icons-row {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 4px 0 !important;
+  }
+  .social-icon {
+    width: 18px !important;
+    height: 18px !important;
+    fill: #000000 !important;
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+  }
   @page {
     size: 80mm auto;
     margin: 0;
   }
 }
+
