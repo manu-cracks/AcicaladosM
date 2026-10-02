@@ -115,6 +115,9 @@ export interface DressRental {
   voucher_declared_amount_cents?: number | null;
   rejection_reason?: string | null;
   notes?: string | null;
+  numero_ticket?: string | null;
+  fecha_emision_ticket?: string | null;
+  asesor_name?: string | null;
   created_at: string;
   updated_at: string;
 }

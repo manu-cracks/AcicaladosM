@@ -137,8 +137,8 @@ export type Database = {
           shift_entry_time: string
           shift_exit_time: string
           sunday_entry_time: string | null
-          sunday_exit_time: string | null
           sunday_entry_tolerance_minutes: number | null
+          sunday_exit_time: string | null
           sunday_exit_tolerance_minutes: number | null
           updated_at: string
         }
@@ -150,8 +150,8 @@ export type Database = {
           shift_entry_time?: string
           shift_exit_time?: string
           sunday_entry_time?: string | null
-          sunday_exit_time?: string | null
           sunday_entry_tolerance_minutes?: number | null
+          sunday_exit_time?: string | null
           sunday_exit_tolerance_minutes?: number | null
           updated_at?: string
         }
@@ -163,8 +163,8 @@ export type Database = {
           shift_entry_time?: string
           shift_exit_time?: string
           sunday_entry_time?: string | null
-          sunday_exit_time?: string | null
           sunday_entry_tolerance_minutes?: number | null
+          sunday_exit_time?: string | null
           sunday_exit_tolerance_minutes?: number | null
           updated_at?: string
         }
@@ -316,7 +316,9 @@ export type Database = {
           culqi_order_id: string | null
           end_time: string
           expired_at: string | null
+          fecha_emision_ticket: string | null
           id: string
+          numero_ticket: string | null
           payment_method: string | null
           payment_status: string
           pdf_url: string | null
@@ -326,8 +328,6 @@ export type Database = {
           start_time: string
           total_duration_minutes: number
           total_price_cents: number
-          numero_ticket: string | null
-          fecha_emision_ticket: string | null
           updated_at: string
           user_id: string | null
         }
@@ -358,7 +358,9 @@ export type Database = {
           culqi_order_id?: string | null
           end_time: string
           expired_at?: string | null
+          fecha_emision_ticket?: string | null
           id?: string
+          numero_ticket?: string | null
           payment_method?: string | null
           payment_status?: string
           pdf_url?: string | null
@@ -368,8 +370,6 @@ export type Database = {
           start_time: string
           total_duration_minutes: number
           total_price_cents: number
-          numero_ticket?: string | null
-          fecha_emision_ticket?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -400,7 +400,9 @@ export type Database = {
           culqi_order_id?: string | null
           end_time?: string
           expired_at?: string | null
+          fecha_emision_ticket?: string | null
           id?: string
+          numero_ticket?: string | null
           payment_method?: string | null
           payment_status?: string
           pdf_url?: string | null
@@ -410,8 +412,6 @@ export type Database = {
           start_time?: string
           total_duration_minutes?: number
           total_price_cents?: number
-          numero_ticket?: string | null
-          fecha_emision_ticket?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -474,6 +474,7 @@ export type Database = {
         Row: {
           actual_return_date: string | null
           advance_cents: number
+          asesor_name: string | null
           client_dni: string
           client_first_name: string
           client_last_name: string
@@ -483,6 +484,7 @@ export type Database = {
           destination: string
           event_date: string
           event_name: string
+          fecha_emision_ticket: string | null
           guarantee_cents: number
           guarantee_returned_cents: number | null
           id: string
@@ -492,6 +494,7 @@ export type Database = {
           item_name: string
           item_size: string | null
           notes: string | null
+          numero_ticket: string | null
           origin: string
           penalty_cents: number | null
           penalty_reason: string | null
@@ -509,6 +512,7 @@ export type Database = {
         Insert: {
           actual_return_date?: string | null
           advance_cents?: number
+          asesor_name?: string | null
           client_dni: string
           client_first_name: string
           client_last_name: string
@@ -518,6 +522,7 @@ export type Database = {
           destination: string
           event_date: string
           event_name: string
+          fecha_emision_ticket?: string | null
           guarantee_cents?: number
           guarantee_returned_cents?: number | null
           id?: string
@@ -527,6 +532,7 @@ export type Database = {
           item_name: string
           item_size?: string | null
           notes?: string | null
+          numero_ticket?: string | null
           origin?: string
           penalty_cents?: number | null
           penalty_reason?: string | null
@@ -544,6 +550,7 @@ export type Database = {
         Update: {
           actual_return_date?: string | null
           advance_cents?: number
+          asesor_name?: string | null
           client_dni?: string
           client_first_name?: string
           client_last_name?: string
@@ -553,6 +560,7 @@ export type Database = {
           destination?: string
           event_date?: string
           event_name?: string
+          fecha_emision_ticket?: string | null
           guarantee_cents?: number
           guarantee_returned_cents?: number | null
           id?: string
@@ -562,6 +570,7 @@ export type Database = {
           item_name?: string
           item_size?: string | null
           notes?: string | null
+          numero_ticket?: string | null
           origin?: string
           penalty_cents?: number | null
           penalty_reason?: string | null
@@ -594,12 +603,15 @@ export type Database = {
           created_by: string | null
           currency: string
           description: string
+          estado: string | null
           expense_date: string
           id: string
+          motivo_anulacion: string | null
           notes: string | null
           payment_method: string
           receipt_number: string | null
           receipt_type: string
+          status: string | null
           supplier: string | null
           updated_at: string
         }
@@ -610,12 +622,15 @@ export type Database = {
           created_by?: string | null
           currency?: string
           description: string
+          estado?: string | null
           expense_date?: string
           id?: string
+          motivo_anulacion?: string | null
           notes?: string | null
           payment_method?: string
           receipt_number?: string | null
           receipt_type?: string
+          status?: string | null
           supplier?: string | null
           updated_at?: string
         }
@@ -626,12 +641,15 @@ export type Database = {
           created_by?: string | null
           currency?: string
           description?: string
+          estado?: string | null
           expense_date?: string
           id?: string
+          motivo_anulacion?: string | null
           notes?: string | null
           payment_method?: string
           receipt_number?: string | null
           receipt_type?: string
+          status?: string | null
           supplier?: string | null
           updated_at?: string
         }
@@ -937,15 +955,15 @@ export type Database = {
           created_at: string
           description: string
           employee_id: string | null
+          estado: string | null
           expense_date: string
           id: string
+          motivo_anulacion: string | null
           notes: string | null
           payment_method: string
           receipt_url: string | null
           registered_by: string | null
           status: string
-          estado: string | null
-          motivo_anulacion: string | null
           supplier: string | null
           void_reason: string | null
           voided_at: string | null
@@ -957,15 +975,15 @@ export type Database = {
           created_at?: string
           description: string
           employee_id?: string | null
+          estado?: string | null
           expense_date?: string
           id?: string
+          motivo_anulacion?: string | null
           notes?: string | null
           payment_method?: string
           receipt_url?: string | null
           registered_by?: string | null
           status?: string
-          estado?: string | null
-          motivo_anulacion?: string | null
           supplier?: string | null
           void_reason?: string | null
           voided_at?: string | null
@@ -977,15 +995,15 @@ export type Database = {
           created_at?: string
           description?: string
           employee_id?: string | null
+          estado?: string | null
           expense_date?: string
           id?: string
+          motivo_anulacion?: string | null
           notes?: string | null
           payment_method?: string
           receipt_url?: string | null
           registered_by?: string | null
           status?: string
-          estado?: string | null
-          motivo_anulacion?: string | null
           supplier?: string | null
           void_reason?: string | null
           voided_at?: string | null
@@ -1646,44 +1664,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      distribuir_adelanto_reserva: {
+        Args: { p_booking_id: string }
+        Returns: undefined
+      }
+      eliminar_servicio_con_extorno: {
+        Args: { p_booking_id?: string; p_service_item_id: string }
+        Returns: Json
+      }
       expire_stale_bookings: { Args: never; Returns: undefined }
-      get_employee_performance_ranking: {
-        Args: { p_end_date?: string; p_start_date?: string }
-        Returns: {
-          avatar_url: string | null
-          employee_id: string
-          employee_name: string
-          employee_type: string
-          foto_url: string | null
-          is_active: boolean
-          online_jobs: number
-          presencial_jobs: number
-          total_jobs: number
-          total_revenue_cents: number
-        }[]
-      }
-      get_services_audit_breakdown: {
-        Args: { p_date?: string }
-        Returns: {
-          service_item_id: string
-          service_id: string | null
-          service_name: string
-          area: string
-          booking_id: string
-          booking_code: string
-          client_name: string
-          price_cents: number
-          employee_id: string | null
-          employee_name: string
-          booking_date: string
-          start_time: string
-          end_time: string
-          hora_rango: string
-          completed_timestamp: string | null
-          payment_method: string
-          payment_status: string
-        }[]
-      }
       get_employee_agenda: {
         Args: { p_date?: string; p_employee_id: string }
         Returns: {
@@ -1704,9 +1693,83 @@ export type Database = {
           status: string
         }[]
       }
+      get_employee_performance_ranking: {
+        Args: { p_end_date?: string; p_start_date?: string }
+        Returns: {
+          avatar_url: string
+          employee_id: string
+          employee_name: string
+          employee_type: string
+          foto_url: string
+          is_active: boolean
+          online_jobs: number
+          presencial_jobs: number
+          total_jobs: number
+          total_revenue_cents: number
+        }[]
+      }
       get_financial_balances: {
-        Args: { p_date?: string; p_end_date?: string; p_start_date?: string }
+        Args: {
+          p_date?: string
+          p_employee_id?: string
+          p_end_date?: string
+          p_start_date?: string
+        }
         Returns: Json
+      }
+      get_guest_reservations_tracking: {
+        Args: { p_dni: string; p_phone: string }
+        Returns: {
+          advance_cents: number
+          client_dni: string
+          client_name: string
+          client_phone: string
+          code: string
+          created_at: string
+          end_time: string
+          item_or_services: string
+          pending_cents: number
+          reservation_date: string
+          reservation_id: string
+          reservation_type: string
+          return_date: string
+          start_time: string
+          status: string
+          status_color: string
+          status_label: string
+          total_price_cents: number
+          voucher_url: string
+        }[]
+      }
+      get_or_create_booking_ticket: {
+        Args: { p_booking_id: string }
+        Returns: Json
+      }
+      get_or_create_dress_rental_ticket: {
+        Args: { p_asesor_name?: string; p_rental_id: string }
+        Returns: Json
+      }
+      get_services_audit_breakdown: {
+        Args: { p_date?: string; p_employee_id?: string }
+        Returns: {
+          area: string
+          booking_code: string
+          booking_date: string
+          booking_id: string
+          client_name: string
+          completed_timestamp: string
+          employee_id: string
+          employee_name: string
+          end_time: string
+          hora_rango: string
+          payment_method: string
+          payment_status: string
+          price_cents: number
+          service_id: string
+          service_item_id: string
+          service_name: string
+          start_time: string
+        }[]
       }
       get_user_role: { Args: never; Returns: string }
       process_internal_consumption: {
@@ -1725,45 +1788,9 @@ export type Database = {
         Args: { p_booking_id: string }
         Returns: undefined
       }
-      distribuir_adelanto_reserva: {
-        Args: { p_booking_id: string }
-        Returns: undefined
-      }
-      get_or_create_booking_ticket: {
-        Args: { p_booking_id: string }
-        Returns: Json
-      }
       solicitar_eliminacion_servicio: {
         Args: { p_service_item_id: string; p_solicitar?: boolean }
         Returns: Json
-      }
-      eliminar_servicio_con_extorno: {
-        Args: { p_service_item_id: string; p_booking_id?: string | null }
-        Returns: Json
-      }
-      get_guest_reservations_tracking: {
-        Args: { p_dni: string; p_phone: string }
-        Returns: {
-          reservation_id: string
-          code: string
-          reservation_type: string
-          client_name: string
-          client_dni: string
-          client_phone: string
-          reservation_date: string
-          return_date: string | null
-          start_time: string | null
-          end_time: string | null
-          item_or_services: string
-          total_price_cents: number
-          advance_cents: number
-          pending_cents: number
-          status: string
-          status_label: string
-          status_color: string
-          voucher_url: string | null
-          created_at: string
-        }[]
       }
     }
     Enums: {

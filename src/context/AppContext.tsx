@@ -544,6 +544,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             voucher_declared_amount_cents: r.voucher_declared_amount_cents,
             rejection_reason: r.rejection_reason,
             notes: r.notes,
+            numero_ticket: r.numero_ticket,
+            fecha_emision_ticket: r.fecha_emision_ticket,
+            asesor_name: r.asesor_name,
             created_at: r.created_at,
             updated_at: r.updated_at,
           }))
@@ -4011,6 +4014,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           voucher_declared_amount_cents: raw.voucher_declared_amount_cents,
           rejection_reason: raw.rejection_reason,
           notes: raw.notes,
+          numero_ticket: raw.numero_ticket,
+          fecha_emision_ticket: raw.fecha_emision_ticket,
+          asesor_name: raw.asesor_name,
           created_at: raw.created_at,
           updated_at: raw.updated_at,
         };
