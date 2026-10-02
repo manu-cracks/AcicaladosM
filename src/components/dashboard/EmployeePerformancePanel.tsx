@@ -486,7 +486,7 @@ export const EmployeePerformancePanel: React.FC = () => {
                       />
                     ) : (
                       <div className="w-20 h-20 rounded-full bg-slate-900 border-2 border-slate-400 flex items-center justify-center text-slate-200 font-bold text-xl font-serif-luxury shadow-md ring-4 ring-slate-400/20">
-                        {top3[1].employee_name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        {(top3[1].employee_name || 'Colaborador').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                       </div>
                     )}
                   </div>
@@ -544,7 +544,7 @@ export const EmployeePerformancePanel: React.FC = () => {
                       />
                     ) : (
                       <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#2a2215] to-[#16120b] border-2 border-[#C8A45C] flex items-center justify-center text-[#E6C875] font-bold text-2xl font-serif-luxury shadow-xl ring-4 ring-[#C8A45C]/30">
-                        {top3[0].employee_name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        {(top3[0].employee_name || 'Colaborador').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                       </div>
                     )}
                   </div>
@@ -608,7 +608,7 @@ export const EmployeePerformancePanel: React.FC = () => {
                       />
                     ) : (
                       <div className="w-20 h-20 rounded-full bg-amber-950/40 border-2 border-amber-700 flex items-center justify-center text-amber-200 font-bold text-xl font-serif-luxury shadow-md ring-4 ring-amber-700/20">
-                        {top3[2].employee_name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        {(top3[2].employee_name || 'Colaborador').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                       </div>
                     )}
                   </div>
@@ -942,7 +942,7 @@ export const EmployeePerformancePanel: React.FC = () => {
                               />
                             ) : (
                               <div className="w-9 h-9 rounded-xl bg-neutral-800 border border-[#C8A45C]/30 flex items-center justify-center text-[#E6C875] font-bold text-xs shrink-0">
-                                {emp.employee_name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+                                {(emp.employee_name || 'Colaborador').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                               </div>
                             )}
 

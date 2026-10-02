@@ -578,6 +578,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
 
       // Abrir ticket térmico opcional si se registró pago
       if (paidCents > 0 && openTicketModal) {
+        console.log("Generando ticket con data:", newBooking);
         openTicketModal('booking', newBooking);
       }
     } catch (err: any) {

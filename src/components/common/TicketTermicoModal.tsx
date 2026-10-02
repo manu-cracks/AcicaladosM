@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Component, ReactNode } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Booking, VentaMostrador, formatSoles } from '../../types';
 import { getServiceCategory } from '../../services/financialSSOT';
@@ -117,69 +117,117 @@ interface PreparedBookingTicket {
   paymentStatus: string;
 }
 
-/** Formateador estricto para fecha de emisión de reserva: "23 oct. 2026 - 15:30 p. m." */
-function formatFechaEmisionTicket(isoString?: string | null): string {
+/** Formateador estricto y ultra-seguro para fecha de emisión de reserva: "23 oct. 2026 - 03:30 p. m." */
+function formatFechaEmisionTicket(isoString?: any): string {
   if (!isoString) return '';
-  const d = new Date(isoString);
-  if (isNaN(d.getTime())) return String(isoString);
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return String(isoString);
 
-  const datePart = d.toLocaleDateString('es-PE', {
-    timeZone: 'America/Lima',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+    const datePart = d.toLocaleDateString('es-PE', {
+      timeZone: 'America/Lima',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
 
-  const hour = d.toLocaleTimeString('es-PE', {
-    timeZone: 'America/Lima',
-    hour: '2-digit',
-    hour12: false,
-  });
-  const minute = d.toLocaleTimeString('es-PE', {
-    timeZone: 'America/Lima',
-    minute: '2-digit',
-  }).padStart(2, '0');
+    const timePart = d.toLocaleTimeString('es-PE', {
+      timeZone: 'America/Lima',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
 
-  const isPm = parseInt(hour, 10) >= 12;
-  const ampm = isPm ? 'p. m.' : 'a. m.';
-
-  return `${datePart} - ${hour}:${minute} ${ampm}`;
+    return `${datePart} - ${timePart}`;
+  } catch (err) {
+    console.warn('Error formateando fecha de ticket:', err);
+    return String(isoString || '');
+  }
 }
 
 /** Formato de fecha para venta directa: "01 oct. 2026" */
-function formatFechaEmisionDirecta(isoStr?: string | null): string {
+function formatFechaEmisionDirecta(isoStr?: any): string {
   if (!isoStr) return '';
-  const d = new Date(isoStr);
-  if (isNaN(d.getTime())) return String(isoStr);
-  return d.toLocaleDateString('es-PE', {
-    timeZone: 'America/Lima',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return String(isoStr);
+    return d.toLocaleDateString('es-PE', {
+      timeZone: 'America/Lima',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return String(isoStr || '');
+  }
 }
 
-/** Formato de hora para venta directa: "13:21 p. m." */
-function formatHoraEmisionDirecta(isoStr?: string | null): string {
+/** Formato de hora para venta directa: "01:21 p. m." */
+function formatHoraEmisionDirecta(isoStr?: any): string {
   if (!isoStr) return '';
-  const d = new Date(isoStr);
-  if (isNaN(d.getTime())) return '';
-  const h24 = d.toLocaleTimeString('es-PE', {
-    timeZone: 'America/Lima',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-  const isPm = parseInt(h24.split(':')[0], 10) >= 12;
-  return `${h24} ${isPm ? 'p. m.' : 'a. m.'}`;
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('es-PE', {
+      timeZone: 'America/Lima',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Extracción ULTRA-SEGURA del primer nombre del especialista o colaborador.
+ * Aplica ESTRICTAMENTE Optional Chaining (?.) y Nullish Coalescing (?? / ||) según directiva:
+ * (item.especialista?.split(' ')[0]) || 'RECEPCIÓN' o (item.trabajador_nombre?.split(' ')[0]) || 'RECEPCIÓN'
+ * Soporta de manera transparente objetos (de servicios, ventas o reservas) o strings directos.
+ */
+export function extractSpecialistFirstName(target?: any, defaultFallback = 'RECEPCIÓN'): string {
+  if (!target) return defaultFallback;
+
+  try {
+    // Si se pasa un objeto (item de servicio, reserva, venta o colaborador)
+    if (typeof target === 'object') {
+      const candidate =
+        (target.especialista?.split(' ')[0]) ||
+        (target.trabajador_nombre?.split(' ')[0]) ||
+        (target.employee_name?.split(' ')[0]) ||
+        (target.seller_name?.split(' ')[0]) ||
+        (target.vendedor?.split(' ')[0]) ||
+        (target.first_name?.split(' ')[0]) ||
+        (target.full_name?.split(' ')[0]) ||
+        (target.name?.split(' ')[0]);
+
+      if (candidate && typeof candidate === 'string' && candidate.trim()) {
+        const clean = candidate.trim().toUpperCase();
+        if (clean === 'RECEPCIÓN' || clean === 'RECEPCION') return 'RECEPCIÓN';
+        if (clean === 'ESPECIALISTA') return defaultFallback;
+        return clean;
+      }
+    }
+
+    // Si se pasa directamente una cadena o cualquier valor convertible a texto
+    if (typeof target === 'string' || typeof target === 'number') {
+      const clean = String(target).trim();
+      if (!clean) return defaultFallback;
+      if (clean.toLowerCase() === 'recepción' || clean.toLowerCase() === 'recepcion') return 'RECEPCIÓN';
+      if (clean.toLowerCase() === 'especialista') return defaultFallback;
+      const firstWord = (clean.split(/\s+/)?.[0]) || defaultFallback;
+      return firstWord.toUpperCase();
+    }
+
+    return defaultFallback;
+  } catch {
+    return defaultFallback;
+  }
 }
 
 /** Filtro de Primer Nombre para trabajadores en Reservas */
-function extractFirstName(fullName?: string | null): string {
-  if (!fullName) return 'ESPECIALISTA';
-  const clean = fullName.trim();
-  if (!clean) return 'ESPECIALISTA';
-  return clean.split(/\s+/)[0].toUpperCase();
+export function extractFirstName(fullName?: any): string {
+  return extractSpecialistFirstName(fullName, 'ESPECIALISTA');
 }
 
 /**
@@ -187,49 +235,72 @@ function extractFirstName(fullName?: string | null): string {
  * Ej. "JORGE ROBERT HUAMANI AZURZA" -> "JORGE"
  * Fallback: si vacío, default o "Recepción" -> "RECEPCIÓN"
  */
-function extractSellerFirstName(sellerName?: string | null): string {
-  if (!sellerName || !sellerName.trim()) return 'RECEPCIÓN';
-  const clean = sellerName.trim();
-  if (clean.toLowerCase() === 'recepción' || clean.toLowerCase() === 'recepcion') {
-    return 'RECEPCIÓN';
-  }
-  const firstWord = clean.split(/\s+/)[0];
-  return firstWord ? firstWord.toUpperCase() : 'RECEPCIÓN';
+export function extractSellerFirstName(sellerName?: any): string {
+  return extractSpecialistFirstName(sellerName, 'RECEPCIÓN');
 }
 
 /** Conversor numérico estricto para evitar NaN */
-function parseSafeNumber(val: any, fallback = 0): number {
+export function parseSafeNumber(val: any, fallback = 0): number {
   if (val === null || val === undefined || val === '') return fallback;
-  if (typeof val === 'number') return isNaN(val) ? fallback : val;
-  const cleaned = String(val).replace(/,/g, '.').replace(/[^0-9.-]/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? fallback : num;
+  if (typeof val === 'number') return isNaN(val) || !Number.isFinite(val) ? fallback : val;
+  try {
+    const cleaned = String(val).replace(/,/g, '.').replace(/[^0-9.-]/g, '');
+    const num = parseFloat(cleaned);
+    return isNaN(num) || !Number.isFinite(num) ? fallback : num;
+  } catch {
+    return fallback;
+  }
 }
 
 /** Conversor entero estricto para evitar NaN */
-function parseSafeInteger(val: any, fallback = 1): number {
+export function parseSafeInteger(val: any, fallback = 1): number {
   if (val === null || val === undefined || val === '') return fallback;
   if (typeof val === 'number') return isNaN(val) || !Number.isFinite(val) ? fallback : Math.floor(val);
-  const cleaned = String(val).replace(/[^0-9-]/g, '');
-  const num = parseInt(cleaned, 10);
-  return isNaN(num) || num < 1 ? fallback : num;
+  try {
+    const cleaned = String(val).replace(/[^0-9-]/g, '');
+    const num = parseInt(cleaned, 10);
+    return isNaN(num) || !Number.isFinite(num) || num < 1 ? fallback : num;
+  } catch {
+    return fallback;
+  }
 }
 
-/** Capitalización de nombres de servicios a Title Case */
-function formatServiceName(name: string): string {
-  if (!name) return '';
-  return name
-    .toLowerCase()
-    .split(' ')
-    .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : ''))
-    .join(' ');
+/** Formateo oficial a Soles Peruanos 100% blindado contra NaN */
+export function formatSolesSafe(cents: any): string {
+  const safeCents = parseSafeNumber(cents, 0);
+  const soles = safeCents / 100;
+  return `S/ ${soles.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export const TicketTermicoModal: React.FC = () => {
+/** Capitalización segura de nombres de servicios a Title Case */
+export function formatServiceName(name: any): string {
+  if (!name) return 'Servicio Acicalados';
+  try {
+    const str = typeof name === 'string' ? name : String(name || '');
+    if (!str.trim()) return 'Servicio Acicalados';
+    return str
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : ''))
+      .join(' ');
+  } catch {
+    return 'Servicio Acicalados';
+  }
+}
+
+const TicketTermicoModalInner: React.FC = () => {
   const { activeTicket, closeTicketModal, services } = useApp();
   const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>('80mm');
   const [preparedBooking, setPreparedBooking] = useState<PreparedBookingTicket | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Diagnóstico en consola para confirmar la apertura del modal y la data entrante
+  useEffect(() => {
+    if (activeTicket) {
+      console.log("TicketTermicoModal montado con activeTicket:", activeTicket);
+    }
+  }, [activeTicket]);
 
   const isBooking = activeTicket?.type === 'booking';
   const bookingData = isBooking ? (activeTicket.data as Booking) : null;
@@ -237,12 +308,13 @@ export const TicketTermicoModal: React.FC = () => {
 
   // Carga y aislamiento de datos por servicio en tiempo real justo antes de imprimir
   const prepareRealtimeBookingData = useCallback(async (b: Booking) => {
+    if (!b) return;
     setIsLoading(true);
     try {
-      let numeroTicket = b.numero_ticket || '';
+      let numeroTicket = b.numero_ticket || (b as any).ticket_number || '';
       let fechaEmision = b.fecha_emision_ticket || '';
 
-      const isUuid = b.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.id);
+      const isUuid = b.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(b.id));
       if (isUuid) {
         try {
           const { data: ticketRes, error: rpcErr } = await supabase.rpc('get_or_create_booking_ticket', {
@@ -265,7 +337,16 @@ export const TicketTermicoModal: React.FC = () => {
         fechaEmision = b.confirmed_at || b.created_at || new Date().toISOString();
       }
 
-      let servicesList: any[] = b.services || [];
+      let servicesList: any[] = [];
+      if (Array.isArray(b.services)) {
+        servicesList = b.services;
+      } else if (typeof b.services === 'string') {
+        try {
+          const parsed = JSON.parse(b.services);
+          if (Array.isArray(parsed)) servicesList = parsed;
+        } catch {}
+      }
+
       if (isUuid) {
         try {
           const { data: dbServices } = await supabase
@@ -283,7 +364,7 @@ export const TicketTermicoModal: React.FC = () => {
       }
 
       const empIds = (servicesList || [])
-        .map((s: any) => s.assigned_employee_id || (s as any).employee_id)
+        .map((s: any) => s?.assigned_employee_id || s?.employee_id || (b as any)?.assigned_employee_id)
         .filter(Boolean);
 
       const empMap = new Map<string, { first_name: string; last_name: string; type: string }>();
@@ -303,65 +384,121 @@ export const TicketTermicoModal: React.FC = () => {
       }
 
       const preparedServices: PreparedTicketService[] = (servicesList || []).map((srv: any, idx: number) => {
-        const empId = srv.assigned_employee_id || srv.employee_id;
+        if (!srv || typeof srv !== 'object') {
+          return {
+            code: `SERV-${String(idx + 1).padStart(2, '0')}`,
+            service_name: 'Servicio Acicalados',
+            price_cents: 0,
+            specialist: 'ESPECIALISTA',
+            category: 'Barbería',
+          };
+        }
+        const empId = srv.assigned_employee_id || srv.employee_id || (b as any).assigned_employee_id;
         const emp = empId ? empMap.get(empId) : null;
-        const rawEmpName = emp ? `${emp.first_name} ${emp.last_name}` : (srv.employee_name || 'Especialista');
+        const rawEmpName = emp
+          ? `${emp.first_name || ''} ${emp.last_name || ''}`.trim()
+          : (srv.employee_name || srv.especialista || srv.trabajador_nombre || 'RECEPCIÓN');
 
-        const firstNameOnly = extractFirstName(emp?.first_name || rawEmpName);
+        const firstNameOnly =
+          (emp?.first_name?.split(' ')[0]) ||
+          (srv.especialista?.split(' ')[0]) ||
+          (srv.trabajador_nombre?.split(' ')[0]) ||
+          (srv.employee_name?.split(' ')[0]) ||
+          extractSpecialistFirstName(rawEmpName, 'ESPECIALISTA');
 
-        const cat = emp?.type === 'barbero'
-          ? 'Barbería'
-          : emp?.type === 'spa'
-          ? 'Spa'
-          : getServiceCategory({ service_id: srv.service_id, service_name: srv.service_name || '' }, services || []) === 'barberia'
-          ? 'Barbería'
-          : 'Spa';
+        let cat = 'Barbería';
+        try {
+          if (emp?.type === 'barbero') cat = 'Barbería';
+          else if (emp?.type === 'spa') cat = 'Spa';
+          else if (getServiceCategory({ service_id: srv.service_id, service_name: srv.service_name || srv.name || '' }, services || []) === 'barberia') cat = 'Barbería';
+          else cat = 'Spa';
+        } catch {
+          cat = 'Barbería';
+        }
 
         return {
           code: `SERV-${String(idx + 1).padStart(2, '0')}`,
           service_name: formatServiceName(srv.service_name || srv.name || 'Servicio'),
-          price_cents: srv.service_price_cents ?? srv.price_cents ?? 0,
-          specialist: firstNameOnly,
+          price_cents: parseSafeNumber(srv.service_price_cents ?? srv.price_cents ?? 0, 0),
+          specialist: firstNameOnly || 'ESPECIALISTA',
           category: cat,
         };
       });
 
-      const bookingCodeFormatted = b.code?.startsWith('#') ? b.code : `#${b.code || 'AC-0000'}`;
+      const rawCode = String(b.code || (b as any).booking_code || 'AC-0000');
+      const bookingCodeFormatted = rawCode.startsWith('#') ? rawCode : `#${rawCode}`;
+
+      const clientDisplayName = b.client_name || `${(b as any).client_first_name || ''} ${(b as any).client_last_name || ''}`.trim() || 'Cliente';
+      const clientDisplayDni = b.client_dni || (b as any).dni || '';
+
+      const sStart = typeof b.start_time === 'string' ? b.start_time.substring(0, 5) : '11:00';
+      const sEnd = typeof b.end_time === 'string' ? b.end_time.substring(0, 5) : '12:30';
+      const horaCitaStr = `${sStart} - ${sEnd}`;
+
+      const totalCentsSafe = parseSafeNumber(b.total_price_cents, 0);
+      const advanceCentsSafe = parseSafeNumber(b.advance_amount_cents, 0);
+      const balanceCentsSafe = parseSafeNumber(
+        b.balance_cents != null ? b.balance_cents : Math.max(0, totalCentsSafe - advanceCentsSafe),
+        0
+      );
 
       setPreparedBooking({
         numeroTicket: numeroTicket || '001-0000001',
         fechaEmision: fechaEmision,
         bookingCode: bookingCodeFormatted,
-        clientName: b.client_name || 'Cliente',
-        clientDni: b.client_dni || '',
-        horaCita: `${b.start_time?.substring(0, 5) || '11:00'} - ${b.end_time?.substring(0, 5) || '12:30'}`,
-        services: preparedServices,
-        totalPriceCents: b.total_price_cents || 0,
-        advanceAmountCents: b.advance_amount_cents || 0,
-        balanceCents: b.balance_cents != null ? b.balance_cents : Math.max(0, (b.total_price_cents || 0) - (b.advance_amount_cents || 0)),
+        clientName: clientDisplayName,
+        clientDni: clientDisplayDni,
+        horaCita: horaCitaStr,
+        services: preparedServices.length > 0 ? preparedServices : [
+          {
+            code: 'SERV-01',
+            service_name: 'Servicio Acicalados',
+            price_cents: totalCentsSafe,
+            specialist: (b as any).especialista?.split(' ')[0] || (b as any).trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA',
+            category: 'Barbería',
+          }
+        ],
+        totalPriceCents: totalCentsSafe,
+        advanceAmountCents: advanceCentsSafe,
+        balanceCents: balanceCentsSafe,
         paymentStatus: b.payment_status || 'total',
       });
     } catch (err) {
       console.error('Error preparando ticket térmico en tiempo real:', err);
-      // Fallback seguro usando datos en memoria
-      const bookingCodeFormatted = b.code?.startsWith('#') ? b.code : `#${b.code || 'AC-0000'}`;
+      // Fallback ultra-seguro usando datos en memoria
+      const rawCode = String(b.code || (b as any).booking_code || 'AC-0000');
+      const bookingCodeFormatted = rawCode.startsWith('#') ? rawCode : `#${rawCode}`;
+      const clientDisplayName = b.client_name || `${(b as any).client_first_name || ''} ${(b as any).client_last_name || ''}`.trim() || 'Cliente';
+      const totalCentsSafe = parseSafeNumber(b.total_price_cents, 0);
+      const advanceCentsSafe = parseSafeNumber(b.advance_amount_cents, 0);
+      const balanceCentsSafe = parseSafeNumber(
+        b.balance_cents != null ? b.balance_cents : Math.max(0, totalCentsSafe - advanceCentsSafe),
+        0
+      );
+
+      let fallbackSrvs: any[] = [];
+      if (Array.isArray(b.services)) fallbackSrvs = b.services;
+      else if (typeof b.services === 'string') {
+        try { fallbackSrvs = JSON.parse(b.services) || []; } catch {}
+      }
+
       setPreparedBooking({
-        numeroTicket: b.numero_ticket || '001-0000001',
+        numeroTicket: b.numero_ticket || (b as any).ticket_number || '001-0000001',
         fechaEmision: b.fecha_emision_ticket || b.confirmed_at || b.created_at || new Date().toISOString(),
         bookingCode: bookingCodeFormatted,
-        clientName: b.client_name || 'Cliente',
-        clientDni: b.client_dni || '',
-        horaCita: `${b.start_time?.substring(0, 5) || '11:00'} - ${b.end_time?.substring(0, 5) || '12:30'}`,
-        services: (b.services || []).map((srv: any, idx: number) => ({
+        clientName: clientDisplayName,
+        clientDni: b.client_dni || (b as any).dni || '',
+        horaCita: `${String(b.start_time || '11:00').substring(0, 5)} - ${String(b.end_time || '12:30').substring(0, 5)}`,
+        services: (fallbackSrvs || []).map((srv: any, idx: number) => ({
           code: `SERV-${String(idx + 1).padStart(2, '0')}`,
-          service_name: formatServiceName(srv.service_name || srv.name || 'Servicio'),
-          price_cents: srv.service_price_cents ?? srv.price_cents ?? 0,
-          specialist: extractFirstName(srv.employee_name || 'Especialista'),
-          category: getServiceCategory({ service_id: srv.service_id, service_name: srv.service_name || '' }, services || []) === 'barberia' ? 'Barbería' : 'Spa',
+          service_name: formatServiceName(srv?.service_name || srv?.name || 'Servicio'),
+          price_cents: parseSafeNumber(srv?.service_price_cents ?? srv?.price_cents ?? 0, 0),
+          specialist: (srv?.especialista?.split(' ')[0]) || (srv?.trabajador_nombre?.split(' ')[0]) || extractFirstName(srv?.employee_name || 'ESPECIALISTA'),
+          category: 'Barbería',
         })),
-        totalPriceCents: b.total_price_cents || 0,
-        advanceAmountCents: b.advance_amount_cents || 0,
-        balanceCents: b.balance_cents != null ? b.balance_cents : Math.max(0, (b.total_price_cents || 0) - (b.advance_amount_cents || 0)),
+        totalPriceCents: totalCentsSafe,
+        advanceAmountCents: advanceCentsSafe,
+        balanceCents: balanceCentsSafe,
         paymentStatus: b.payment_status || 'total',
       });
     } finally {
@@ -384,24 +521,44 @@ export const TicketTermicoModal: React.FC = () => {
   };
 
   const servicesToRender: PreparedTicketService[] = useMemo(() => {
-    if (preparedBooking?.services && preparedBooking.services.length > 0) {
+    if (preparedBooking?.services && Array.isArray(preparedBooking.services) && preparedBooking.services.length > 0) {
       return preparedBooking.services;
     }
-    if (bookingData?.services && Array.isArray(bookingData.services) && bookingData.services.length > 0) {
-      return bookingData.services.map((srv: any, idx: number) => ({
-        code: `SERV-${String(idx + 1).padStart(2, '0')}`,
-        service_name: formatServiceName(srv.service_name || srv.name || 'Servicio'),
-        price_cents: srv.service_price_cents ?? srv.price_cents ?? 0,
-        specialist: extractFirstName(srv.employee_name || 'Especialista'),
-        category: getServiceCategory({ service_id: srv.service_id, service_name: srv.service_name || '' }, services || []) === 'barberia' ? 'Barbería' : 'Spa',
-      }));
+
+    let rawServices: any[] = [];
+    if (Array.isArray(bookingData?.services)) {
+      rawServices = bookingData.services;
+    } else if (typeof bookingData?.services === 'string') {
+      try {
+        const parsed = JSON.parse(bookingData.services);
+        if (Array.isArray(parsed)) rawServices = parsed;
+      } catch {}
     }
+
+    if (rawServices.length > 0) {
+      return (rawServices || []).map((srv: any, idx: number) => {
+        let cat = 'Barbería';
+        try {
+          cat = getServiceCategory({ service_id: srv?.service_id, service_name: srv?.service_name || srv?.name || '' }, services || []) === 'barberia' ? 'Barbería' : 'Spa';
+        } catch {
+          cat = 'Barbería';
+        }
+        return {
+          code: `SERV-${String(idx + 1).padStart(2, '0')}`,
+          service_name: formatServiceName(srv?.service_name || srv?.name || 'Servicio'),
+          price_cents: parseSafeNumber(srv?.service_price_cents ?? srv?.price_cents ?? 0, 0),
+          specialist: (srv?.especialista?.split(' ')[0]) || (srv?.trabajador_nombre?.split(' ')[0]) || extractFirstName(srv?.employee_name || 'ESPECIALISTA'),
+          category: cat,
+        };
+      });
+    }
+
     return [
       {
         code: 'SERV-01',
         service_name: 'Servicio Acicalados',
-        price_cents: bookingData?.total_price_cents || 0,
-        specialist: 'ESPECIALISTA',
+        price_cents: parseSafeNumber(bookingData?.total_price_cents, 0),
+        specialist: (bookingData as any)?.especialista?.split(' ')[0] || (bookingData as any)?.trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA',
         category: 'Barbería',
       },
     ];
@@ -411,17 +568,40 @@ export const TicketTermicoModal: React.FC = () => {
   const SEPARATOR_EQUAL = '======================================================================';
   const SEPARATOR_DOT = '......................................................................';
 
-  // Datos para renderizado de Reservas
-  const ticketNumero = preparedBooking?.numeroTicket || bookingData?.numero_ticket || '001-0000001';
-  const bookingCode = preparedBooking?.bookingCode || (bookingData?.code?.startsWith('#') ? bookingData.code : `#${bookingData?.code || 'AC-6505'}`);
+  // Datos para renderizado de Reservas (resiliente a camelCase y snake_case)
+  const ticketNumero = preparedBooking?.numeroTicket || bookingData?.numero_ticket || (bookingData as any)?.ticket_number || '001-0000001';
+  const rawBkCode = String(preparedBooking?.bookingCode || bookingData?.code || (bookingData as any)?.booking_code || 'AC-6505');
+  const bookingCode = rawBkCode.startsWith('#') ? rawBkCode : `#${rawBkCode}`;
   const fechaEmisionTxt = formatFechaEmisionTicket(preparedBooking?.fechaEmision || bookingData?.fecha_emision_ticket || bookingData?.confirmed_at || bookingData?.created_at);
-  const clienteNombre = preparedBooking?.clientName || (isBooking ? bookingData?.client_name : ventaData?.client_name) || 'Cliente';
-  const clienteDni = preparedBooking?.clientDni || (isBooking ? bookingData?.client_dni : ventaData?.client_dni) || '';
-  const horaCita = preparedBooking?.horaCita || (bookingData ? `${bookingData.start_time?.substring(0, 5)} - ${bookingData.end_time?.substring(0, 5)}` : '11:00 - 12:30');
 
-  const totalPresupuesto = preparedBooking?.totalPriceCents ?? bookingData?.total_price_cents ?? ventaData?.total_price_cents ?? 0;
-  const adelantoCobrado = preparedBooking?.advanceAmountCents ?? bookingData?.advance_amount_cents ?? ventaData?.total_price_cents ?? 0;
-  const saldoPendiente = preparedBooking?.balanceCents ?? (bookingData ? Math.max(0, (bookingData.total_price_cents || 0) - (bookingData.advance_amount_cents || 0)) : 0);
+  const clienteNombre =
+    preparedBooking?.clientName ||
+    (isBooking
+      ? (bookingData?.client_name || `${(bookingData as any)?.client_first_name || ''} ${(bookingData as any)?.client_last_name || ''}`.trim() || 'Cliente')
+      : (ventaData?.client_name || (ventaData as any)?.cliente_nombre || 'Cliente'));
+
+  const clienteDni =
+    preparedBooking?.clientDni ||
+    (isBooking
+      ? (bookingData?.client_dni || (bookingData as any)?.dni || '')
+      : (ventaData?.client_dni || (ventaData as any)?.dni || ''));
+
+  const startStr = bookingData?.start_time ? String(bookingData.start_time).substring(0, 5) : '';
+  const endStr = bookingData?.end_time ? String(bookingData.end_time).substring(0, 5) : '';
+  const horaCita = preparedBooking?.horaCita || (startStr && endStr ? `${startStr} - ${endStr}` : '11:00 - 12:30');
+
+  const totalPresupuesto = parseSafeNumber(
+    preparedBooking?.totalPriceCents ?? bookingData?.total_price_cents ?? ventaData?.total_price_cents ?? (ventaData as any)?.total != null ? (ventaData as any)?.total * 100 : 0,
+    0
+  );
+  const adelantoCobrado = parseSafeNumber(
+    preparedBooking?.advanceAmountCents ?? bookingData?.advance_amount_cents ?? (isBooking ? 0 : totalPresupuesto),
+    0
+  );
+  const saldoPendiente = parseSafeNumber(
+    preparedBooking?.balanceCents ?? (bookingData ? Math.max(0, totalPresupuesto - adelantoCobrado) : 0),
+    0
+  );
   const paymentStatus = preparedBooking?.paymentStatus || bookingData?.payment_status || 'total';
 
   const estadoPagoLabel = isBooking
@@ -432,10 +612,10 @@ export const TicketTermicoModal: React.FC = () => {
       : 'SIN PAGO'
     : 'PAGADO COMPLETO';
 
-  // Datos preparados para Venta Directa
+  // Datos preparados para Venta Directa (resiliente a snake_case y camelCase de BD)
   const ventaItems = useMemo(() => {
     if (!ventaData) return [];
-    let items = ventaData.detalles_items;
+    let items = ventaData.detalles_items || (ventaData as any).items;
     if (typeof items === 'string') {
       try {
         items = JSON.parse(items);
@@ -444,23 +624,69 @@ export const TicketTermicoModal: React.FC = () => {
       }
     }
     if (Array.isArray(items) && items.length > 0) {
-      return items.map((it: any) => ({
-        product_name: it.product_name || it.name || 'Producto',
-        quantity: parseSafeInteger(it.quantity, 1),
-        unit_price: parseSafeNumber(it.unit_price != null ? it.unit_price : (it.unit_price_cents ? it.unit_price_cents / 100 : 0), 0),
-        total: parseSafeNumber(it.total != null ? it.total : (it.total_price_cents ? it.total_price_cents / 100 : (parseSafeInteger(it.quantity, 1) * parseSafeNumber(it.unit_price != null ? it.unit_price : 0, 0))), 0),
-        seller_name: it.seller_name || it.vendedor || 'Recepción',
-      }));
+      return (items || []).map((it: any) => {
+        const qty = parseSafeInteger(it?.quantity ?? it?.cantidad, 1);
+        const unitPrice = parseSafeNumber(
+          it?.unit_price != null
+            ? it.unit_price
+            : it?.precio_unitario != null
+            ? it.precio_unitario
+            : it?.unit_price_cents
+            ? it.unit_price_cents / 100
+            : 0,
+          0
+        );
+        const lineTotal = parseSafeNumber(
+          it?.total != null
+            ? it.total
+            : it?.total_price_cents
+            ? it.total_price_cents / 100
+            : qty * unitPrice,
+          0
+        );
+        const seller =
+          (it?.especialista?.split(' ')[0]) ||
+          (it?.trabajador_nombre?.split(' ')[0]) ||
+          (it?.seller_name?.split(' ')[0]) ||
+          (it?.vendedor?.split(' ')[0]) ||
+          extractSellerFirstName(it?.seller_name || it?.vendedor || 'RECEPCIÓN');
+
+        return {
+          product_name: it?.product_name || it?.producto_nombre || it?.name || 'Producto',
+          quantity: qty,
+          unit_price: unitPrice,
+          total: lineTotal,
+          seller_name: seller,
+        };
+      });
     }
-    const qty = parseSafeInteger(ventaData.quantity, 1);
-    const unitPrice = parseSafeNumber(ventaData.unit_price_cents ? ventaData.unit_price_cents / 100 : 0, 0);
-    const total = parseSafeNumber(ventaData.total_price_cents ? ventaData.total_price_cents / 100 : qty * unitPrice, 0);
+
+    const qty = parseSafeInteger(ventaData.quantity ?? (ventaData as any).cantidad, 1);
+    const unitPrice = parseSafeNumber(
+      ventaData.unit_price_cents
+        ? ventaData.unit_price_cents / 100
+        : (ventaData as any).precio_unitario,
+      0
+    );
+    const total = parseSafeNumber(
+      ventaData.total_price_cents
+        ? ventaData.total_price_cents / 100
+        : (ventaData as any).total,
+      qty * unitPrice
+    );
+    const singleSeller =
+      ((ventaData as any).especialista?.split(' ')[0]) ||
+      ((ventaData as any).trabajador_nombre?.split(' ')[0]) ||
+      ((ventaData as any).seller_name?.split(' ')[0]) ||
+      ((ventaData as any).vendedor?.split(' ')[0]) ||
+      extractSellerFirstName((ventaData as any).seller_name || (ventaData as any).vendedor || 'RECEPCIÓN');
+
     return [{
-      product_name: ventaData.product_name || 'Venta en Mostrador',
+      product_name: ventaData.product_name || (ventaData as any).producto_nombre || 'Venta en Mostrador',
       quantity: qty,
       unit_price: unitPrice,
       total: total,
-      seller_name: (ventaData as any).seller_name || (ventaData as any).vendedor || 'Recepción',
+      seller_name: singleSeller,
     }];
   }, [ventaData]);
 
@@ -481,7 +707,8 @@ export const TicketTermicoModal: React.FC = () => {
   const ventaTicketCode = useMemo(() => {
     if (!ventaData) return 'VP-00000000';
     if (ventaData.ticket_number) return ventaData.ticket_number;
-    return `VP-${ventaData.id?.substring(0, 8).toUpperCase() || '39028160'}`;
+    if ((ventaData as any).numero_ticket) return (ventaData as any).numero_ticket;
+    return `VP-${String(ventaData.id || '39028160').substring(0, 8).toUpperCase()}`;
   }, [ventaData]);
 
   const ventaFechaEmision = formatFechaEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
@@ -490,7 +717,12 @@ export const TicketTermicoModal: React.FC = () => {
   return (
     <div
       id="thermal-ticket-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto print:static print:inset-auto print:p-0 print:m-0 print:bg-white print:backdrop-blur-none print:overflow-visible print:block print:z-auto"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto print:static print:inset-auto print:p-0 print:m-0 print:bg-white print:backdrop-blur-none print:overflow-visible print:block print:z-auto"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          closeTicketModal();
+        }
+      }}
     >
       <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-xl max-w-lg w-full overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 thermal-modal-container print:bg-white print:border-none print:shadow-none print:max-w-none print:w-auto print:m-0 print:p-0 print:overflow-visible print:transform-none print:animate-none">
         {/* Modal Header */}
@@ -653,7 +885,7 @@ export const TicketTermicoModal: React.FC = () => {
 
                   {/* DETALLE AISLADO POR SERVICIO */}
                   <div className="py-1 space-y-2 text-[11px]">
-                    {servicesToRender.map((srv, idx) => (
+                    {(servicesToRender || []).map((srv, idx) => (
                       <div key={idx} className="space-y-0.5">
                         <div className="text-[10px] text-neutral-800 font-bold">
                           {srv.code}
@@ -663,11 +895,11 @@ export const TicketTermicoModal: React.FC = () => {
                             1 x {srv.service_name} ({srv.category})
                           </span>
                           <span className="font-bold shrink-0">
-                            {formatSoles(srv.price_cents)}
+                            {formatSolesSafe(srv.price_cents)}
                           </span>
                         </div>
                         <div className="text-[10px] text-neutral-800 font-medium">
-                          Esp: {srv.specialist}
+                          Esp: {(srv.specialist?.split(' ')[0]) || (srv as any).especialista?.split(' ')[0] || (srv as any).trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA'}
                         </div>
                       </div>
                     ))}
@@ -682,15 +914,15 @@ export const TicketTermicoModal: React.FC = () => {
                   <div className="py-1 space-y-0.5 text-[11px]">
                     <div className="flex justify-between items-baseline font-bold text-xs">
                       <span>TOTAL PRESUPUESTO:</span>
-                      <span>{formatSoles(totalPresupuesto)}</span>
+                      <span>{formatSolesSafe(totalPresupuesto)}</span>
                     </div>
                     <div className="flex justify-between items-baseline font-semibold">
                       <span>ADELANTO COBRADO:</span>
-                      <span>{formatSoles(adelantoCobrado)}</span>
+                      <span>{formatSolesSafe(adelantoCobrado)}</span>
                     </div>
                     <div className="flex justify-between items-baseline font-semibold">
                       <span>SALDO PENDIENTE:</span>
-                      <span>{formatSoles(saldoPendiente)}</span>
+                      <span>{formatSolesSafe(saldoPendiente)}</span>
                     </div>
                     <div className="flex justify-between items-baseline font-bold pt-0.5">
                       <span>ESTADO PAGO:</span>
@@ -754,11 +986,11 @@ export const TicketTermicoModal: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-baseline">
                       <span className="font-normal">CLIENTE:</span>
-                      <span className="font-semibold text-right max-w-[170px] truncate">{ventaData.client_name || 'Cliente'}</span>
+                      <span className="font-semibold text-right max-w-[170px] truncate">{clienteNombre}</span>
                     </div>
                     <div className="flex justify-between items-baseline">
                       <span className="font-normal">DNI / DOC:</span>
-                      <span className="font-mono">{ventaData.client_dni || '72345678'}</span>
+                      <span className="font-mono">{clienteDni || '72345678'}</span>
                     </div>
                   </div>
 
@@ -777,16 +1009,16 @@ export const TicketTermicoModal: React.FC = () => {
                     </div>
 
                     <div className="space-y-2 py-0.5">
-                      {ventaItems.map((item, idx) => (
+                      {(ventaItems || []).map((item, idx) => (
                         <div key={idx} className="space-y-0.5">
                           <div className="flex justify-between items-start leading-tight">
                             <span className="w-10 font-medium">{item.quantity}</span>
                             <span className="flex-1 px-1 font-semibold break-words">{item.product_name}</span>
-                            <span className="w-16 text-right font-medium">S/ {item.unit_price.toFixed(2)}</span>
-                            <span className="w-16 text-right font-bold">S/ {item.total.toFixed(2)}</span>
+                            <span className="w-16 text-right font-medium">S/ {parseSafeNumber(item.unit_price, 0).toFixed(2)}</span>
+                            <span className="w-16 text-right font-bold">S/ {parseSafeNumber(item.total, 0).toFixed(2)}</span>
                           </div>
                           <div className="text-[10px] text-neutral-800 font-semibold pl-10">
-                            Vend: {extractSellerFirstName(item.seller_name)}
+                            Vend: {(item.seller_name?.split(' ')[0]) || (item as any).especialista?.split(' ')[0] || (item as any).trabajador_nombre?.split(' ')[0] || 'RECEPCIÓN'}
                           </div>
                         </div>
                       ))}
@@ -802,11 +1034,11 @@ export const TicketTermicoModal: React.FC = () => {
                   <div className="py-1 space-y-0.5 text-[11px] font-mono">
                     <div className="flex justify-between items-baseline font-semibold">
                       <span>DESCUENTO GLOBAL:</span>
-                      <span className="font-mono">S/ {ventaDiscountSoles.toFixed(2)}</span>
+                      <span className="font-mono">S/ {parseSafeNumber(ventaDiscountSoles, 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between items-baseline font-bold text-xs">
                       <span>TOTAL A COBRAR:</span>
-                      <span className="font-mono">S/ {ventaTotalCobrarSoles.toFixed(2)}</span>
+                      <span className="font-mono">S/ {parseSafeNumber(ventaTotalCobrarSoles, 0).toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -819,7 +1051,7 @@ export const TicketTermicoModal: React.FC = () => {
                   <div className="py-1 space-y-1 text-[11px] font-mono">
                     <div className="flex justify-between items-baseline font-bold">
                       <span>MÉTODO DE PAGO:</span>
-                      <span className="font-mono uppercase">{ventaData.payment_method?.toUpperCase() || 'EFECTIVO'}</span>
+                      <span className="font-mono uppercase">{String(ventaData.payment_method || (ventaData as any).metodo_pago || 'EFECTIVO').toUpperCase()}</span>
                     </div>
                     <div className="text-center font-bold text-[11px] pt-0.5 tracking-wider text-black">
                       *** VENTA CANCELADA EN MOSTRADOR ***
@@ -860,7 +1092,11 @@ export const TicketTermicoModal: React.FC = () => {
                     ¡Gracias por su compra y preferencia!
                   </div>
                 </>
-              ) : null}
+              ) : (
+                <div className="text-center py-6 text-neutral-600 text-xs">
+                  <p>Información de comprobante cargada correctamente.</p>
+                </div>
+              )}
             </div>
         </div>
 
@@ -897,5 +1133,73 @@ export const TicketTermicoModal: React.FC = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+/**
+ * Error Boundary interno para el Ticket Térmico.
+ * Garantiza que si algún registro antiguo o estructura malformada produce una excepción,
+ * la aplicación NUNCA experimente un crasheo silencioso y presente una interfaz de recuperación.
+ */
+interface TicketErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface TicketErrorBoundaryState {
+  hasError: boolean;
+  errorMessage?: string;
+}
+
+export class TicketErrorBoundary extends (Component as any)<any, any> {
+  state = { hasError: false, errorMessage: '' };
+
+  constructor(props: any) {
+    super(props);
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorMessage: error?.message || 'Error al procesar formato de ticket' };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error('TicketErrorBoundary capturó una excepción:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#141414] border border-[#C8A45C]/40 rounded-xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 text-[#C8A45C] flex items-center justify-center mx-auto">
+              <Printer className="w-6 h-6" />
+            </div>
+            <h4 className="text-white font-semibold text-sm">Visualizador de Ticket Térmico</h4>
+            <p className="text-xs text-neutral-300">
+              Se detectaron campos incompletos en el registro seleccionado.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                window.location.reload();
+              }}
+              className="px-4 py-2 bg-[#C8A45C] text-black font-semibold text-xs rounded-lg hover:bg-[#D4AF37] transition cursor-pointer"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export const TicketTermicoModal: React.FC = () => {
+  return (
+    <TicketErrorBoundary>
+      <TicketTermicoModalInner />
+    </TicketErrorBoundary>
   );
 };

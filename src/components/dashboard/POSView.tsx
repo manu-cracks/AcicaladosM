@@ -937,6 +937,7 @@ export const POSView: React.FC = () => {
 
       // Si se solicitó imprimir, abrir el diálogo del ticket térmico
       if (andPrint && res.sales.length > 0) {
+        console.log("Generando ticket con data:", res.sales[0]);
         openTicketModal('pos', res.sales[0]);
       }
     } catch (err: any) {
@@ -1018,7 +1019,10 @@ export const POSView: React.FC = () => {
               {lastRegisteredTicket.sale && (
                 <button
                   type="button"
-                  onClick={() => openTicketModal('pos', lastRegisteredTicket.sale!)}
+                  onClick={() => {
+                    console.log("Generando ticket con data:", lastRegisteredTicket.sale);
+                    openTicketModal('pos', lastRegisteredTicket.sale!);
+                  }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-bold text-xs transition shadow cursor-pointer"
                   title="Abrir e imprimir comprobante térmico"
                 >
@@ -1565,7 +1569,7 @@ export const POSView: React.FC = () => {
                             {item.seller_name && item.seller_name !== 'Recepción' && (
                               <span className="text-[10px] text-[#E6C875] bg-[#C8A45C]/15 border border-[#C8A45C]/30 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
                                 <span>Asignado:</span>
-                                <strong>{item.seller_name.split(' ')[0]}</strong>
+                                <strong>{(item.seller_name?.split(' ')[0]) || (item as any).especialista?.split(' ')[0] || (item as any).trabajador_nombre?.split(' ')[0] || 'RECEPCIÓN'}</strong>
                               </span>
                             )}
                           </div>
@@ -2045,7 +2049,10 @@ export const POSView: React.FC = () => {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          onClick={() => openTicketModal('pos', v)}
+                          onClick={() => {
+                            console.log("Generando ticket con data:", v);
+                            openTicketModal('pos', v);
+                          }}
                           className="p-1.5 rounded-lg bg-neutral-800 hover:bg-[#C8A45C] text-neutral-300 hover:text-black transition cursor-pointer"
                           title="Reimprimir Ticket Térmico"
                         >

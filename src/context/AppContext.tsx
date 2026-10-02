@@ -1123,6 +1123,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Thermal Ticket Actions
   const openTicketModal = useCallback((type: 'booking' | 'venta' | 'pos', data: Booking | VentaMostrador) => {
+    console.log("Generando ticket con data:", data);
+    if (!data) {
+      console.warn("openTicketModal invocado con data vacía o nula");
+      return;
+    }
     setActiveTicket({ type: type === 'pos' ? 'venta' : type, data });
   }, []);
 

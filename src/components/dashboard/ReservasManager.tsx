@@ -1228,7 +1228,7 @@ export const ReservasManager: React.FC = () => {
                         <td className="py-3 px-4 text-neutral-300">
                           {renderCategoryBadge(effectiveCategory)}
                           <span className="text-[10px] text-neutral-500 block mt-1">
-                            {b.services.length} {b.services.length === 1 ? 'servicio' : 'servicios'}
+                            {(b.services || []).length} {(b.services || []).length === 1 ? 'servicio' : 'servicios'}
                           </span>
                         </td>
 
@@ -1313,7 +1313,10 @@ export const ReservasManager: React.FC = () => {
                             {/* Print Ticket */}
                             <button
                               type="button"
-                              onClick={() => openTicketModal('booking', b)}
+                              onClick={() => {
+                                console.log("Generando ticket con data:", b);
+                                openTicketModal('booking', b);
+                              }}
                               className="p-1.5 rounded bg-neutral-800 hover:bg-[#C8A45C] text-neutral-300 hover:text-black transition cursor-pointer border border-neutral-700/50"
                               title="Imprimir ticket térmico"
                             >
@@ -1376,7 +1379,10 @@ export const ReservasManager: React.FC = () => {
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => openTicketModal('booking', b)}
+                                  onClick={() => {
+                                    console.log("Generando ticket con data:", b);
+                                    openTicketModal('booking', b);
+                                  }}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C8A45C]/15 hover:bg-[#C8A45C] text-[#E6C875] hover:text-black border border-[#C8A45C]/40 text-xs font-semibold transition cursor-pointer shadow-sm"
                                   title="Imprimir ticket térmico POS (80mm) de esta reserva"
                                 >
@@ -1386,7 +1392,7 @@ export const ReservasManager: React.FC = () => {
                               </div>
 
                               <div className="space-y-2">
-                                {b.services.map((srv, sIdx) => {
+                                {(b.services || []).map((srv, sIdx) => {
                                   const serviceKey = srv.id || `${b.id}-${sIdx}`;
                                   const isActionLoading = actionLoadingServiceId === serviceKey;
                                   const isSolicitado = Boolean(srv.solicitud_eliminacion);
@@ -1724,6 +1730,7 @@ export const ReservasManager: React.FC = () => {
                   type="button"
                   onClick={() => {
                     if (selectedBookingForPayment) {
+                      console.log("Generando ticket con data:", selectedBookingForPayment);
                       openTicketModal('booking', selectedBookingForPayment);
                     }
                   }}
@@ -1768,7 +1775,10 @@ export const ReservasManager: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => openTicketModal('booking', selectedBookingForHistory)}
+                  onClick={() => {
+                    console.log("Generando ticket con data:", selectedBookingForHistory);
+                    openTicketModal('booking', selectedBookingForHistory);
+                  }}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#C8A45C]/15 hover:bg-[#C8A45C] text-[#E6C875] hover:text-black border border-[#C8A45C]/40 text-xs font-semibold transition cursor-pointer"
                   title="Imprimir ticket térmico"
                 >

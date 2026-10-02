@@ -468,7 +468,10 @@ export const DashboardHome: React.FC = () => {
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => openTicketModal('booking', b)}
+                          onClick={() => {
+                            console.log("Generando ticket con data:", b);
+                            openTicketModal('booking', b);
+                          }}
                           className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition"
                           title="Imprimir Ticket Térmico"
                         >
