@@ -175,8 +175,17 @@ export const POSView: React.FC = () => {
             subtotal: mSub,
             subtotal_cents: Math.round(mSub * 100),
             monto_descuento: mDesc,
-            discount_cents: Math.round(mDesc * 100),
-            detalles_items: Array.isArray(v.detalles_items) ? v.detalles_items : undefined,
+            detalles_items: Array.isArray(v.detalles_items)
+              ? v.detalles_items
+              : typeof v.detalles_items === 'string'
+              ? (() => {
+                  try {
+                    return JSON.parse(v.detalles_items);
+                  } catch {
+                    return undefined;
+                  }
+                })()
+              : undefined,
             payment_method: isMixto ? 'MIXTO' : (v.metodo_pago?.toLowerCase() || 'efectivo') as any,
             notes: v.notas || undefined,
             created_at: v.fecha || v.created_at,
@@ -273,7 +282,7 @@ export const POSView: React.FC = () => {
   // Estados de interfaz y feedback
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [lastRegisteredTicket, setLastRegisteredTicket] = useState<{ number: string; total: string } | null>(null);
+  const [lastRegisteredTicket, setLastRegisteredTicket] = useState<{ number: string; total: string; sale?: VentaMostrador } | null>(null);
   const [historySearch, setHistorySearch] = useState<string>('');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -910,6 +919,7 @@ export const POSView: React.FC = () => {
       setLastRegisteredTicket({
         number: res.ticket_number,
         total: formattedTotal,
+        sale: res.sales[0],
       });
 
       // Limpiar formulario para la siguiente venta
@@ -995,7 +1005,7 @@ export const POSView: React.FC = () => {
 
         {/* Mensaje de éxito tras registrar una venta */}
         {lastRegisteredTicket && (
-          <div className="mt-5 p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="mt-5 p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="flex items-center gap-2.5">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>
@@ -1004,14 +1014,27 @@ export const POSView: React.FC = () => {
                 <strong className="text-[#E6C875]">{lastRegisteredTicket.total}</strong>.
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setLastRegisteredTicket(null)}
-              className="text-neutral-400 hover:text-white p-1"
-              title="Cerrar aviso"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {lastRegisteredTicket.sale && (
+                <button
+                  type="button"
+                  onClick={() => openTicketModal('pos', lastRegisteredTicket.sale!)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C8A45C] hover:bg-[#D4AF37] text-black font-bold text-xs transition shadow cursor-pointer"
+                  title="Abrir e imprimir comprobante térmico"
+                >
+                  <Printer className="w-3.5 h-3.5 text-black" />
+                  <span>Imprimir Ticket</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setLastRegisteredTicket(null)}
+                className="text-neutral-400 hover:text-white p-1 cursor-pointer"
+                title="Cerrar aviso"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 

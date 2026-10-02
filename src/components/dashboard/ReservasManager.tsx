@@ -1314,7 +1314,7 @@ export const ReservasManager: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => openTicketModal('booking', b)}
-                              className="p-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition cursor-pointer border border-neutral-700/50"
+                              className="p-1.5 rounded bg-neutral-800 hover:bg-[#C8A45C] text-neutral-300 hover:text-black transition cursor-pointer border border-neutral-700/50"
                               title="Imprimir ticket térmico"
                             >
                               <Printer className="w-3.5 h-3.5" />
@@ -1365,13 +1365,24 @@ export const ReservasManager: React.FC = () => {
                         <tr className="bg-[#111111] border-b border-neutral-800">
                           <td colSpan={9} className="p-4 sm:p-5">
                             <div className="space-y-3 max-w-4xl mx-auto">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-[#E6C875] uppercase tracking-wider">
-                                  Detalle de Servicios Individuales & Asignación de Especialistas
-                                </span>
-                                <span className="text-[11px] text-neutral-400">
-                                  Reasigna especialistas en tiempo real con validación de disponibilidad o libera al personal al culminar.
-                                </span>
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-2">
+                                <div>
+                                  <span className="text-xs font-bold text-[#E6C875] uppercase tracking-wider block">
+                                    Detalle de Servicios Individuales & Asignación de Especialistas
+                                  </span>
+                                  <span className="text-[11px] text-neutral-400">
+                                    Reasigna especialistas en tiempo real con validación de disponibilidad o libera al personal al culminar.
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openTicketModal('booking', b)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C8A45C]/15 hover:bg-[#C8A45C] text-[#E6C875] hover:text-black border border-[#C8A45C]/40 text-xs font-semibold transition cursor-pointer shadow-sm"
+                                  title="Imprimir ticket térmico POS (80mm) de esta reserva"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>Ticket térmico</span>
+                                </button>
                               </div>
 
                               <div className="space-y-2">
@@ -1708,20 +1719,35 @@ export const ReservasManager: React.FC = () => {
                 </div>
               )}
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="pt-2 flex justify-between items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsPaymentModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-neutral-400 hover:text-white bg-neutral-800"
+                  onClick={() => {
+                    if (selectedBookingForPayment) {
+                      openTicketModal('booking', selectedBookingForPayment);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#E6C875] bg-[#C8A45C]/15 hover:bg-[#C8A45C] hover:text-black border border-[#C8A45C]/40 transition cursor-pointer"
+                  title="Ver comprobante en formato ticket térmico"
                 >
-                  Cancelar
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Ticket térmico</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow"
-                >
-                  Guardar Pago
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsPaymentModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-neutral-400 hover:text-white bg-neutral-800 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl font-semibold bg-[#C8A45C] hover:bg-[#D4AF37] text-black shadow cursor-pointer"
+                  >
+                    Guardar Pago
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1739,13 +1765,24 @@ export const ReservasManager: React.FC = () => {
                 </h3>
                 <p className="text-xs text-neutral-400">{selectedBookingForHistory.client_name}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsHistoryModalOpen(false)}
-                className="text-neutral-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openTicketModal('booking', selectedBookingForHistory)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#C8A45C]/15 hover:bg-[#C8A45C] text-[#E6C875] hover:text-black border border-[#C8A45C]/40 text-xs font-semibold transition cursor-pointer"
+                  title="Imprimir ticket térmico"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Ticket térmico</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryModalOpen(false)}
+                  className="text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* List of payments for this booking */}
