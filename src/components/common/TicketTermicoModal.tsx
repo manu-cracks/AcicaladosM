@@ -34,68 +34,44 @@ export const ICON_YT_BASE64 =
   btoa(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="black"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.5 12 3.5 12 3.5s-7.505 0-9.377.55a3.016 3.016 0 0 0-2.122 2.136C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.55 9.376.55 9.376.55s7.505 0 9.377-.55a3.016 3.016 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>'
   );
+
 /**
- * Componente JSX 100% válido para los iconos vectorizados de redes sociales en ticket térmico.
- * Garantiza auto-cierre estricto en tags <path />, atributos className en lugar de class,
- * y alineación horizontal monocromática limpia para previsualización e impresión.
+ * Fila de iconos de redes sociales en Base64 para el pie de ticket térmico 80mm.
  */
 export const SocialIconsRow: React.FC = () => (
   <div className="social-icons-row flex items-center justify-center gap-3 py-1 print:flex print:justify-center print:gap-3">
-    {/* Facebook */}
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      className="social-icon w-[18px] h-[18px] fill-black inline-block shrink-0"
-      fill="black"
-      aria-label="Facebook"
-    >
-      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-    </svg>
-
-    {/* Instagram */}
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      className="social-icon w-[18px] h-[18px] fill-black inline-block shrink-0"
-      fill="black"
-      aria-label="Instagram"
-    >
-      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.07M12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-    </svg>
-
-    {/* TikTok */}
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      className="social-icon w-[18px] h-[18px] fill-black inline-block shrink-0"
-      fill="black"
-      aria-label="TikTok"
-    >
-      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
-    </svg>
-
-    {/* YouTube */}
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      className="social-icon w-[18px] h-[18px] fill-black inline-block shrink-0"
-      fill="black"
-      aria-label="YouTube"
-    >
-      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-    </svg>
+    <img
+      src={ICON_FB_BASE64}
+      alt="Facebook"
+      width={18}
+      height={18}
+      className="social-icon w-[18px] h-[18px] inline-block shrink-0"
+    />
+    <img
+      src={ICON_IG_BASE64}
+      alt="Instagram"
+      width={18}
+      height={18}
+      className="social-icon w-[18px] h-[18px] inline-block shrink-0"
+    />
+    <img
+      src={ICON_TK_BASE64}
+      alt="TikTok"
+      width={18}
+      height={18}
+      className="social-icon w-[18px] h-[18px] inline-block shrink-0"
+    />
+    <img
+      src={ICON_YT_BASE64}
+      alt="YouTube"
+      width={18}
+      height={18}
+      className="social-icon w-[18px] h-[18px] inline-block shrink-0"
+    />
   </div>
 );
 
-interface PreparedTicketService {
+export interface PreparedTicketService {
   code: string;
   service_name: string;
   price_cents: number;
@@ -103,7 +79,7 @@ interface PreparedTicketService {
   category: string;
 }
 
-interface PreparedBookingTicket {
+export interface PreparedBookingTicket {
   numeroTicket: string;
   fechaEmision: string;
   bookingCode: string;
@@ -117,8 +93,8 @@ interface PreparedBookingTicket {
   paymentStatus: string;
 }
 
-/** Formateador estricto y ultra-seguro para fecha de emisión de reserva: "23 oct. 2026 - 03:30 p. m." */
-function formatFechaEmisionTicket(isoString?: any): string {
+/** Formateador para fecha de emisión de reserva: "23 oct. 2026 - 03:30 p. m." */
+export function formatFechaEmisionTicket(isoString?: any): string {
   if (!isoString) return '';
   try {
     const d = new Date(isoString);
@@ -146,7 +122,7 @@ function formatFechaEmisionTicket(isoString?: any): string {
 }
 
 /** Formato de fecha para venta directa: "01 oct. 2026" */
-function formatFechaEmisionDirecta(isoStr?: any): string {
+export function formatFechaEmisionDirecta(isoStr?: any): string {
   if (!isoStr) return '';
   try {
     const d = new Date(isoStr);
@@ -163,7 +139,7 @@ function formatFechaEmisionDirecta(isoStr?: any): string {
 }
 
 /** Formato de hora para venta directa: "01:21 p. m." */
-function formatHoraEmisionDirecta(isoStr?: any): string {
+export function formatHoraEmisionDirecta(isoStr?: any): string {
   if (!isoStr) return '';
   try {
     const d = new Date(isoStr);
@@ -181,35 +157,41 @@ function formatHoraEmisionDirecta(isoStr?: any): string {
 
 /**
  * Extracción ULTRA-SEGURA del primer nombre del especialista o colaborador.
- * Aplica ESTRICTAMENTE Optional Chaining (?.) y Nullish Coalescing (?? / ||) según directiva:
- * (item.especialista?.split(' ')[0]) || 'RECEPCIÓN' o (item.trabajador_nombre?.split(' ')[0]) || 'RECEPCIÓN'
  * Soporta de manera transparente objetos (de servicios, ventas o reservas) o strings directos.
  */
 export function extractSpecialistFirstName(target?: any, defaultFallback = 'RECEPCIÓN'): string {
   if (!target) return defaultFallback;
 
   try {
-    // Si se pasa un objeto (item de servicio, reserva, venta o colaborador)
     if (typeof target === 'object') {
-      const candidate =
-        (target.especialista?.split(' ')[0]) ||
-        (target.trabajador_nombre?.split(' ')[0]) ||
-        (target.employee_name?.split(' ')[0]) ||
-        (target.seller_name?.split(' ')[0]) ||
-        (target.vendedor?.split(' ')[0]) ||
-        (target.first_name?.split(' ')[0]) ||
-        (target.full_name?.split(' ')[0]) ||
-        (target.name?.split(' ')[0]);
+      if (target.especialista && typeof target.especialista === 'object') {
+        return extractSpecialistFirstName(target.especialista, defaultFallback);
+      }
+      if (target.employee && typeof target.employee === 'object') {
+        return extractSpecialistFirstName(target.employee, defaultFallback);
+      }
 
-      if (candidate && typeof candidate === 'string' && candidate.trim()) {
-        const clean = candidate.trim().toUpperCase();
+      const candidate =
+        (typeof target.first_name === 'string' && target.first_name.trim()) ||
+        (typeof target.especialista === 'string' && target.especialista.trim()) ||
+        (typeof target.trabajador_nombre === 'string' && target.trabajador_nombre.trim()) ||
+        (typeof target.employee_name === 'string' && target.employee_name.trim()) ||
+        (typeof target.seller_name === 'string' && target.seller_name.trim()) ||
+        (typeof target.vendedor === 'string' && target.vendedor.trim()) ||
+        (typeof target.full_name === 'string' && target.full_name.trim()) ||
+        (typeof target.name === 'string' && target.name.trim()) ||
+        (typeof target.specialist === 'string' && target.specialist.trim());
+
+      if (candidate) {
+        const firstWord = candidate.split(/\s+/)?.[0] || '';
+        if (!firstWord) return defaultFallback;
+        const clean = firstWord.toUpperCase();
         if (clean === 'RECEPCIÓN' || clean === 'RECEPCION') return 'RECEPCIÓN';
         if (clean === 'ESPECIALISTA') return defaultFallback;
         return clean;
       }
     }
 
-    // Si se pasa directamente una cadena o cualquier valor convertible a texto
     if (typeof target === 'string' || typeof target === 'number') {
       const clean = String(target).trim();
       if (!clean) return defaultFallback;
@@ -232,8 +214,6 @@ export function extractFirstName(fullName?: any): string {
 
 /**
  * Filtro de Primer Nombre para Vendedor en Ventas Directas: split(' ')[0]
- * Ej. "JORGE ROBERT HUAMANI AZURZA" -> "JORGE"
- * Fallback: si vacío, default o "Recepción" -> "RECEPCIÓN"
  */
 export function extractSellerFirstName(sellerName?: any): string {
   return extractSpecialistFirstName(sellerName, 'RECEPCIÓN');
@@ -289,22 +269,20 @@ export function formatServiceName(name: any): string {
   }
 }
 
-const TicketTermicoModalInner: React.FC = () => {
-  const { activeTicket, closeTicketModal, services } = useApp();
+interface TicketTermicoModalInnerProps {
+  activeTicket: { type: 'booking' | 'venta'; data: Booking | VentaMostrador };
+  onClose: () => void;
+}
+
+const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activeTicket, onClose }) => {
+  const { services } = useApp();
   const [paperWidth, setPaperWidth] = useState<'80mm' | '58mm'>('80mm');
   const [preparedBooking, setPreparedBooking] = useState<PreparedBookingTicket | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Diagnóstico en consola para confirmar la apertura del modal y la data entrante
-  useEffect(() => {
-    if (activeTicket) {
-      console.log("TicketTermicoModal montado con activeTicket:", activeTicket);
-    }
-  }, [activeTicket]);
-
-  const isBooking = activeTicket?.type === 'booking';
+  const isBooking = activeTicket.type === 'booking';
   const bookingData = isBooking ? (activeTicket.data as Booking) : null;
-  const ventaData = !isBooking && activeTicket ? (activeTicket.data as VentaMostrador) : null;
+  const ventaData = !isBooking ? (activeTicket.data as VentaMostrador) : null;
 
   // Carga y aislamiento de datos por servicio en tiempo real justo antes de imprimir
   const prepareRealtimeBookingData = useCallback(async (b: Booking) => {
@@ -399,12 +377,10 @@ const TicketTermicoModalInner: React.FC = () => {
           ? `${emp.first_name || ''} ${emp.last_name || ''}`.trim()
           : (srv.employee_name || srv.especialista || srv.trabajador_nombre || 'RECEPCIÓN');
 
-        const firstNameOnly =
-          (emp?.first_name?.split(' ')[0]) ||
-          (srv.especialista?.split(' ')[0]) ||
-          (srv.trabajador_nombre?.split(' ')[0]) ||
-          (srv.employee_name?.split(' ')[0]) ||
-          extractSpecialistFirstName(rawEmpName, 'ESPECIALISTA');
+        const firstNameOnly = extractSpecialistFirstName(
+          emp?.first_name || srv.especialista || srv.trabajador_nombre || srv.employee_name || rawEmpName,
+          'ESPECIALISTA'
+        );
 
         let cat = 'Barbería';
         try {
@@ -454,7 +430,7 @@ const TicketTermicoModalInner: React.FC = () => {
             code: 'SERV-01',
             service_name: 'Servicio Acicalados',
             price_cents: totalCentsSafe,
-            specialist: (b as any).especialista?.split(' ')[0] || (b as any).trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA',
+            specialist: extractSpecialistFirstName((b as any).especialista || (b as any).trabajador_nombre, 'ESPECIALISTA'),
             category: 'Barbería',
           }
         ],
@@ -493,7 +469,7 @@ const TicketTermicoModalInner: React.FC = () => {
           code: `SERV-${String(idx + 1).padStart(2, '0')}`,
           service_name: formatServiceName(srv?.service_name || srv?.name || 'Servicio'),
           price_cents: parseSafeNumber(srv?.service_price_cents ?? srv?.price_cents ?? 0, 0),
-          specialist: (srv?.especialista?.split(' ')[0]) || (srv?.trabajador_nombre?.split(' ')[0]) || extractFirstName(srv?.employee_name || 'ESPECIALISTA'),
+          specialist: extractSpecialistFirstName(srv?.especialista || srv?.trabajador_nombre || srv?.employee_name, 'ESPECIALISTA'),
           category: 'Barbería',
         })),
         totalPriceCents: totalCentsSafe,
@@ -507,14 +483,12 @@ const TicketTermicoModalInner: React.FC = () => {
   }, [services]);
 
   useEffect(() => {
-    if (activeTicket && isBooking && bookingData) {
+    if (isBooking && bookingData) {
       prepareRealtimeBookingData(bookingData);
     } else {
       setPreparedBooking(null);
     }
-  }, [activeTicket, isBooking, bookingData, prepareRealtimeBookingData]);
-
-  if (!activeTicket) return null;
+  }, [isBooking, bookingData, prepareRealtimeBookingData]);
 
   const handlePrint = () => {
     window.print();
@@ -547,7 +521,7 @@ const TicketTermicoModalInner: React.FC = () => {
           code: `SERV-${String(idx + 1).padStart(2, '0')}`,
           service_name: formatServiceName(srv?.service_name || srv?.name || 'Servicio'),
           price_cents: parseSafeNumber(srv?.service_price_cents ?? srv?.price_cents ?? 0, 0),
-          specialist: (srv?.especialista?.split(' ')[0]) || (srv?.trabajador_nombre?.split(' ')[0]) || extractFirstName(srv?.employee_name || 'ESPECIALISTA'),
+          specialist: extractSpecialistFirstName(srv, 'ESPECIALISTA'),
           category: cat,
         };
       });
@@ -558,50 +532,41 @@ const TicketTermicoModalInner: React.FC = () => {
         code: 'SERV-01',
         service_name: 'Servicio Acicalados',
         price_cents: parseSafeNumber(bookingData?.total_price_cents, 0),
-        specialist: (bookingData as any)?.especialista?.split(' ')[0] || (bookingData as any)?.trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA',
+        specialist: extractSpecialistFirstName(bookingData, 'ESPECIALISTA'),
         category: 'Barbería',
       },
     ];
   }, [preparedBooking, bookingData, services]);
 
-  const SEPARATOR_DASH = '----------------------------------------------------------------------';
-  const SEPARATOR_EQUAL = '======================================================================';
-  const SEPARATOR_DOT = '......................................................................';
+  const totalPresupuesto = useMemo(() => {
+    if (isBooking) {
+      if (preparedBooking?.totalPriceCents != null) return parseSafeNumber(preparedBooking.totalPriceCents, 0);
+      if (bookingData?.total_price_cents != null) return parseSafeNumber(bookingData.total_price_cents, 0);
+      return 0;
+    }
+    if (ventaData?.total_price_cents != null) return parseSafeNumber(ventaData.total_price_cents, 0);
+    if ((ventaData as any)?.total != null) return parseSafeNumber(Number((ventaData as any).total) * 100, 0);
+    return 0;
+  }, [isBooking, preparedBooking, bookingData, ventaData]);
 
-  // Datos para renderizado de Reservas (resiliente a camelCase y snake_case)
-  const ticketNumero = preparedBooking?.numeroTicket || bookingData?.numero_ticket || (bookingData as any)?.ticket_number || '001-0000001';
-  const rawBkCode = String(preparedBooking?.bookingCode || bookingData?.code || (bookingData as any)?.booking_code || 'AC-6505');
-  const bookingCode = rawBkCode.startsWith('#') ? rawBkCode : `#${rawBkCode}`;
-  const fechaEmisionTxt = formatFechaEmisionTicket(preparedBooking?.fechaEmision || bookingData?.fecha_emision_ticket || bookingData?.confirmed_at || bookingData?.created_at);
+  const adelantoCobrado = useMemo(() => {
+    if (isBooking) {
+      if (preparedBooking?.advanceAmountCents != null) return parseSafeNumber(preparedBooking.advanceAmountCents, 0);
+      if (bookingData?.advance_amount_cents != null) return parseSafeNumber(bookingData.advance_amount_cents, 0);
+      return 0;
+    }
+    return totalPresupuesto;
+  }, [isBooking, preparedBooking, bookingData, totalPresupuesto]);
 
-  const clienteNombre =
-    preparedBooking?.clientName ||
-    (isBooking
-      ? (bookingData?.client_name || `${(bookingData as any)?.client_first_name || ''} ${(bookingData as any)?.client_last_name || ''}`.trim() || 'Cliente')
-      : (ventaData?.client_name || (ventaData as any)?.cliente_nombre || 'Cliente'));
+  const saldoPendiente = useMemo(() => {
+    if (isBooking) {
+      if (preparedBooking?.balanceCents != null) return parseSafeNumber(preparedBooking.balanceCents, 0);
+      if (bookingData?.balance_cents != null) return parseSafeNumber(bookingData.balance_cents, 0);
+      return Math.max(0, totalPresupuesto - adelantoCobrado);
+    }
+    return 0;
+  }, [isBooking, preparedBooking, bookingData, totalPresupuesto, adelantoCobrado]);
 
-  const clienteDni =
-    preparedBooking?.clientDni ||
-    (isBooking
-      ? (bookingData?.client_dni || (bookingData as any)?.dni || '')
-      : (ventaData?.client_dni || (ventaData as any)?.dni || ''));
-
-  const startStr = bookingData?.start_time ? String(bookingData.start_time).substring(0, 5) : '';
-  const endStr = bookingData?.end_time ? String(bookingData.end_time).substring(0, 5) : '';
-  const horaCita = preparedBooking?.horaCita || (startStr && endStr ? `${startStr} - ${endStr}` : '11:00 - 12:30');
-
-  const totalPresupuesto = parseSafeNumber(
-    preparedBooking?.totalPriceCents ?? bookingData?.total_price_cents ?? ventaData?.total_price_cents ?? (ventaData as any)?.total != null ? (ventaData as any)?.total * 100 : 0,
-    0
-  );
-  const adelantoCobrado = parseSafeNumber(
-    preparedBooking?.advanceAmountCents ?? bookingData?.advance_amount_cents ?? (isBooking ? 0 : totalPresupuesto),
-    0
-  );
-  const saldoPendiente = parseSafeNumber(
-    preparedBooking?.balanceCents ?? (bookingData ? Math.max(0, totalPresupuesto - adelantoCobrado) : 0),
-    0
-  );
   const paymentStatus = preparedBooking?.paymentStatus || bookingData?.payment_status || 'total';
 
   const estadoPagoLabel = isBooking
@@ -644,12 +609,7 @@ const TicketTermicoModalInner: React.FC = () => {
             : qty * unitPrice,
           0
         );
-        const seller =
-          (it?.especialista?.split(' ')[0]) ||
-          (it?.trabajador_nombre?.split(' ')[0]) ||
-          (it?.seller_name?.split(' ')[0]) ||
-          (it?.vendedor?.split(' ')[0]) ||
-          extractSellerFirstName(it?.seller_name || it?.vendedor || 'RECEPCIÓN');
+        const seller = extractSellerFirstName(it?.seller_name || it?.vendedor || it);
 
         return {
           product_name: it?.product_name || it?.producto_nombre || it?.name || 'Producto',
@@ -674,12 +634,9 @@ const TicketTermicoModalInner: React.FC = () => {
         : (ventaData as any).total,
       qty * unitPrice
     );
-    const singleSeller =
-      ((ventaData as any).especialista?.split(' ')[0]) ||
-      ((ventaData as any).trabajador_nombre?.split(' ')[0]) ||
-      ((ventaData as any).seller_name?.split(' ')[0]) ||
-      ((ventaData as any).vendedor?.split(' ')[0]) ||
-      extractSellerFirstName((ventaData as any).seller_name || (ventaData as any).vendedor || 'RECEPCIÓN');
+    const singleSeller = extractSellerFirstName(
+      (ventaData as any).seller_name || (ventaData as any).vendedor || ventaData
+    );
 
     return [{
       product_name: ventaData.product_name || (ventaData as any).producto_nombre || 'Venta en Mostrador',
@@ -706,10 +663,36 @@ const TicketTermicoModalInner: React.FC = () => {
 
   const ventaTicketCode = useMemo(() => {
     if (!ventaData) return 'VP-00000000';
-    if (ventaData.ticket_number) return ventaData.ticket_number;
-    if ((ventaData as any).numero_ticket) return (ventaData as any).numero_ticket;
+    if (ventaData.ticket_number) return String(ventaData.ticket_number);
+    if ((ventaData as any).numero_ticket) return String((ventaData as any).numero_ticket);
     return `VP-${String(ventaData.id || '39028160').substring(0, 8).toUpperCase()}`;
   }, [ventaData]);
+
+  const SEPARATOR_DASH = '----------------------------------------------------------------------';
+  const SEPARATOR_EQUAL = '======================================================================';
+  const SEPARATOR_DOT = '......................................................................';
+
+  // Datos para renderizado de Reservas (resiliente a camelCase y snake_case)
+  const ticketNumero = preparedBooking?.numeroTicket || bookingData?.numero_ticket || (bookingData as any)?.ticket_number || '001-0000001';
+  const rawBkCode = String(preparedBooking?.bookingCode || bookingData?.code || (bookingData as any)?.booking_code || 'AC-6505');
+  const bookingCode = rawBkCode.startsWith('#') ? rawBkCode : `#${rawBkCode}`;
+  const fechaEmisionTxt = formatFechaEmisionTicket(preparedBooking?.fechaEmision || bookingData?.fecha_emision_ticket || bookingData?.confirmed_at || bookingData?.created_at);
+
+  const clienteNombre =
+    preparedBooking?.clientName ||
+    (isBooking
+      ? (bookingData?.client_name || `${(bookingData as any)?.client_first_name || ''} ${(bookingData as any)?.client_last_name || ''}`.trim() || 'Cliente')
+      : (ventaData?.client_name || (ventaData as any)?.cliente_nombre || 'Cliente'));
+
+  const clienteDni =
+    preparedBooking?.clientDni ||
+    (isBooking
+      ? (bookingData?.client_dni || (bookingData as any)?.dni || '')
+      : (ventaData?.client_dni || (ventaData as any)?.dni || ''));
+
+  const startStr = bookingData?.start_time ? String(bookingData.start_time).substring(0, 5) : '';
+  const endStr = bookingData?.end_time ? String(bookingData.end_time).substring(0, 5) : '';
+  const horaCita = preparedBooking?.horaCita || (startStr && endStr ? `${startStr} - ${endStr}` : '11:00 - 12:30');
 
   const ventaFechaEmision = formatFechaEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
   const ventaHoraEmision = formatHoraEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
@@ -720,7 +703,7 @@ const TicketTermicoModalInner: React.FC = () => {
       className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto print:static print:inset-auto print:p-0 print:m-0 print:bg-white print:backdrop-blur-none print:overflow-visible print:block print:z-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          closeTicketModal();
+          onClose();
         }
       }}
     >
@@ -747,7 +730,7 @@ const TicketTermicoModalInner: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setPaperWidth('80mm')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                   paperWidth === '80mm' ? 'bg-[#C8A45C] text-black font-semibold' : 'text-neutral-400 hover:text-white'
                 }`}
               >
@@ -756,7 +739,7 @@ const TicketTermicoModalInner: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setPaperWidth('58mm')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
                   paperWidth === '58mm' ? 'bg-[#C8A45C] text-black font-semibold' : 'text-neutral-400 hover:text-white'
                 }`}
               >
@@ -767,7 +750,7 @@ const TicketTermicoModalInner: React.FC = () => {
             <button
               id="close-ticket-modal-btn"
               type="button"
-              onClick={closeTicketModal}
+              onClick={onClose}
               className="p-1 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded transition cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -899,7 +882,7 @@ const TicketTermicoModalInner: React.FC = () => {
                           </span>
                         </div>
                         <div className="text-[10px] text-neutral-800 font-medium">
-                          Esp: {(srv.specialist?.split(' ')[0]) || (srv as any).especialista?.split(' ')[0] || (srv as any).trabajador_nombre?.split(' ')[0] || 'ESPECIALISTA'}
+                          Esp: {extractSpecialistFirstName(srv.specialist || (srv as any).especialista || (srv as any).trabajador_nombre, 'ESPECIALISTA')}
                         </div>
                       </div>
                     ))}
@@ -1018,7 +1001,7 @@ const TicketTermicoModalInner: React.FC = () => {
                             <span className="w-16 text-right font-bold">S/ {parseSafeNumber(item.total, 0).toFixed(2)}</span>
                           </div>
                           <div className="text-[10px] text-neutral-800 font-semibold pl-10">
-                            Vend: {(item.seller_name?.split(' ')[0]) || (item as any).especialista?.split(' ')[0] || (item as any).trabajador_nombre?.split(' ')[0] || 'RECEPCIÓN'}
+                            Vend: {extractSellerFirstName(item.seller_name || (item as any).especialista || (item as any).trabajador_nombre)}
                           </div>
                         </div>
                       ))}
@@ -1110,7 +1093,7 @@ const TicketTermicoModalInner: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={closeTicketModal}
+              onClick={onClose}
               className="px-4 py-2 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 rounded-lg transition cursor-pointer"
             >
               Cerrar
@@ -1136,13 +1119,9 @@ const TicketTermicoModalInner: React.FC = () => {
   );
 };
 
-/**
- * Error Boundary interno para el Ticket Térmico.
- * Garantiza que si algún registro antiguo o estructura malformada produce una excepción,
- * la aplicación NUNCA experimente un crasheo silencioso y presente una interfaz de recuperación.
- */
 interface TicketErrorBoundaryProps {
   children: ReactNode;
+  onClose?: () => void;
 }
 
 interface TicketErrorBoundaryState {
@@ -1150,11 +1129,13 @@ interface TicketErrorBoundaryState {
   errorMessage?: string;
 }
 
-export class TicketErrorBoundary extends (Component as any)<any, any> {
-  state = { hasError: false, errorMessage: '' };
+export class TicketErrorBoundary extends (React.Component as any)<TicketErrorBoundaryProps, TicketErrorBoundaryState> {
+  props: TicketErrorBoundaryProps;
+  state: TicketErrorBoundaryState = { hasError: false, errorMessage: '' };
 
-  constructor(props: any) {
+  constructor(props: TicketErrorBoundaryProps) {
     super(props);
+    this.props = props;
   }
 
   static getDerivedStateFromError(error: any) {
@@ -1166,6 +1147,7 @@ export class TicketErrorBoundary extends (Component as any)<any, any> {
   }
 
   render() {
+    const self = this as any;
     if (this.state.hasError) {
       return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -1175,17 +1157,21 @@ export class TicketErrorBoundary extends (Component as any)<any, any> {
             </div>
             <h4 className="text-white font-semibold text-sm">Visualizador de Ticket Térmico</h4>
             <p className="text-xs text-neutral-300">
-              Se detectaron campos incompletos en el registro seleccionado.
+              Se detectaron campos incompletos en el comprobante.
             </p>
             <button
               type="button"
               onClick={() => {
-                this.setState({ hasError: false });
-                window.location.reload();
+                self.setState({ hasError: false });
+                if (this.props.onClose) {
+                  this.props.onClose();
+                } else {
+                  window.location.reload();
+                }
               }}
               className="px-4 py-2 bg-[#C8A45C] text-black font-semibold text-xs rounded-lg hover:bg-[#D4AF37] transition cursor-pointer"
             >
-              Reintentar
+              Cerrar
             </button>
           </div>
         </div>
@@ -1197,9 +1183,13 @@ export class TicketErrorBoundary extends (Component as any)<any, any> {
 }
 
 export const TicketTermicoModal: React.FC = () => {
+  const { activeTicket, closeTicketModal } = useApp();
+
+  if (!activeTicket) return null;
+
   return (
-    <TicketErrorBoundary>
-      <TicketTermicoModalInner />
+    <TicketErrorBoundary onClose={closeTicketModal}>
+      <TicketTermicoModalInner activeTicket={activeTicket} onClose={closeTicketModal} />
     </TicketErrorBoundary>
   );
 };
