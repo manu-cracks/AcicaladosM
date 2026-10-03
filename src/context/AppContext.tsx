@@ -488,26 +488,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
       }
 
-      // 3. Vestuario
+      // 3. Vestuario (Arquitectura de Doble Identificador: SKU único para reservas + letra para catálogo)
       const { data: dbWardrobe } = await supabase.from('wardrobe_items').select('*').order('code');
       if (dbWardrobe) {
         setWardrobe(
-          dbWardrobe.map((w: any) => ({
-            id: w.id,
-            code: (w.code || 'A').toUpperCase().trim(),
-            identificador: w.identificador || w.codigo_unico || w.code || 'A',
-            codigo_unico: w.codigo_unico || w.identificador || w.code || 'A',
-            name: w.name,
-            category: w.category || 'Bodas y Matrimonio',
-            rental_price_cents: w.price_cents,
-            deposit_cents: w.deposit_cents || 0,
-            status: (w.availability_status || 'disponible') as WardrobeStatus,
-            active: w.is_active !== undefined ? w.is_active : true,
-            size: w.size || 'M',
-            color: w.color || 'Variado',
-            image_url: w.images && w.images.length > 0 ? w.images[0] : (w.imagen_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'),
-            description: w.description || '',
-          }))
+          dbWardrobe.map((w: any) => {
+            const uniqueSku = (w.code || w.codigo_unico || w.codigo_prenda || 'A-100').toUpperCase().trim();
+            const letter = uniqueSku.split('-')[0].toUpperCase() || 'A';
+            return {
+              id: w.id,
+              code: uniqueSku,
+              identificador: uniqueSku,
+              codigo_unico: uniqueSku,
+              letter_code: letter,
+              name: w.name,
+              category: w.category || 'Bodas y Matrimonio',
+              rental_price_cents: w.price_cents,
+              deposit_cents: w.deposit_cents || 0,
+              status: (w.availability_status || 'disponible') as WardrobeStatus,
+              active: w.is_active !== undefined ? w.is_active : true,
+              size: w.size || 'M',
+              color: w.color || 'Variado',
+              image_url: w.images && w.images.length > 0 ? w.images[0] : (w.imagen_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'),
+              description: w.description || '',
+            };
+          })
         );
       }
 
@@ -3790,10 +3795,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addWardrobeItem = useCallback(async (itemData: Omit<WardrobeItem, 'id'>): Promise<boolean> => {
     try {
-      const codeUpper = (itemData.code || 'A').toUpperCase().trim();
+      const codeUpper = (itemData.code || itemData.codigo_unico || 'A-100').toUpperCase().trim();
+      const letter = codeUpper.split('-')[0].toUpperCase() || 'A';
       const insertPayload = {
         name: itemData.name,
         code: codeUpper,
+        codigo_prenda: codeUpper,
+        codigo_unico: codeUpper,
+        identificador: codeUpper,
         description: itemData.description || null,
         category: itemData.category,
         price_cents: itemData.rental_price_cents,
@@ -3812,16 +3821,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (error) {
         console.error('Error al insertar prenda de vestuario en Supabase:', error);
         // Fallback local
-        const newItem: WardrobeItem = { ...itemData, code: codeUpper, id: `ward-${Date.now()}` };
+        const newItem: WardrobeItem = {
+          ...itemData,
+          code: codeUpper,
+          codigo_unico: codeUpper,
+          identificador: codeUpper,
+          letter_code: letter,
+          id: `ward-${Date.now()}`,
+        };
         setWardrobe((prev) => [...prev, newItem]);
         pulseRealtime();
         return true;
       }
 
       if (data) {
+        const uniqueCode = (data.code || data.codigo_unico || codeUpper).toUpperCase().trim();
+        const dataLetter = uniqueCode.split('-')[0].toUpperCase() || 'A';
         const newItem: WardrobeItem = {
           id: data.id,
-          code: (data.code || codeUpper).toUpperCase().trim(),
+          code: uniqueCode,
+          codigo_unico: uniqueCode,
+          identificador: uniqueCode,
+          letter_code: dataLetter,
           name: data.name,
           category: data.category || 'Bodas y Matrimonio',
           rental_price_cents: data.price_cents,
@@ -3844,8 +3865,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateWardrobeItem = useCallback(async (item: WardrobeItem): Promise<boolean> => {
     try {
-      const codeUpper = (item.code || 'A').toUpperCase().trim();
-      const updatedItem = { ...item, code: codeUpper };
+      const codeUpper = (item.code || item.codigo_unico || 'A-100').toUpperCase().trim();
+      const letter = codeUpper.split('-')[0].toUpperCase() || 'A';
+      const updatedItem: WardrobeItem = {
+        ...item,
+        code: codeUpper,
+        codigo_unico: codeUpper,
+        identificador: codeUpper,
+        letter_code: letter,
+      };
       setWardrobe((prev) => prev.map((w) => (w.id === item.id ? updatedItem : w)));
       pulseRealtime();
 
@@ -3853,6 +3881,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const { error } = await supabase.from('wardrobe_items').update({
           name: item.name,
           code: codeUpper,
+          codigo_prenda: codeUpper,
+          codigo_unico: codeUpper,
+          identificador: codeUpper,
           description: item.description || null,
           category: item.category,
           price_cents: item.rental_price_cents,

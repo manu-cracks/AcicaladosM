@@ -97,7 +97,11 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
       return wardrobe.slice(0, 5); // Sugerencias iniciales si no escribe
     }
     const q = searchCodeQuery.toUpperCase().trim();
-    return wardrobe.filter((w) => (w.code || '').toUpperCase().includes(q));
+    return wardrobe.filter(
+      (w) =>
+        (w.code || w.codigo_unico || '').toUpperCase().includes(q) ||
+        (w.name || '').toUpperCase().includes(q)
+    );
   }, [wardrobe, searchCodeQuery]);
 
   // Manejador al seleccionar prenda
@@ -193,7 +197,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
       const created = await addDressRental({
         origin: 'local',
         wardrobe_item_id: selectedWardrobeItem.id,
-        item_code: (selectedWardrobeItem.code || 'A-101').toUpperCase().trim(),
+        item_code: (selectedWardrobeItem.code || selectedWardrobeItem.codigo_unico || 'A-101').toUpperCase().trim(),
         item_name: selectedWardrobeItem.name,
         item_size: selectedWardrobeItem.size || 'M',
         item_color: selectedWardrobeItem.color || 'Variado',
@@ -504,7 +508,8 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
           {/* ======================================================== */}
           <div className="space-y-2">
             <DressAvailabilityCalendar
-              itemCode={selectedWardrobeItem?.code || 'C-310'}
+              itemCode={selectedWardrobeItem?.code || selectedWardrobeItem?.codigo_unico || 'A-100'}
+              wardrobeItemId={selectedWardrobeItem?.id}
               itemName={selectedWardrobeItem?.name || 'Vestido'}
               selectedDate={eventDate}
               returnDate={returnDate}

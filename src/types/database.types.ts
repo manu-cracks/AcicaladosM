@@ -1545,6 +1545,16 @@ export type Database = {
           size: string | null
           sort_order: number
           updated_at: string
+          codigo_prenda: string | null
+          codigo_unico: string | null
+          identificador: string | null
+          imagen_url: string | null
+          titulo: string | null
+          descripcion: string | null
+          categoria_evento: string | null
+          precio_alquiler: number | null
+          garantia_reembolsable: number | null
+          estado: boolean | null
         }
         Insert: {
           availability_status?: string
@@ -1563,6 +1573,16 @@ export type Database = {
           size?: string | null
           sort_order?: number
           updated_at?: string
+          codigo_prenda?: string | null
+          codigo_unico?: string | null
+          identificador?: string | null
+          imagen_url?: string | null
+          titulo?: string | null
+          descripcion?: string | null
+          categoria_evento?: string | null
+          precio_alquiler?: number | null
+          garantia_reembolsable?: number | null
+          estado?: boolean | null
         }
         Update: {
           availability_status?: string
@@ -1581,6 +1601,16 @@ export type Database = {
           size?: string | null
           sort_order?: number
           updated_at?: string
+          codigo_prenda?: string | null
+          codigo_unico?: string | null
+          identificador?: string | null
+          imagen_url?: string | null
+          titulo?: string | null
+          descripcion?: string | null
+          categoria_evento?: string | null
+          precio_alquiler?: number | null
+          garantia_reembolsable?: number | null
+          estado?: boolean | null
         }
         Relationships: []
       }

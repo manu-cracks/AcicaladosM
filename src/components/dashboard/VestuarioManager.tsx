@@ -340,17 +340,15 @@ export const VestuarioManager: React.FC = () => {
   // ==========================================
   // GESTIÓN DE PRENDAS (CATÁLOGO CRUD)
   // ==========================================
-  const getNextAvailableCode = useCallback(() => {
-    const existingCodes = new Set(
-      wardrobe
-        .map((w) => (w.code || '').trim().toUpperCase())
-        .filter((c) => /^[A-Z]$/.test(c))
-    );
-    for (let i = 0; i < 26; i++) {
-      const letter = String.fromCharCode(65 + i);
-      if (!existingCodes.has(letter)) return letter;
-    }
-    return 'A';
+  const getNextAvailableCode = useCallback((prefix = 'A') => {
+    const cleanPrefix = (prefix || 'A').trim().toUpperCase().charAt(0) || 'A';
+    const numbers = wardrobe
+      .map((w) => (w.code || w.codigo_unico || '').trim().toUpperCase())
+      .filter((c) => c.startsWith(`${cleanPrefix}-`))
+      .map((c) => parseInt(c.split('-')[1], 10))
+      .filter((n) => !isNaN(n));
+    const maxNum = numbers.length > 0 ? Math.max(...numbers) : 99;
+    return `${cleanPrefix}-${maxNum + 1}`;
   }, [wardrobe]);
 
   const handleOpenCreateItemModal = () => {
@@ -358,7 +356,7 @@ export const VestuarioManager: React.FC = () => {
     setEditingItemId(null);
     setFormName('');
     setFormCategory('Bodas y Matrimonio');
-    setFormCode(getNextAvailableCode());
+    setFormCode(getNextAvailableCode('A'));
     setFormDescription('');
     setFormPriceSoles('180.00');
     setFormDepositSoles('50.00');
@@ -374,7 +372,7 @@ export const VestuarioManager: React.FC = () => {
     setFormName(item.name);
     const matchedCategory = EVENT_CATEGORIES.find((c) => c.toLowerCase() === item.category.toLowerCase());
     setFormCategory(matchedCategory || 'Bodas y Matrimonio');
-    setFormCode((item.code || 'A').toUpperCase().trim());
+    setFormCode((item.code || item.codigo_unico || item.identificador || 'A-100').toUpperCase().trim());
     setFormDescription(item.description || '');
     setFormPriceSoles((item.rental_price_cents / 100).toFixed(2));
     setFormDepositSoles(((item.deposit_cents || 0) / 100).toFixed(2));
@@ -551,8 +549,9 @@ export const VestuarioManager: React.FC = () => {
     return wardrobe.filter((w) => {
       let matchesText = true;
       if (isSingleChar) {
-        const itemCode = (w.code || '').trim().toLowerCase();
-        matchesText = itemCode === q;
+        const itemCode = (w.code || w.codigo_unico || '').trim().toLowerCase();
+        const letter = (w.letter_code || itemCode.split('-')[0] || '').toLowerCase();
+        matchesText = itemCode.startsWith(q + '-') || itemCode === q || letter === q;
       } else if (q.length > 1) {
         const itemCode = (w.code || '').trim().toLowerCase();
         const itemSku = (w.identificador || w.codigo_unico || '').toLowerCase();
@@ -1127,7 +1126,7 @@ export const VestuarioManager: React.FC = () => {
                 {catalogSearch.trim().length === 1 && (
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#C8A45C]/15 border border-[#C8A45C]/40 text-[#E6C875] text-[10px] font-bold uppercase tracking-wider">
                     <Tag className="w-2.5 h-2.5" />
-                    Cód: {catalogSearch.trim().toUpperCase()}
+                    Bloque: {catalogSearch.trim().toUpperCase()}
                   </span>
                 )}
                 {catalogSearch && (
@@ -1215,7 +1214,7 @@ export const VestuarioManager: React.FC = () => {
               {filteredCatalogItems.map((item) => {
                 const isItemActive = item.active !== false;
                 const priceFormatted = (item.rental_price_cents / 100).toFixed(2);
-                const codeDisplay = (item.code || 'A').toUpperCase().trim();
+                const codeDisplay = (item.code || item.codigo_unico || item.identificador || 'A-100').toUpperCase().trim();
 
                 return (
                   <div

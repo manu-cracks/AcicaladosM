@@ -80,6 +80,7 @@ export interface WardrobeItem {
   color?: string;
   identificador?: string;
   codigo_unico?: string;
+  letter_code?: string;
 }
 
 export type DressRentalStatus = 'por_validar' | 'reservado' | 'entregado' | 'finalizado' | 'anulado';

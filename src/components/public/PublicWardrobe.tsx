@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatSoles, WardrobeItem } from '../../types';
-import { Shirt, MessageSquare, Sparkles, Tag, Maximize2, MoveHorizontal, Calendar } from 'lucide-react';
+import { Shirt, MessageSquare, Sparkles, Tag, Maximize2, MoveHorizontal, Calendar, Layers } from 'lucide-react';
 import { PublicDressBookingModal } from './PublicDressBookingModal';
 
 export const PublicWardrobe: React.FC = () => {
   const { wardrobe, openLightbox } = useApp();
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [selectedLetter, setSelectedLetter] = useState<string>('all');
   const [selectedBookingItem, setSelectedBookingItem] = useState<WardrobeItem | null>(null);
 
   // Las 5 categorías de evento exactas
   const categories = [
-    { id: 'all', label: 'Todos' },
+    { id: 'all', label: 'Todos los Eventos' },
     { id: 'Bodas y Matrimonio', label: 'Bodas y Matrimonio' },
     { id: 'Quinceañeras', label: 'Quinceañeras' },
     { id: 'Gala y Noche', label: 'Gala y Noche' },
@@ -19,19 +20,48 @@ export const PublicWardrobe: React.FC = () => {
     { id: 'Casual y Sesiones de Fotos', label: 'Casual & Sesiones' },
   ];
 
-  // Requisito 3: "filtrando únicamente las prendas marcadas como 'Activo'"
-  const filtered = wardrobe.filter((item) => {
-    if (item.active === false) return false;
-    if (filterCategory === 'all') return true;
-    return (item.category || '').toLowerCase() === filterCategory.toLowerCase();
-  });
+  // Letras de bloque disponibles en el inventario activo (A-Z)
+  const availableLetters = useMemo(() => {
+    const lettersSet = new Set<string>();
+    wardrobe.forEach((item) => {
+      if (item.active !== false) {
+        const rawCode = (item.code || item.codigo_unico || '').trim().toUpperCase();
+        const letter = rawCode.split('-')[0];
+        if (letter && /^[A-Z]+$/.test(letter)) {
+          lettersSet.add(letter);
+        }
+      }
+    });
+    return Array.from(lettersSet).sort();
+  }, [wardrobe]);
+
+  // Filtrado compuesto: Categoría de evento + Bloque alfabético (Doble Identificador)
+  const filtered = useMemo(() => {
+    return wardrobe.filter((item) => {
+      if (item.active === false) return false;
+
+      // 1. Filtro por Categoría
+      if (filterCategory !== 'all') {
+        if ((item.category || '').toLowerCase() !== filterCategory.toLowerCase()) return false;
+      }
+
+      // 2. Filtro por Bloque / Letra (Doble Identificador)
+      if (selectedLetter !== 'all') {
+        const code = (item.code || item.codigo_unico || '').toUpperCase().trim();
+        const matchesLetter = code.startsWith(`${selectedLetter}-`) || code === selectedLetter;
+        if (!matchesLetter) return false;
+      }
+
+      return true;
+    });
+  }, [wardrobe, filterCategory, selectedLetter]);
 
   // Dividir el arreglo de datos filtrados en dos arreglos separados (índices pares e impares)
   const row1 = filtered.filter((_, idx) => idx % 2 === 0);
   const row2 = filtered.filter((_, idx) => idx % 2 !== 0);
 
   const handleInquireWhatsApp = (item: WardrobeItem) => {
-    const code = (item.code || 'A').toUpperCase().trim();
+    const code = (item.code || item.codigo_unico || 'A-100').toUpperCase().trim();
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
     );
@@ -39,7 +69,7 @@ export const PublicWardrobe: React.FC = () => {
   };
 
   const renderWardrobeCard = (item: WardrobeItem) => {
-    const codeDisplay = (item.code || 'A').toUpperCase().trim();
+    const codeDisplay = (item.code || item.codigo_unico || 'A-100').toUpperCase().trim();
     const priceFormatted = (item.rental_price_cents / 100).toFixed(2);
 
     return (
@@ -200,6 +230,60 @@ export const PublicWardrobe: React.FC = () => {
             </button>
           ))}
         </div>
+
+        {/* Filtro Alfabético por Letra / Bloque (Doble Identificador: Catálogo A-Z) */}
+        {availableLetters.length > 0 && (
+          <div className="pt-2 space-y-2">
+            <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-400">
+              <Layers className="w-3.5 h-3.5 text-[#C8A45C]" />
+              <span className="font-semibold text-neutral-300">Explorar por Bloque / Letra:</span>
+              {selectedLetter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedLetter('all')}
+                  className="text-[#E6C875] hover:underline font-bold ml-1 cursor-pointer"
+                >
+                  (Mostrar Todos)
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-4xl mx-auto px-2">
+              <button
+                type="button"
+                onClick={() => setSelectedLetter('all')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  selectedLetter === 'all'
+                    ? 'bg-neutral-200 text-black shadow'
+                    : 'bg-[#181818] text-neutral-400 hover:text-white border border-neutral-800 hover:border-neutral-700'
+                }`}
+              >
+                A-Z
+              </button>
+              {availableLetters.map((letter) => (
+                <button
+                  key={letter}
+                  type="button"
+                  onClick={() => setSelectedLetter(letter)}
+                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
+                    selectedLetter === letter
+                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/30 scale-105 border border-[#FFE7A8]'
+                      : 'bg-[#181818] text-neutral-300 hover:text-white hover:border-[#C8A45C]/40 border border-neutral-800'
+                  }`}
+                  title={`Ver vestidos del bloque ${letter}`}
+                >
+                  {letter}
+                </button>
+              ))}
+            </div>
+
+            {selectedLetter !== 'all' && (
+              <p className="text-xs text-[#E6C875] font-medium animate-fade-in">
+                Filtrando por <strong>Bloque {selectedLetter}</strong> ({filtered.length} prenda{filtered.length === 1 ? '' : 's'} con código único {selectedLetter}-100...)
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Wardrobe Grid / Independent Rows */}
@@ -208,14 +292,17 @@ export const PublicWardrobe: React.FC = () => {
           <Shirt className="w-12 h-12 text-neutral-600 mx-auto" />
           <h3 className="text-base font-semibold text-white">No hay prendas disponibles</h3>
           <p className="text-xs text-neutral-400">
-            En este momento no tenemos prendas activas en esta categoría. Puedes consultar por otras opciones o escribirnos a recepción.
+            No se encontraron prendas activas con los filtros seleccionados (Categoría: {filterCategory === 'all' ? 'Todas' : filterCategory} • Letra: {selectedLetter === 'all' ? 'Todas' : selectedLetter}).
           </p>
           <button
             type="button"
-            onClick={() => setFilterCategory('all')}
+            onClick={() => {
+              setFilterCategory('all');
+              setSelectedLetter('all');
+            }}
             className="px-4 py-2 rounded-xl text-xs font-bold bg-[#C8A45C] text-black hover:brightness-110 cursor-pointer"
           >
-            Ver Todas las Prendas
+            Ver Todo el Catálogo
           </button>
         </div>
       ) : (

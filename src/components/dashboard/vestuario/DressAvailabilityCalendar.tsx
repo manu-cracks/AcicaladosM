@@ -4,6 +4,7 @@ import { DressRental } from '../../../types';
 
 interface DressAvailabilityCalendarProps {
   itemCode: string;
+  wardrobeItemId?: string;
   itemName?: string;
   selectedDate: string; // YYYY-MM-DD
   returnDate: string; // YYYY-MM-DD
@@ -13,6 +14,7 @@ interface DressAvailabilityCalendarProps {
 
 export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps> = ({
   itemCode,
+  wardrobeItemId,
   itemName = 'Prenda seleccionada',
   selectedDate,
   returnDate,
@@ -56,13 +58,23 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
     const set = new Set<string>();
     const textList: string[] = [];
 
-    if (!itemCode) return { blockedDatesSet: set, blockedRangesText: textList };
+    if (!itemCode && !wardrobeItemId) return { blockedDatesSet: set, blockedRangesText: textList };
 
-    const activeRentals = dressRentals.filter(
-      (r) =>
-        r.item_code?.toUpperCase().trim() === itemCode.toUpperCase().trim() &&
-        (r.status === 'por_validar' || r.status === 'reservado' || r.status === 'entregado')
-    );
+    const targetCode = (itemCode || '').toUpperCase().trim();
+
+    const activeRentals = dressRentals.filter((r) => {
+      const isStatusActive = r.status === 'por_validar' || r.status === 'reservado' || r.status === 'entregado';
+      if (!isStatusActive) return false;
+
+      // 1. Coincidencia por UUID de prenda
+      if (wardrobeItemId && r.wardrobe_item_id && r.wardrobe_item_id === wardrobeItemId) {
+        return true;
+      }
+
+      // 2. Coincidencia estricta por código único (ej. "A-101")
+      const rCode = (r.item_code || '').toUpperCase().trim();
+      return rCode === targetCode;
+    });
 
     activeRentals.forEach((rental) => {
       const start = new Date(rental.event_date + 'T00:00:00');

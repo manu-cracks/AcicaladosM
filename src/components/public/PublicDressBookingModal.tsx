@@ -72,7 +72,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
   };
 
   const priceFormatted = (item.rental_price_cents / 100).toFixed(2);
-  const codeDisplay = (item.code || 'A').toUpperCase().trim();
+  const codeDisplay = (item.code || item.codigo_unico || item.identificador || 'A-100').toUpperCase().trim();
 
   // Al seleccionar fecha de evento, calcular automáticamente retorno (evento + 2 días)
   const handleDatesSelect = (eDate: string, rDate: string) => {
@@ -348,6 +348,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
 
                 <DressAvailabilityCalendar
                   itemCode={codeDisplay}
+                  wardrobeItemId={item.id}
                   itemName={item.name}
                   dressRentals={dressRentals}
                   selectedDate={eventDate}
