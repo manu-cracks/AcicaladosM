@@ -354,7 +354,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                   required
                   value={clientPhone}
                   onChange={(e) => setClientPhone(sanitizePhone(e.target.value))}
-                  placeholder="987654321"
+                  placeholder="991044301"
                   className="w-full px-3 py-2 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none font-mono transition"
                 />
               </div>

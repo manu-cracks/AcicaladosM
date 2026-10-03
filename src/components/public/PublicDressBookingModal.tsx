@@ -16,12 +16,20 @@ import {
   ShieldCheck,
   Send,
   Download,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { WardrobeItem, formatSoles, DressRental } from '../../types';
 import { DressAvailabilityCalendar } from '../dashboard/vestuario/DressAvailabilityCalendar';
 import { supabase } from '../../lib/supabase/client';
 import { generateVoucherFilename, downloadTicketPdf } from '../../lib/ticketPdfGenerator';
+import {
+  OFFICIAL_YAPE_PHONE,
+  OFFICIAL_YAPE_PHONE_CLEAN,
+  OFFICIAL_YAPE_HOLDER,
+  OFFICIAL_YAPE_QR_URL,
+} from '../../data/initialData';
 
 interface PublicDressBookingModalProps {
   item: WardrobeItem;
@@ -55,6 +63,13 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
 
   // Paso 4: Ticket generado
   const [createdRental, setCreatedRental] = useState<DressRental | null>(null);
+  const [copiedPhone, setCopiedPhone] = useState(false);
+
+  const handleCopyYapePhone = () => {
+    navigator.clipboard.writeText(OFFICIAL_YAPE_PHONE_CLEAN);
+    setCopiedPhone(true);
+    setTimeout(() => setCopiedPhone(false), 2000);
+  };
 
   const priceFormatted = (item.rental_price_cents / 100).toFixed(2);
   const codeDisplay = (item.code || 'A').toUpperCase().trim();
@@ -419,7 +434,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     type="tel"
                     required
                     maxLength={9}
-                    placeholder="987654321"
+                    placeholder="991044301"
                     value={clientPhone}
                     onChange={(e) => setClientPhone(e.target.value.replace(/\D/g, ''))}
                     className="w-full bg-[#181818] border border-neutral-700/80 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-mono text-white focus:outline-none focus:border-[#C8A45C]"
@@ -478,39 +493,84 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                 </div>
               </div>
 
-              {/* Sección QR Yape */}
-              <div className="bg-[#161616] border border-[#6B2D82]/50 p-4 rounded-2xl space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#6B2D82]/20 border border-[#8B3D9D]/40 flex items-center justify-center text-[#C96DE8]">
-                    <QrCode className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Paso 1: Escanea el Código QR o Yapea al Número</h4>
-                    <p className="text-[11px] text-neutral-400">
-                      Titular: <strong className="text-white">{paymentSettings.yape_holder}</strong> • Celular:{' '}
-                      <strong className="text-[#C96DE8]">{paymentSettings.yape_phone}</strong>
-                    </p>
+              {/* Sección QR Yape Oficial */}
+              <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-800 pb-3 gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#6B2D82]/20 border border-[#8B3D9D]/40 flex items-center justify-center text-[#A64BC6] shrink-0">
+                      <QrCode className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        <span>Paso 1: Escanea el Código QR o Yapea al Número</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-semibold">
+                          Yape Oficial
+                        </span>
+                      </h4>
+                      <p className="text-xs text-neutral-400">Escanea desde tu app Yape o transfiere al número</p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
-                  <div className="w-36 h-36 bg-white p-2 rounded-2xl shadow-lg border border-neutral-300 flex items-center justify-center">
-                    <img
-                      src={paymentSettings.yape_qr_url}
-                      alt="QR Yape"
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                  <div className="text-xs text-neutral-300 space-y-2 max-w-xs text-center sm:text-left">
-                    <div className="p-2.5 rounded-xl bg-[#1D1224] border border-[#8B3D9D]/30">
-                      <span className="text-[10px] text-neutral-400 block">Número para Yapear:</span>
-                      <span className="text-sm font-bold font-mono text-[#E494FF]">
-                        {paymentSettings.yape_phone}
-                      </span>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-6 py-2">
+                  {/* QR Image */}
+                  <div className="flex flex-col items-center">
+                    <div className="w-48 h-48 sm:w-52 sm:h-52 bg-white p-2.5 rounded-2xl shadow-lg border border-neutral-200 flex items-center justify-center">
+                      <img
+                        src={OFFICIAL_YAPE_QR_URL}
+                        alt="Código QR Yape Oficial Acicalados"
+                        className="w-full h-full object-contain"
+                        loading="eager"
+                      />
                     </div>
-                    <p className="text-[11px] text-neutral-400">
-                      Abona exactamente <strong>{formatSoles(advanceAmountCents)}</strong> para asegurar el pre-bloqueo del vestido en agenda.
-                    </p>
+                    <span className="text-[10px] text-neutral-400 mt-2 text-center flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Código QR verificado por Acicalados</span>
+                    </span>
+                  </div>
+
+                  {/* Datos de pago */}
+                  <div className="text-xs space-y-3 w-full sm:max-w-xs text-left">
+                    <div className="bg-[#1C1C1C] border border-neutral-800 rounded-xl p-3.5 space-y-3">
+                      <div>
+                        <span className="text-[11px] text-neutral-400 block font-medium">Titular de la Cuenta:</span>
+                        <span className="text-sm font-bold text-white tracking-wide block">
+                          {OFFICIAL_YAPE_HOLDER}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-neutral-800 pt-2.5">
+                        <div>
+                          <span className="text-[11px] text-neutral-400 block font-medium">Número Yape Oficial:</span>
+                          <span className="text-base sm:text-lg font-mono font-extrabold text-[#E6C875] tracking-wider">
+                            {OFFICIAL_YAPE_PHONE}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCopyYapePhone}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold transition cursor-pointer active:scale-95"
+                        >
+                          {copiedPhone ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400">¡Copiado!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 text-[#C8A45C]" />
+                              <span>Copiar</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-950/30 border border-purple-800/40 rounded-xl p-3 text-neutral-300">
+                      <p className="text-[11px] leading-relaxed">
+                        Abona exactamente <strong className="text-[#E6C875]">{formatSoles(advanceAmountCents)}</strong> para asegurar el pre-bloqueo del vestido en agenda.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -666,7 +726,7 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     const msg = encodeURIComponent(
                       `¡Hola Acicalados! Acabo de registrar mi reserva web Nro *${createdRental.ticket_code}* para el vestido [${createdRental.item_code}] a nombre de ${createdRental.client_first_name}. Adjunto mi voucher para la validación.`
                     );
-                    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${msg}`, '_blank');
+                    window.open(`https://wa.me/51${OFFICIAL_YAPE_PHONE_CLEAN}?text=${msg}`, '_blank');
                   }}
                   className="w-full sm:w-auto px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition cursor-pointer"
                 >

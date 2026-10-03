@@ -3,6 +3,12 @@ import { useApp } from '../../context/AppContext';
 import { formatSoles } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { generateVoucherFilename } from '../../lib/ticketPdfGenerator';
+import {
+  OFFICIAL_YAPE_PHONE,
+  OFFICIAL_YAPE_PHONE_CLEAN,
+  OFFICIAL_YAPE_HOLDER,
+  OFFICIAL_YAPE_QR_URL,
+} from '../../data/initialData';
 import { QrCode, Copy, Check, Upload, MessageSquare, Maximize2, X, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
 
 interface PaymentQRWidgetProps {
@@ -29,8 +35,16 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Garantizar datos oficiales estrictos y estandarizados
+  const yapePhone = paymentSettings?.yape_phone?.trim() && !paymentSettings.yape_phone.includes('987')
+    ? paymentSettings.yape_phone
+    : OFFICIAL_YAPE_PHONE;
+  const yapeHolder = OFFICIAL_YAPE_HOLDER;
+  const yapeQrUrl = OFFICIAL_YAPE_QR_URL;
+  const cleanPhone = OFFICIAL_YAPE_PHONE_CLEAN;
+
   const handleCopyPhone = () => {
-    navigator.clipboard.writeText(paymentSettings.yape_phone.replace(/\s+/g, ''));
+    navigator.clipboard.writeText(cleanPhone);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -79,16 +93,16 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
 
   const handleWhatsAppConfirmation = () => {
     const text = encodeURIComponent(
-      `¡Hola Acicalados! Acabo de realizar el pago para mi reserva *${bookingCode}* a nombre de *${clientName}*.\n\n*Monto abonado:* ${formatSoles(amountCents)}\n*Medio:* Yape al número ${paymentSettings.yape_phone}\n\nAdjunto comprobante para confirmar mi cita. ¡Muchas gracias!`
+      `¡Hola Acicalados! Acabo de realizar el pago para mi reserva *${bookingCode}* a nombre de *${clientName}*.\n\n*Monto abonado:* ${formatSoles(amountCents)}\n*Medio:* Yape al número ${yapePhone} (${yapeHolder})\n\nAdjunto comprobante para confirmar mi cita. ¡Muchas gracias!`
     );
-    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${text}`, '_blank');
+    window.open(`https://wa.me/51${cleanPhone}?text=${text}`, '_blank');
   };
 
   return (
-    <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-6 shadow-xl space-y-5">
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+    <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-5 sm:p-6 shadow-xl space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-800 pb-4 gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#6B2D82]/20 border border-[#8B3D9D]/40 flex items-center justify-center text-[#A64BC6]">
+          <div className="w-10 h-10 rounded-xl bg-[#6B2D82]/20 border border-[#8B3D9D]/40 flex items-center justify-center text-[#A64BC6] shrink-0">
             <QrCode className="w-5 h-5" />
           </div>
           <div>
@@ -102,9 +116,9 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
           </div>
         </div>
 
-        <div className="text-right">
+        <div className="text-left sm:text-right bg-neutral-900/60 p-2 sm:p-0 rounded-lg sm:bg-transparent">
           <span className="text-[11px] text-neutral-400 block">Monto a Transferir:</span>
-          <span className="text-lg font-extrabold text-[#E6C875]">{formatSoles(amountCents)}</span>
+          <span className="text-xl font-extrabold text-[#E6C875]">{formatSoles(amountCents)}</span>
         </div>
       </div>
 
@@ -112,51 +126,58 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-5 items-center">
         {/* QR Display */}
         <div className="sm:col-span-5 flex flex-col items-center justify-center p-4 bg-[#1A1A1A] rounded-xl border border-neutral-800">
-          <div className="relative group cursor-pointer" onClick={() => setIsLightboxOpen(true)}>
+          <div
+            className="relative group cursor-pointer"
+            onClick={() => setIsLightboxOpen(true)}
+            title="Haz clic para ampliar el QR"
+          >
             <img
-              src={paymentSettings.yape_qr_url}
-              alt="Código QR Yape Acicalados"
-              className="w-44 h-44 rounded-lg bg-white p-2 object-contain shadow-md"
+              src={yapeQrUrl}
+              alt="Código QR Yape Oficial Acicalados"
+              className="w-48 h-48 sm:w-52 sm:h-52 rounded-xl bg-white p-2.5 object-contain shadow-md transition-transform duration-200 group-hover:scale-[1.02]"
+              loading="eager"
             />
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-lg flex items-center justify-center text-white text-xs font-semibold gap-1">
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center text-white text-xs font-semibold gap-1">
               <Maximize2 className="w-4 h-4" />
               <span>Ampliar QR</span>
             </div>
           </div>
-          <span className="text-[10px] text-neutral-500 mt-2 text-center flex items-center gap-1">
+          <span className="text-[10px] text-neutral-400 mt-2.5 text-center flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Código verificado por Acicalados</span>
+            <span>Código QR oficial verificado</span>
           </span>
         </div>
 
         {/* Payment Account Details */}
         <div className="sm:col-span-7 space-y-3">
-          <div className="bg-[#1C1C1C] border border-neutral-800 rounded-xl p-3.5 space-y-2">
+          <div className="bg-[#1C1C1C] border border-neutral-800 rounded-xl p-3.5 space-y-3">
             <div>
-              <span className="text-[11px] text-neutral-400 block">Titular de la Cuenta:</span>
-              <span className="text-xs font-bold text-white">{paymentSettings.yape_holder}</span>
+              <span className="text-[11px] text-neutral-400 block font-medium">Titular de la Cuenta:</span>
+              <span className="text-sm font-bold text-white tracking-wide block">
+                {yapeHolder}
+              </span>
             </div>
 
-            <div className="flex items-center justify-between border-t border-neutral-800 pt-2">
+            <div className="flex items-center justify-between border-t border-neutral-800 pt-2.5">
               <div>
-                <span className="text-[11px] text-neutral-400 block">Número Yape:</span>
-                <span className="text-sm font-mono font-bold text-[#E6C875] tracking-wider">
-                  {paymentSettings.yape_phone}
+                <span className="text-[11px] text-neutral-400 block font-medium">Número Yape Oficial:</span>
+                <span className="text-base sm:text-lg font-mono font-extrabold text-[#E6C875] tracking-wider">
+                  {yapePhone}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={handleCopyPhone}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold transition cursor-pointer active:scale-95"
               >
                 {copied ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400">Copiado</span>
+                    <span className="text-emerald-400">¡Copiado!</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5 text-[#C8A45C]" />
                     <span>Copiar</span>
                   </>
                 )}
@@ -177,7 +198,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
             {uploadedVoucher ? (
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-2 text-left">
-                  <div className="w-8 h-8 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                     <Check className="w-4 h-4" />
                   </div>
                   <div>
@@ -224,7 +245,7 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
         id="confirm-booking-whatsapp-btn"
         type="button"
         onClick={handleWhatsAppConfirmation}
-        className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition"
+        className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg transition cursor-pointer active:scale-98"
       >
         <MessageSquare className="w-4 h-4" />
         <span>Confirmar Reserva por WhatsApp con Recepción</span>
@@ -233,32 +254,53 @@ export const PaymentQRWidget: React.FC<PaymentQRWidgetProps> = ({
       {/* Lightbox for QR code */}
       {isLightboxOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
           onClick={() => setIsLightboxOpen(false)}
         >
           <div
-            className="bg-[#141414] border border-[#C8A45C]/40 p-6 rounded-2xl max-w-sm w-full text-center space-y-4"
+            className="bg-[#141414] border border-[#C8A45C]/40 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center">
-              <h5 className="font-semibold text-white text-sm">Escanea con la App Yape</h5>
+            <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
+              <h5 className="font-semibold text-white text-sm">Escanea con tu App Yape</h5>
               <button
                 type="button"
                 onClick={() => setIsLightboxOpen(false)}
-                className="p-1 text-neutral-400 hover:text-white"
+                className="p-1 text-neutral-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <img
-              src={paymentSettings.yape_qr_url}
-              alt="QR Grande Yape"
-              className="w-64 h-64 mx-auto rounded-xl bg-white p-3"
-            />
-            <div className="text-xs text-neutral-300 font-mono font-bold">
-              {paymentSettings.yape_phone}
+            <div className="bg-white p-3 rounded-xl shadow-inner max-w-[260px] mx-auto">
+              <img
+                src={yapeQrUrl}
+                alt="QR Grande Yape Oficial"
+                className="w-full h-auto object-contain"
+              />
             </div>
-            <p className="text-xs text-neutral-400">{paymentSettings.yape_holder}</p>
+            <div className="space-y-1">
+              <div className="text-base text-[#E6C875] font-mono font-extrabold tracking-wider">
+                {yapePhone}
+              </div>
+              <p className="text-xs text-neutral-300 font-semibold">{yapeHolder}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyPhone}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium transition cursor-pointer mx-auto"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400">¡Número Copiado!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-[#C8A45C]" />
+                  <span>Copiar Número</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}

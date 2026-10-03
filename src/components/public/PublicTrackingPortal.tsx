@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { supabase } from '../../lib/supabase/client';
 import { downloadTicketPdf } from '../../lib/ticketPdfGenerator';
 import { formatSoles } from '../../types';
+import { OFFICIAL_YAPE_PHONE_CLEAN } from '../../data/initialData';
 import {
   Search,
   FileText,
@@ -174,7 +175,7 @@ export const PublicTrackingPortal: React.FC<PublicTrackingPortalProps> = ({
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera consultar el estado de mi reserva *${item.code}* a nombre de *${item.client_name}* (DNI: ${item.client_dni}). Estado actual: ${item.status_label}.`
     );
-    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${text}`, '_blank');
+    window.open(`https://wa.me/51${OFFICIAL_YAPE_PHONE_CLEAN}?text=${text}`, '_blank');
   };
 
   const content = (
@@ -313,7 +314,7 @@ export const PublicTrackingPortal: React.FC<PublicTrackingPortalProps> = ({
                     const text = encodeURIComponent(
                       `¡Hola Acicalados! Registré una reserva pero no puedo verla con mi DNI ${dni}. ¿Podrían ayudarme a verificarla?`
                     );
-                    window.open(`https://wa.me/51${paymentSettings.yape_phone.replace(/\s+/g, '')}?text=${text}`, '_blank');
+                    window.open(`https://wa.me/51${OFFICIAL_YAPE_PHONE_CLEAN}?text=${text}`, '_blank');
                   }}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-400 text-xs font-semibold hover:bg-emerald-600/30 transition cursor-pointer"
                 >

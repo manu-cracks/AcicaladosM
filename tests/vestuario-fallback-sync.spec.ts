@@ -62,7 +62,7 @@ test.describe('Módulo de Vestuario - Prevención de Fallback Local y Sincroniza
     await nameInput.fill(testDataA.name);
     await page.locator('input[placeholder*="Gómez Torres"]').fill(testDataA.lastName);
     await page.locator('input[placeholder*="70123456"]').fill(testDataA.dni);
-    await page.locator('input[placeholder*="987654321"]').fill(testDataA.phone);
+    await page.locator('input[placeholder*="991044301"]').fill(testDataA.phone);
     await page.locator('input[placeholder*="Matrimonio Civil"]').fill(testDataA.eventName);
     await page.locator('input[placeholder*="Miraflores"]').fill(testDataA.destination);
 
@@ -144,7 +144,7 @@ test.describe('Módulo de Vestuario - Prevención de Fallback Local y Sincroniza
     await expect(page.locator('input[placeholder*="María Lucía"]')).toHaveValue(testDataA.name);
     await expect(page.locator('input[placeholder*="Gómez Torres"]')).toHaveValue(testDataA.lastName);
     await expect(page.locator('input[placeholder*="70123456"]')).toHaveValue(testDataA.dni);
-    await expect(page.locator('input[placeholder*="987654321"]')).toHaveValue(testDataA.phone);
+    await expect(page.locator('input[placeholder*="991044301"]')).toHaveValue(testDataA.phone);
     await expect(page.locator('input[placeholder*="Matrimonio Civil"]')).toHaveValue(testDataA.eventName);
     await expect(page.locator('input[placeholder*="Miraflores"]')).toHaveValue(testDataA.destination);
 
@@ -197,7 +197,7 @@ test.describe('Módulo de Vestuario - Prevención de Fallback Local y Sincroniza
     await nameInputB.fill(testDataB.name);
     await page.locator('input[placeholder*="Gómez Torres"]').fill(testDataB.lastName);
     await page.locator('input[placeholder*="70123456"]').fill(testDataB.dni);
-    await page.locator('input[placeholder*="987654321"]').fill(testDataB.phone);
+    await page.locator('input[placeholder*="991044301"]').fill(testDataB.phone);
     await page.locator('input[placeholder*="Matrimonio Civil"]').fill(testDataB.eventName);
     await page.locator('input[placeholder*="Miraflores"]').fill(testDataB.destination);
 
@@ -249,7 +249,7 @@ test.describe('Módulo de Vestuario - Prevención de Fallback Local y Sincroniza
     await expect(page.locator('input[placeholder*="María Lucía"]')).toHaveValue('');
     await expect(page.locator('input[placeholder*="Gómez Torres"]')).toHaveValue('');
     await expect(page.locator('input[placeholder*="70123456"]')).toHaveValue('');
-    await expect(page.locator('input[placeholder*="987654321"]')).toHaveValue('');
+    await expect(page.locator('input[placeholder*="991044301"]')).toHaveValue('');
     await expect(page.locator('input[placeholder*="Matrimonio Civil"]')).toHaveValue('');
     await expect(page.locator('input[placeholder*="Miraflores"]')).toHaveValue('');
 

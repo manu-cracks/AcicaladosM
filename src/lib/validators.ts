@@ -8,7 +8,7 @@ import React from 'react';
 export const PHONE_LENGTH = 9;
 export const DNI_LENGTH = 8;
 
-export const PHONE_PLACEHOLDER = 'Ej. 987654321';
+export const PHONE_PLACEHOLDER = 'Ej. 991044301';
 export const DNI_PLACEHOLDER = 'Ej. 72345678';
 
 export const PHONE_ERROR_MESSAGE = 'El teléfono debe contener exactamente 9 dígitos';
@@ -24,13 +24,13 @@ export function cleanNumeric(value: string | null | undefined, maxLength: number
 
 /**
  * Sanitiza la entrada de un teléfono peruano (9 dígitos).
- * Si el usuario pega un número con prefijo internacional +51 o 51 (ej. +51 987 654 321),
+ * Si el usuario pega un número con prefijo internacional +51 o 51 (ej. +51 991 044 301),
  * extrae inteligentemente los 9 dígitos móviles correspondientes.
  */
 export function sanitizePhone(value: string | null | undefined): string {
   if (!value) return '';
   let digits = value.replace(/\D/g, '');
-  // Si comienza con 51 y tiene más de 9 dígitos (ej. 51987654321)
+  // Si comienza con 51 y tiene más de 9 dígitos (ej. 51991044301)
   if (digits.startsWith('51') && digits.length > 9) {
     digits = digits.slice(2);
   }

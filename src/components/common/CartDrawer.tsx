@@ -20,7 +20,7 @@ export const CartDrawer: React.FC = () => {
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera realizar un pedido de la tienda online:\n\n${lines.join('\n')}\n\n*Total a pagar:* ${formatSoles(totalCents)}\n\n¿Tienen disponibilidad para envío o recojo en el local?`
     );
-    window.open(`https://wa.me/51987654321?text=${text}`, '_blank');
+    window.open(`https://wa.me/51991044301?text=${text}`, '_blank');
   };
 
   return (

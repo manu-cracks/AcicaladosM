@@ -555,12 +555,14 @@ export const VestuarioManager: React.FC = () => {
         matchesText = itemCode === q;
       } else if (q.length > 1) {
         const itemCode = (w.code || '').trim().toLowerCase();
+        const itemSku = (w.identificador || w.codigo_unico || '').toLowerCase();
         const itemName = (w.name || '').toLowerCase();
         const itemCategory = (w.category || '').toLowerCase();
         const itemDesc = (w.description || '').toLowerCase();
 
         matchesText =
           itemCode.includes(q) ||
+          itemSku.includes(q) ||
           itemName.includes(q) ||
           itemCategory.includes(q) ||
           itemDesc.includes(q);

@@ -78,6 +78,8 @@ export interface WardrobeItem {
   description?: string;
   size?: string;
   color?: string;
+  identificador?: string;
+  codigo_unico?: string;
 }
 
 export type DressRentalStatus = 'por_validar' | 'reservado' | 'entregado' | 'finalizado' | 'anulado';

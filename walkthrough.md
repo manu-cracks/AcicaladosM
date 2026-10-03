@@ -46,7 +46,7 @@ Se implementó la pantalla pública en `/ubicacion` con la identidad oscura de l
 - **Plus Code de Google**: `"F5J9+PX9 Pichari"` con botón interactivo de copiado en un clic y feedback visual (*¡Copiado!*).
 - **Estado de Apertura en Vivo**: Indicador dinámico *"Abierto Ahora"* según la hora oficial de Lima y día de la semana.
 - **Horarios de Atención**: Lunes a Sábado 08:30 - 21:00, Domingos y Feriados 09:30 - 20:00.
-- **Canales de Atención Directa**: Enlace de llamada y botón para chatear por WhatsApp con recepción (`+51 987 654 321`).
+- **Canales de Atención Directa**: Enlace de llamada y botón para chatear por WhatsApp con recepción (`+51 991 044 301`).
 - **Botón de Acción Destacado (CTA Dorado)**:
   - *"Cómo llegar / Abrir en Google Maps"* con enlace directo a la ficha oficial de Google Maps de la barbería en Pichari.
 

@@ -437,7 +437,7 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
       doc.setFontSize(8.5);
       doc.setTextColor(180, 180, 180);
       doc.text('DISEÑO & CALIDAD  ·  Av. Javier Prado Este 2450, San Borja, Lima', 14, 21);
-      doc.text('RUC: 20608941231  ·  Tel: +51 987 654 321  ·  soporte@acicalados.pe', 14, 26);
+      doc.text('RUC: 20608941231  ·  Tel: +51 991 044 301  ·  soporte@acicalados.pe', 14, 26);
 
       // Bloque derecho de fecha de reporte
       doc.setFont('helvetica', 'bold');

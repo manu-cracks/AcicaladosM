@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents, BusinessCategory } from '../../types';
-import { getTodayDateString } from '../../data/initialData';
+import { getTodayDateString, OFFICIAL_YAPE_PHONE, OFFICIAL_YAPE_HOLDER } from '../../data/initialData';
 import { isEmployeeBlocked, isEmployeeBooked, timeToMinutes, minutesToTime, formatCompletionTime } from '../../lib/bookingAvailability';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import {
@@ -605,9 +605,17 @@ export const ReservasManager: React.FC = () => {
   const [voidingPaymentId, setVoidingPaymentId] = useState<string | null>(null);
 
   // Settings Form State
-  const [tempAdvancePct, setTempAdvancePct] = useState<number>(paymentSettings.advance_percentage);
-  const [tempYapePhone, setTempYapePhone] = useState<string>(paymentSettings.yape_phone);
-  const [tempYapeHolder, setTempYapeHolder] = useState<string>(paymentSettings.yape_holder);
+  const [tempAdvancePct, setTempAdvancePct] = useState<number>(paymentSettings.advance_percentage || 25);
+  const [tempYapePhone, setTempYapePhone] = useState<string>(paymentSettings.yape_phone || OFFICIAL_YAPE_PHONE);
+  const [tempYapeHolder, setTempYapeHolder] = useState<string>(paymentSettings.yape_holder || OFFICIAL_YAPE_HOLDER);
+
+  useEffect(() => {
+    if (paymentSettings) {
+      setTempAdvancePct(paymentSettings.advance_percentage || 25);
+      setTempYapePhone(paymentSettings.yape_phone || OFFICIAL_YAPE_PHONE);
+      setTempYapeHolder(paymentSettings.yape_holder || OFFICIAL_YAPE_HOLDER);
+    }
+  }, [paymentSettings]);
 
   const todayStr = getTodayDateString();
 

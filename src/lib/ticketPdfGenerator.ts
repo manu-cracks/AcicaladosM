@@ -71,7 +71,7 @@ export const downloadTicketPdf = async (data: TicketPdfData): Promise<void> => {
     doc.setTextColor(180, 180, 180);
     doc.text('DISEÑO · ESTILO · ALTA COSTURA', pageWidth / 2, 16, { align: 'center' });
     doc.text('Av. Javier Prado Este 2450, San Borja · Lima', pageWidth / 2, 20, { align: 'center' });
-    doc.text('RUC: 20608941231 · Central: +51 987 654 321', pageWidth / 2, 24, { align: 'center' });
+    doc.text('RUC: 20608941231 · Central: +51 991 044 301', pageWidth / 2, 24, { align: 'center' });
 
     y = 35;
 

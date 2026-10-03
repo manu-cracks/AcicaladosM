@@ -60,11 +60,16 @@ export function getLimaDateFromTimestamp(val?: string | null): string {
   }
 }
 
+export const OFFICIAL_YAPE_PHONE = '991 044 301';
+export const OFFICIAL_YAPE_PHONE_CLEAN = '991044301';
+export const OFFICIAL_YAPE_HOLDER = 'Jorge Robert Huamani Azurza';
+export const OFFICIAL_YAPE_QR_URL = '/qr-yape.jpeg';
+
 export const INITIAL_PAYMENT_SETTINGS: PaymentSettings = {
   advance_percentage: 25,
-  yape_phone: '987 654 321',
-  yape_holder: 'Acicalados Spa & Barber Shop S.A.C.',
-  yape_qr_url: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=00020101021126580014pe.yape.pe01129876543215204000053036045802PE5925ACICALADOS+SPA+BARBER+SHOP6004LIMA6304E64A',
+  yape_phone: OFFICIAL_YAPE_PHONE,
+  yape_holder: OFFICIAL_YAPE_HOLDER,
+  yape_qr_url: OFFICIAL_YAPE_QR_URL,
 };
 
 export const INITIAL_BONUS_SETTINGS: BonusSettings = {

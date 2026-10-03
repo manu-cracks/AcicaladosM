@@ -237,7 +237,7 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
 
   const displayClientName = `${rental.client_first_name || ''} ${rental.client_last_name || ''}`.trim() || 'Cliente';
   const displayClientDni = rental.client_dni || '70123456';
-  const displayClientPhone = rental.client_phone || '987654321';
+  const displayClientPhone = rental.client_phone || '991044301';
   const displayEventName = rental.event_name || 'Matrimonio Civil';
   const displayDestination = (rental.destination || 'PICHARI').toUpperCase();
 

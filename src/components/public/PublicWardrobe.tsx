@@ -35,7 +35,7 @@ export const PublicWardrobe: React.FC = () => {
     const text = encodeURIComponent(
       `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
     );
-    window.open(`https://wa.me/51987654321?text=${text}`, '_blank');
+    window.open(`https://wa.me/51991044301?text=${text}`, '_blank');
   };
 
   const renderWardrobeCard = (item: WardrobeItem) => {

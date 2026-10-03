@@ -31,6 +31,10 @@ import {
   INITIAL_PAYMENT_SETTINGS,
   INITIAL_BONUS_SETTINGS,
   INITIAL_ATTENDANCE_SETTINGS,
+  OFFICIAL_YAPE_PHONE,
+  OFFICIAL_YAPE_PHONE_CLEAN,
+  OFFICIAL_YAPE_HOLDER,
+  OFFICIAL_YAPE_QR_URL,
   getTodayDateString,
   getLimaDateFromTimestamp,
 } from '../data/initialData';
@@ -491,6 +495,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           dbWardrobe.map((w: any) => ({
             id: w.id,
             code: (w.code || 'A').toUpperCase().trim(),
+            identificador: w.identificador || w.codigo_unico || w.code || 'A',
+            codigo_unico: w.codigo_unico || w.identificador || w.code || 'A',
             name: w.name,
             category: w.category || 'Bodas y Matrimonio',
             rental_price_cents: w.price_cents,
@@ -499,7 +505,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             active: w.is_active !== undefined ? w.is_active : true,
             size: w.size || 'M',
             color: w.color || 'Variado',
-            image_url: w.images && w.images.length > 0 ? w.images[0] : 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80',
+            image_url: w.images && w.images.length > 0 ? w.images[0] : (w.imagen_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'),
             description: w.description || '',
           }))
         );
@@ -576,7 +582,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             avatar: e.foto_url || e.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
             avatar_url: e.foto_url || e.avatar_url,
             foto_url: e.foto_url || e.avatar_url,
-            phone: sanitizePhone(e.phone) || '987654321',
+            phone: sanitizePhone(e.phone) || OFFICIAL_YAPE_PHONE_CLEAN,
             email: e.email || '',
             dni: sanitizeDni(e.dni) || '',
             handles_reception: e.handles_reception || false,
@@ -620,7 +626,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPaymentSettings((prev) => ({
           ...prev,
           advance_percentage: dbConfig.advance_percentage || 25,
-          yape_phone: dbConfig.whatsapp_url?.replace(/\D/g, '') || '987654321',
+          yape_phone: OFFICIAL_YAPE_PHONE,
+          yape_holder: OFFICIAL_YAPE_HOLDER,
+          yape_qr_url: OFFICIAL_YAPE_QR_URL,
         }));
       }
 
