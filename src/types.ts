@@ -350,6 +350,9 @@ export interface VentaMostrador {
   notes?: string;
   created_at: string;
   fecha?: string;
+  vendedor_nombre?: string;
+  vendedor_id?: string;
+  vendedor?: string;
   voided?: boolean;
 }
 

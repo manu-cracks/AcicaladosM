@@ -31,9 +31,12 @@ import {
   ShoppingCart,
   AlertTriangle,
   Info,
+  Trophy,
+  Store,
 } from 'lucide-react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { BarcodeNotFoundModal } from './BarcodeNotFoundModal';
+import { SalesPerformancePanel } from './SalesPerformancePanel';
 import {
   sanitizePhone,
   sanitizeDni,
@@ -196,6 +199,9 @@ export const POSView: React.FC = () => {
             yape_cents: mYape != null ? Math.round(mYape * 100) : undefined,
             transfer_cents: mTransf != null ? Math.round(mTransf * 100) : undefined,
             detalles_pago: v.detalles_pago || undefined,
+            vendedor_nombre: v.vendedor_nombre || 'Recepcionista',
+            vendedor_id: v.vendedor_id || undefined,
+            vendedor: v.vendedor_nombre || 'Recepcionista',
           };
         });
         setHistorySales(mapped);
@@ -259,7 +265,12 @@ export const POSView: React.FC = () => {
     return isNaN(num) || num < 1 ? fallback : num;
   };
 
+  // Estados del Módulo y Pestañas
+  const [activeTab, setActiveTab] = useState<'pos' | 'rendimiento'>('pos');
+
   // Estados del Formulario de Venta
+  const [selectedSellerId, setSelectedSellerId] = useState<string>('');
+  const [selectedSellerName, setSelectedSellerName] = useState<string>('Recepcionista');
   const [clientName, setClientName] = useState<string>('');
   const [clientDni, setClientDni] = useState<string>('');
   const [clientPhone, setClientPhone] = useState<string>('');
@@ -268,6 +279,32 @@ export const POSView: React.FC = () => {
   const [globalDiscount, setGlobalDiscount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'yape' | 'transferencia' | 'mixto'>('efectivo');
   const [saleDateTime, setSaleDateTime] = useState<string>(getLimaCurrentDateTimeString());
+
+  /** Manejador de cambio del Vendedor / Especialista en la cabecera de la venta */
+  const handleSellerChange = (empId: string) => {
+    setSelectedSellerId(empId);
+    if (!empId) {
+      setSelectedSellerName('Recepcionista');
+      setSaleItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          employee_id: undefined,
+          seller_name: 'Recepción',
+        }))
+      );
+    } else {
+      const emp = activeEmployees.find((e) => e.id === empId);
+      const name = emp?.full_name || 'Recepcionista';
+      setSelectedSellerName(name);
+      setSaleItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          employee_id: empId,
+          seller_name: name,
+        }))
+      );
+    }
+  };
 
   // Estados del Modo Mixto (Selección múltiple de exactamente 2 métodos)
   type BasePaymentMethod = 'efectivo' | 'yape' | 'transferencia';
@@ -379,8 +416,8 @@ export const POSView: React.FC = () => {
             image_url: found.image_url,
             quantity: 1,
             unit_price: (found.price_cents / 100).toFixed(2),
-            employee_id: '',
-            seller_name: 'Recepción',
+            employee_id: selectedSellerId || undefined,
+            seller_name: selectedSellerName && selectedSellerName !== 'Recepcionista' ? selectedSellerName : 'Recepción',
           };
           setScanFeedback(`¡"${found.name}" agregado a la lista de venta!`);
           setTimeout(() => setScanFeedback(null), 2500);
@@ -447,8 +484,8 @@ export const POSView: React.FC = () => {
           image_url: product.image_url,
           quantity: 1,
           unit_price: (product.price_cents / 100).toFixed(2),
-          employee_id: '',
-          seller_name: 'Recepción',
+          employee_id: selectedSellerId || undefined,
+          seller_name: selectedSellerName && selectedSellerName !== 'Recepcionista' ? selectedSellerName : 'Recepción',
         };
         setScanFeedback(`¡"${product.name}" agregado a la venta!`);
         setTimeout(() => setScanFeedback(null), 2500);
@@ -471,8 +508,8 @@ export const POSView: React.FC = () => {
       name: text,
       quantity: 1,
       unit_price: '0.00',
-      employee_id: '',
-      seller_name: 'Recepción',
+      employee_id: selectedSellerId || undefined,
+      seller_name: selectedSellerName && selectedSellerName !== 'Recepcionista' ? selectedSellerName : 'Recepción',
     };
     setSaleItems((prev) => [...prev, newItem]);
     setProductSearch('');
@@ -868,6 +905,9 @@ export const POSView: React.FC = () => {
       client_name: clientName.trim(),
       client_dni: clientDni.trim() || undefined,
       client_phone: clientPhone.trim() || undefined,
+      vendedor_nombre: selectedSellerName || 'Recepcionista',
+      vendedor_id: selectedSellerId || undefined,
+      vendedor: selectedSellerName || 'Recepcionista',
       payment_method: isMixtoMode ? ('MIXTO' as const) : paymentMethod,
       cash_cents: cashCents,
       yape_cents: yapeCents,
@@ -892,16 +932,18 @@ export const POSView: React.FC = () => {
       const qty = Math.max(1, parseSafeInteger(it.quantity, 1));
       const price = Math.max(0, parseSafeNumber(it.unit_price, 0));
       const rowTotal = Math.round(qty * price * 100) / 100;
-      const seller = it.seller_name?.trim() || 'Recepción';
+      const seller = it.seller_name?.trim() || selectedSellerName || 'Recepcionista';
       return {
         product_id: it.product_id,
         product_name: it.name,
         quantity: qty,
         unit_price: price,
         total: isNaN(rowTotal) ? 0 : rowTotal,
-        employee_id: it.employee_id || undefined,
+        employee_id: it.employee_id || selectedSellerId || undefined,
         seller_name: seller,
         vendedor: seller,
+        vendedor_nombre: seller,
+        vendedor_id: it.employee_id || selectedSellerId || undefined,
       };
     });
 
@@ -928,6 +970,8 @@ export const POSView: React.FC = () => {
       setClientName('');
       setClientDni('');
       setClientPhone('');
+      setSelectedSellerId('');
+      setSelectedSellerName('Recepcionista');
       setProductSearch('');
       setSaleDateTime(getLimaCurrentDateTimeString());
       setIsMixtoMode(false);
@@ -957,7 +1001,9 @@ export const POSView: React.FC = () => {
         v.ticket_number?.toLowerCase().includes(q) ||
         v.client_name?.toLowerCase().includes(q) ||
         v.product_name?.toLowerCase().includes(q) ||
-        v.payment_method?.toLowerCase().includes(q)
+        v.payment_method?.toLowerCase().includes(q) ||
+        v.vendedor_nombre?.toLowerCase().includes(q) ||
+        v.vendedor?.toLowerCase().includes(q)
     );
   }, [historySales, historySearch]);
 
@@ -972,10 +1018,46 @@ export const POSView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-      {/* 1. CABECERA DEL FORMULARIO */}
-      <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-[#C8A45C]/10 via-transparent to-transparent rounded-full blur-3xl pointer-events-none" />
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+      {/* PESTAÑAS PRINCIPALES: Terminal POS vs Rendimiento de Vendedores */}
+      <div className="flex items-center gap-2 border-b border-neutral-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('pos')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border ${
+            activeTab === 'pos'
+              ? 'bg-[#1e1e1e] text-white border-[#C8A45C]/60 shadow-md font-bold'
+              : 'text-neutral-400 hover:text-white border-transparent hover:bg-neutral-900/60'
+          }`}
+        >
+          <Zap className={`w-4 h-4 ${activeTab === 'pos' ? 'text-[#C8A45C]' : 'text-neutral-500'}`} />
+          <span>Terminal POS (Ventas)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('rendimiento')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer border ${
+            activeTab === 'rendimiento'
+              ? 'bg-[#1e1e1e] text-[#E6C875] border-[#C8A45C] shadow-md shadow-[#C8A45C]/10 font-bold'
+              : 'text-neutral-400 hover:text-[#E6C875] border-transparent hover:bg-neutral-900/60'
+          }`}
+        >
+          <Trophy className={`w-4 h-4 ${activeTab === 'rendimiento' ? 'text-[#C8A45C]' : 'text-neutral-500'}`} />
+          <span>Rendimiento de Vendedores</span>
+          <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40">
+            Top Ventas
+          </span>
+        </button>
+      </div>
+
+      {activeTab === 'rendimiento' ? (
+        <SalesPerformancePanel />
+      ) : (
+        <>
+          {/* 1. CABECERA DEL FORMULARIO */}
+          <div className="bg-[#141414] border border-[#C8A45C]/30 rounded-2xl p-5 sm:p-6 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-[#C8A45C]/10 via-transparent to-transparent rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
@@ -1145,10 +1227,10 @@ export const POSView: React.FC = () => {
         >
           {/* 2. CAMPOS DEL FORMULARIO (FILA SUPERIOR FLEXIBLE) */}
           <div className="space-y-4">
-            {/* Fila 1: Datos del Cliente (Nombre, DNI facturación, Teléfono WhatsApp) */}
+            {/* Fila 1: Datos del Cliente y Vendedor Asignado */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
               {/* Nombre del Cliente */}
-              <div className="md:col-span-6 space-y-1.5">
+              <div className="md:col-span-4 space-y-1.5">
                 <label htmlFor="pos-client-name" className="block text-neutral-300 font-semibold tracking-wide">
                   Nombre del Cliente <span className="text-[#E6C875]">*</span>
                 </label>
@@ -1169,11 +1251,38 @@ export const POSView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Vendedor / Especialista (Opcional - Valor por defecto: Recepción) */}
+              <div className="md:col-span-4 space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label htmlFor="pos-header-seller-select" className="block text-neutral-300 font-semibold tracking-wide">
+                    Vendedor / Especialista
+                  </label>
+                  <span className="text-[10px] text-neutral-500 font-mono">Opcional</span>
+                </div>
+                <div className="relative">
+                  <User className="w-4 h-4 text-[#C8A45C] absolute left-3 top-3 pointer-events-none" />
+                  <select
+                    id="pos-header-seller-select"
+                    value={selectedSellerId}
+                    onChange={(e) => handleSellerChange(e.target.value)}
+                    className="w-full bg-[#181818] border border-neutral-800 focus:border-[#C8A45C] focus:ring-1 focus:ring-[#C8A45C]/40 text-white rounded-xl pl-9 pr-8 py-2.5 outline-none transition text-xs cursor-pointer appearance-none"
+                  >
+                    <option value="">Recepción (Venta Directa de Tienda)</option>
+                    {activeEmployees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.full_name} ({emp.type})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-neutral-500 absolute right-3 top-3 pointer-events-none" />
+                </div>
+              </div>
+
               {/* DNI / Documento de Facturación */}
-              <div className="md:col-span-3 space-y-1.5">
+              <div className="md:col-span-2 space-y-1.5">
                 <div className="flex justify-between items-center">
                   <label htmlFor="pos-client-dni" className="block text-neutral-300 font-semibold tracking-wide">
-                    DNI / Documento
+                    DNI / Doc.
                   </label>
                   <span className="text-[10px] text-neutral-500 font-mono">8 dígitos</span>
                 </div>
@@ -1198,10 +1307,10 @@ export const POSView: React.FC = () => {
               </div>
 
               {/* Teléfono WhatsApp */}
-              <div className="md:col-span-3 space-y-1.5">
+              <div className="md:col-span-2 space-y-1.5">
                 <div className="flex justify-between items-center">
                   <label htmlFor="pos-client-phone" className="block text-neutral-300 font-semibold tracking-wide">
-                    Teléfono WhatsApp
+                    WhatsApp
                   </label>
                   <span className="text-[10px] text-neutral-500 font-mono">9 dígitos</span>
                 </div>
@@ -1965,6 +2074,7 @@ export const POSView: React.FC = () => {
                 <th className="py-3 px-4">Producto / Concepto</th>
                 <th className="py-3 px-4 text-center">Cant.</th>
                 <th className="py-3 px-4">Cliente</th>
+                <th className="py-3 px-4">Vendedor</th>
                 <th className="py-3 px-4">Método</th>
                 <th className="py-3 px-4 text-right">Total</th>
                 <th className="py-3 px-4 text-right">Acciones</th>
@@ -2002,6 +2112,28 @@ export const POSView: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-neutral-300">
                       {v.client_name}
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      {(() => {
+                        const sellerName = v.vendedor_nombre || v.vendedor || 'Recepcionista';
+                        const isRecep =
+                          sellerName.toLowerCase().includes('recep') ||
+                          sellerName.toLowerCase().includes('tienda') ||
+                          sellerName.toLowerCase().includes('caja');
+                        const firstName = sellerName.split(' ')[0] || 'RECEPCIÓN';
+
+                        return isRecep ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700/80">
+                            <Store className="w-3 h-3 text-neutral-500" />
+                            <span>Recepción</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#C8A45C]/15 text-[#E6C875] border border-[#C8A45C]/35 shadow-xs">
+                            <User className="w-3 h-3 text-[#C8A45C]" />
+                            <span>{firstName}</span>
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3.5 px-4">
                       {v.payment_method?.toLowerCase() === 'mixto' ? (
@@ -2079,7 +2211,7 @@ export const POSView: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-neutral-500">
+                  <td colSpan={9} className="py-10 text-center text-neutral-500">
                     {isLoadingHistory ? (
                       <div className="flex items-center justify-center gap-2 text-xs text-neutral-400">
                         <Clock className="w-4 h-4 animate-spin text-[#C8A45C]" />
@@ -2095,6 +2227,8 @@ export const POSView: React.FC = () => {
           </table>
         </div>
       </div>
+        </>
+      )}
       {/* Modal de Producto No Encontrado */}
       <BarcodeNotFoundModal
         isOpen={!!notFoundBarcode}

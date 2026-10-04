@@ -814,6 +814,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 yape_cents: mYape != null ? Math.round(mYape * 100) : undefined,
                 transfer_cents: mTransf != null ? Math.round(mTransf * 100) : undefined,
                 detalles_pago: v.detalles_pago || undefined,
+                vendedor_nombre: v.vendedor_nombre || 'Recepcionista',
+                vendedor_id: v.vendedor_id || undefined,
+                vendedor: v.vendedor_nombre || 'Recepcionista',
               };
             })
           );
@@ -2135,6 +2138,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         monto_yape: ventaData.monto_yape ?? (ventaData.yape_cents != null ? ventaData.yape_cents / 100 : null),
         monto_transferencia: ventaData.monto_transferencia ?? (ventaData.transfer_cents != null ? ventaData.transfer_cents / 100 : null),
         detalles_pago: ventaData.detalles_pago || null,
+        vendedor_nombre: ventaData.vendedor_nombre || ventaData.vendedor || 'Recepcionista',
+        vendedor_id: ventaData.vendedor_id || null,
       } as any).then();
 
       return newVenta;
@@ -2179,6 +2184,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       created_at: createdAt,
       notas: saleData.notes || null,
       registrado_por: currentUser?.id || null,
+      vendedor_nombre: saleData.vendedor_nombre || saleData.vendedor || 'Recepcionista',
+      vendedor_id: saleData.vendedor_id || null,
     };
 
     const pItems = items.map((item) => ({
@@ -2229,6 +2236,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       total_price_cents: saleData.total_price_cents,
       detalles_items: pItems,
       created_at: createdAt,
+      vendedor_nombre: (data as any)?.vendedor_nombre || saleData.vendedor_nombre || saleData.vendedor || 'Recepcionista',
+      vendedor_id: saleData.vendedor_id,
+      vendedor: (data as any)?.vendedor_nombre || saleData.vendedor_nombre || saleData.vendedor || 'Recepcionista',
     };
 
     setVentasMostrador((prev) => [singleSale, ...prev]);

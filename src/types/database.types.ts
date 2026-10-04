@@ -1429,6 +1429,8 @@ export type Database = {
           ticket_number: string | null
           total: number
           updated_at: string
+          vendedor_id: string | null
+          vendedor_nombre: string
         }
         Insert: {
           cantidad?: number
@@ -1451,6 +1453,8 @@ export type Database = {
           ticket_number?: string | null
           total: number
           updated_at?: string
+          vendedor_id?: string | null
+          vendedor_nombre?: string
         }
         Update: {
           cantidad?: number
@@ -1473,6 +1477,8 @@ export type Database = {
           ticket_number?: string | null
           total?: number
           updated_at?: string
+          vendedor_id?: string | null
+          vendedor_nombre?: string
         }
         Relationships: []
       }
@@ -1487,6 +1493,8 @@ export type Database = {
           subtotal: number
           ticket_number: string | null
           venta_id: string | null
+          vendedor_id: string | null
+          vendedor_nombre: string
         }
         Insert: {
           cantidad: number
@@ -1498,6 +1506,8 @@ export type Database = {
           subtotal: number
           ticket_number?: string | null
           venta_id?: string | null
+          vendedor_id?: string | null
+          vendedor_nombre?: string
         }
         Update: {
           cantidad?: number
@@ -1509,6 +1519,8 @@ export type Database = {
           subtotal?: number
           ticket_number?: string | null
           venta_id?: string | null
+          vendedor_id?: string | null
+          vendedor_nombre?: string
         }
         Relationships: [
           {

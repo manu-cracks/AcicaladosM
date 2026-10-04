@@ -609,7 +609,7 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
             : qty * unitPrice,
           0
         );
-        const seller = extractSellerFirstName(it?.seller_name || it?.vendedor || it);
+        const seller = extractSellerFirstName(it?.vendedor_nombre || it?.vendedor || it?.seller_name || (ventaData as any)?.vendedor_nombre || (ventaData as any)?.vendedor || it);
 
         return {
           product_name: it?.product_name || it?.producto_nombre || it?.name || 'Producto',
@@ -635,7 +635,7 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
       qty * unitPrice
     );
     const singleSeller = extractSellerFirstName(
-      (ventaData as any).seller_name || (ventaData as any).vendedor || ventaData
+      (ventaData as any).vendedor_nombre || (ventaData as any).vendedor || (ventaData as any).seller_name || ventaData
     );
 
     return [{
@@ -974,6 +974,17 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
                     <div className="flex justify-between items-baseline">
                       <span className="font-normal">DNI / DOC:</span>
                       <span className="font-mono">{clienteDni || '72345678'}</span>
+                    </div>
+                    <div className="flex justify-between items-baseline">
+                      <span className="font-normal">VENDEDOR:</span>
+                      <span className="font-semibold text-right max-w-[170px] truncate">
+                        {extractSellerFirstName(
+                          (ventaData as any)?.vendedor_nombre ||
+                          (ventaData as any)?.vendedor ||
+                          (ventaData as any)?.seller_name ||
+                          ventaItems?.[0]?.seller_name
+                        )}
+                      </span>
                     </div>
                   </div>
 
