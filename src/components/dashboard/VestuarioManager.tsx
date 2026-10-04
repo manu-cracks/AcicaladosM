@@ -130,6 +130,8 @@ export const VestuarioManager: React.FC = () => {
     toggleWardrobeActive,
     cancelDressRental,
     deleteDressRental,
+    requestDressRentalDeletion,
+    cancelDressRentalDeletionRequest,
     openLightbox,
     isDataLoading,
   } = useApp();
@@ -138,9 +140,10 @@ export const VestuarioManager: React.FC = () => {
     return <DashboardSkeleton />;
   }
 
-  // Permisos: Administrador General, Administrador de Vestuario o Recepcionista
+  // Permisos: Superadministrador General vs Modista / Administrador de Vestuario
+  const isSuperAdmin = currentRole === 'admin';
   const isVestuarioAdmin = currentRole === 'VESTUARIO_ADMIN';
-  const isAdmin = currentRole === 'admin' || isVestuarioAdmin;
+  const isAdmin = isSuperAdmin || isVestuarioAdmin;
   const isRecepcionista = currentRole === 'recepcionista';
   const isAuthorized = isAdmin || isRecepcionista;
 
@@ -166,9 +169,14 @@ export const VestuarioManager: React.FC = () => {
   const [annulReason, setAnnulReason] = useState('');
   const [isAnnulling, setIsAnnulling] = useState(false);
 
-  // Modal para Eliminar Orden (exclusivo Administrador)
+  // Modal para Borrado Físico Definitivo (Exclusivo Administrador General)
   const [deleteRentalTarget, setDeleteRentalTarget] = useState<DressRental | null>(null);
   const [isDeletingRental, setIsDeletingRental] = useState(false);
+
+  // Modal para Solicitar Eliminación (Para Modistas / Personal no admin)
+  const [requestDeleteTarget, setRequestDeleteTarget] = useState<DressRental | null>(null);
+  const [requestDeleteReason, setRequestDeleteReason] = useState('');
+  const [isSubmittingDeleteRequest, setIsSubmittingDeleteRequest] = useState(false);
 
   // ==========================================
   // ESTADOS DEL CATÁLOGO DE PRENDAS (INVENTARIO)
@@ -287,16 +295,25 @@ export const VestuarioManager: React.FC = () => {
 
     // 1. Ingresos / Ganancias Totales: Sumatoria del dinero efectivamente cobrado por alquileres
     // (Excluye órdenes anuladas; suma alquiler total si entregado/finalizado, o adelanto si reservado/por_validar)
+    // + FASE 1: Suma directamente las penalidades / retenciones de garantía por mora o daños
     const totalIngresosCents = periodRentals.reduce((acc, r) => {
       if (r.status === 'anulado') return acc;
+      let cobradoBase = 0;
       if (r.status === 'entregado' || r.status === 'finalizado') {
-        return acc + (r.rental_price_cents || 0);
+        cobradoBase = (r.rental_price_cents || 0);
+      } else {
+        // Para 'reservado' o 'por_validar', se suma lo efectivamente cobrado en adelanto o pago inicial
+        cobradoBase = (r.advance_cents && r.advance_cents > 0)
+          ? r.advance_cents
+          : (r.is_immediate_delivery ? (r.rental_price_cents || 0) : 0);
       }
-      // Para 'reservado' o 'por_validar', se suma lo efectivamente cobrado en adelanto o pago inicial
-      const cobrado = (r.advance_cents && r.advance_cents > 0)
-        ? r.advance_cents
-        : (r.is_immediate_delivery ? (r.rental_price_cents || 0) : 0);
-      return acc + cobrado;
+
+      // Saldo de garantía retenido por daños o retraso: se contabiliza como ingreso por penalidad
+      const retencionCents = (r.penalty_cents && r.penalty_cents > 0)
+        ? r.penalty_cents
+        : Math.round((r.garantia_retenida || 0) * 100);
+
+      return acc + cobradoBase + retencionCents;
     }, 0);
 
     // 2. Vestidos Reservados: Cantidad de prendas apartadas (status 'reservado')
@@ -337,6 +354,11 @@ export const VestuarioManager: React.FC = () => {
     };
   }, [dressRentals, timeFilterInfo, timeFilter]);
 
+  // Conteo de solicitudes de eliminación pendientes para alertar al Administrador
+  const pendingDeletionRequestsCount = useMemo(() => {
+    return dressRentals.filter((r) => !!r.solicita_eliminacion).length;
+  }, [dressRentals]);
+
   // ==========================================
   // FILTRADO DE ALQUILERES
   // ==========================================
@@ -363,8 +385,13 @@ export const VestuarioManager: React.FC = () => {
           name.includes(q);
       }
 
-      // 2. Filtro por Estado
-      const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
+      // 2. Filtro por Estado (con soporte especial para Solicitud de Eliminación)
+      let matchesStatus = true;
+      if (statusFilter === 'solicita_eliminacion') {
+        matchesStatus = !!r.solicita_eliminacion;
+      } else if (statusFilter !== 'all') {
+        matchesStatus = r.status === statusFilter;
+      }
 
       // 3. Filtro por Origen
       const matchesOrigin = originFilter === 'all' || r.origin === originFilter;
@@ -408,21 +435,69 @@ export const VestuarioManager: React.FC = () => {
     }
   };
 
+  // Borrado Físico Definitivo (Exclusivo Administrador General)
   const handleConfirmDeleteRental = async () => {
     if (!deleteRentalTarget) return;
     try {
       setIsDeletingRental(true);
       const ok = await deleteDressRental(deleteRentalTarget.id);
       if (ok) {
-        showToast('success', `Orden [${deleteRentalTarget.ticket_code}] eliminada permanentemente.`);
+        showToast(
+          'success',
+          `Orden [${deleteRentalTarget.ticket_code}] eliminada permanentemente. La prenda [${deleteRentalTarget.item_code}] ha quedado desbloqueada en catálogo.`
+        );
         setDeleteRentalTarget(null);
       } else {
-        showToast('error', 'No se pudo eliminar el registro.');
+        showToast('error', 'No se pudo eliminar el registro de Supabase.');
       }
     } catch (err: any) {
-      showToast('error', `Error: ${err?.message || 'Fallo al eliminar'}`);
+      showToast('error', `Error al eliminar: ${err?.message || 'Fallo de conexión o permisos'}`);
     } finally {
       setIsDeletingRental(false);
+    }
+  };
+
+  // Solicitar Eliminación (Para Modistas)
+  const handleOpenRequestDeleteModal = (rental: DressRental) => {
+    setRequestDeleteTarget(rental);
+    setRequestDeleteReason('');
+  };
+
+  const handleConfirmRequestDelete = async () => {
+    if (!requestDeleteTarget) return;
+    try {
+      setIsSubmittingDeleteRequest(true);
+      const ok = await requestDressRentalDeletion(
+        requestDeleteTarget.id,
+        requestDeleteReason.trim() || 'Solicitud de eliminación registrada por modista'
+      );
+      if (ok) {
+        showToast(
+          'success',
+          `Solicitud de eliminación enviada para orden [${requestDeleteTarget.ticket_code}]. Notificada al Administrador.`
+        );
+        setRequestDeleteTarget(null);
+      } else {
+        showToast('error', 'No se pudo registrar la solicitud de eliminación.');
+      }
+    } catch (err: any) {
+      showToast('error', `Error: ${err?.message || 'Error al solicitar'}`);
+    } finally {
+      setIsSubmittingDeleteRequest(false);
+    }
+  };
+
+  // Desestimar o Cancelar Solicitud de Eliminación (Admin o Modista)
+  const handleCancelDeleteRequest = async (rental: DressRental) => {
+    try {
+      const ok = await cancelDressRentalDeletionRequest(rental.id);
+      if (ok) {
+        showToast('success', `Solicitud de eliminación desestimada para [${rental.ticket_code}].`);
+      } else {
+        showToast('error', 'No se pudo cancelar la solicitud.');
+      }
+    } catch (err: any) {
+      showToast('error', `Error: ${err?.message || 'Error al cancelar'}`);
     }
   };
 
@@ -984,20 +1059,25 @@ export const VestuarioManager: React.FC = () => {
               )}
             </div>
 
-            {/* Filtro Estado */}
-            <div className="flex items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="bg-[#181818] border border-neutral-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-white font-medium focus:outline-none focus:border-[#C8A45C]"
-              >
-                <option value="all">Todos los Estados</option>
-                <option value="por_validar">🟡 Por Validar Yape</option>
-                <option value="reservado">🔵 Reservado</option>
-                <option value="entregado">🟢 Entregado</option>
-                <option value="finalizado">⚫ Finalizado</option>
-                <option value="anulado">🔴 Anulado</option>
-              </select>
+              {/* Filtro Estado */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="bg-[#181818] border border-neutral-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-white font-medium focus:outline-none focus:border-[#C8A45C]"
+                >
+                  <option value="all">Todos los Estados</option>
+                  {pendingDeletionRequestsCount > 0 && (
+                    <option value="solicita_eliminacion">
+                      🚨 Solicitan Eliminación ({pendingDeletionRequestsCount})
+                    </option>
+                  )}
+                  <option value="por_validar">🟡 Por Validar Yape</option>
+                  <option value="reservado">🔵 Reservado</option>
+                  <option value="entregado">🟢 Entregado</option>
+                  <option value="finalizado">⚫ Finalizado</option>
+                  <option value="anulado">🔴 Anulado</option>
+                </select>
 
               {/* Filtro Origen */}
               <select
@@ -1011,6 +1091,35 @@ export const VestuarioManager: React.FC = () => {
               </select>
             </div>
           </div>
+
+          {/* ALERTA DE SOLICITUDES DE ELIMINACIÓN PENDIENTES (EXCLUSIVO ADMINISTRADOR) */}
+          {isSuperAdmin && pendingDeletionRequestsCount > 0 && (
+            <div className="bg-rose-950/40 border border-rose-600/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-600/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                  <AlertTriangle className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                    <span>Atención Administrador: {pendingDeletionRequestsCount} Solicitud(es) de Eliminación</span>
+                    <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-mono font-bold">
+                      Modistas
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-neutral-300">
+                    Las modistas han solicitado el borrado físico de estas órdenes. Revisa el motivo y ejecuta el DELETE definitivo o desestímalo.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusFilter(statusFilter === 'solicita_eliminacion' ? 'all' : 'solicita_eliminacion')}
+                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md shadow-rose-600/20 cursor-pointer self-start sm:self-auto shrink-0"
+              >
+                {statusFilter === 'solicita_eliminacion' ? 'Mostrar Todos' : 'Ver Órdenes Pendientes'}
+              </button>
+            </div>
+          )}
 
           {/* CAMPO 3: GRILLA / LISTA DE ÓRDENES EN TIEMPO REAL */}
           {filteredRentals.length === 0 ? (
@@ -1057,7 +1166,11 @@ export const VestuarioManager: React.FC = () => {
                       return (
                         <tr
                           key={rental.id}
-                          className="hover:bg-neutral-900/50 transition-colors group"
+                          className={`transition-colors group ${
+                            rental.solicita_eliminacion
+                              ? 'bg-rose-950/20 hover:bg-rose-950/35 border-l-4 border-l-rose-500'
+                              : 'hover:bg-neutral-900/50'
+                          }`}
                         >
                           {/* #Orden */}
                           <td className="py-4 px-4 align-top">
@@ -1067,6 +1180,23 @@ export const VestuarioManager: React.FC = () => {
                             <span className="text-[10px] text-neutral-500 block">
                               {new Date(rental.created_at).toLocaleDateString('es-PE')}
                             </span>
+                            {/* Alerta de Solicitud de Eliminación */}
+                            {rental.solicita_eliminacion && (
+                              <div className="mt-1.5 space-y-1">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/50 text-rose-300 text-[10px] font-bold">
+                                  <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                  <span>SOLICITA BORRADO</span>
+                                </span>
+                                {rental.motivo_eliminacion && (
+                                  <div
+                                    className="text-[10px] text-rose-300/90 italic line-clamp-2 max-w-[170px]"
+                                    title={rental.motivo_eliminacion}
+                                  >
+                                    "{rental.motivo_eliminacion}"
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* Cliente y Evento */}
@@ -1254,16 +1384,60 @@ export const VestuarioManager: React.FC = () => {
                                 </button>
                               )}
 
-                              {/* Botón Eliminar Físico: EXCLUSIVO Administrador */}
-                              {isAdmin && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteRentalTarget(rental)}
-                                  title="Eliminar permanentemente de la base de datos (Solo Admin)"
-                                  className="p-1.5 rounded-lg bg-neutral-800 hover:bg-rose-900 text-neutral-400 hover:text-white border border-neutral-700/60 transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                              {/* FASE 2 & 3: CONTROL DE BORRADO FÍSICO VS SOLICITUD */}
+                              {isSuperAdmin ? (
+                                // ACCIONES DE ADMINISTRADOR GENERAL: BORRADO FÍSICO DIRECTO
+                                rental.solicita_eliminacion ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeleteRentalTarget(rental)}
+                                      title="Aprobar solicitud y borrar físicamente de la base de datos (DELETE)"
+                                      className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] flex items-center gap-1 shadow-md shadow-rose-600/30 transition-all cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline">Aprobar DELETE</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelDeleteRequest(rental)}
+                                      title="Desestimar solicitud de eliminación (conservar orden)"
+                                      className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white border border-neutral-700 transition-colors cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteRentalTarget(rental)}
+                                    title="Eliminar permanentemente de la base de datos (Borrado Físico - Solo Admin)"
+                                    className="p-1.5 rounded-lg bg-neutral-800 hover:bg-rose-900 text-neutral-400 hover:text-white border border-neutral-700/60 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              ) : (
+                                // ACCIONES DE MODISTA / RECEPCIONISTA: NUNCA DELETE DIRECTO
+                                rental.solicita_eliminacion ? (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[10px] font-semibold"
+                                    title={`Motivo reportado: ${rental.motivo_eliminacion || 'Pendiente de aprobación por Administrador'}`}
+                                  >
+                                    <Clock className="w-3 h-3 text-rose-400" />
+                                    <span>Eliminación Solicitada</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRequestDeleteModal(rental)}
+                                    title="Solicitar al Administrador la eliminación física de este registro"
+                                    className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-rose-950/70 text-neutral-400 hover:text-rose-300 border border-neutral-700/60 hover:border-rose-600/40 text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                    <span className="hidden sm:inline">Solicitar Borrado</span>
+                                  </button>
+                                )
                               )}
                             </div>
                           </td>
@@ -1639,25 +1813,43 @@ export const VestuarioManager: React.FC = () => {
         </div>
       )}
 
-      {/* 7. Modal Eliminar Orden (Exclusivo Administrador) */}
-      {deleteRentalTarget && isAdmin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#141414] border border-rose-900/60 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      {/* 7. Modal Borrado Físico Definitivo (Exclusivo Administrador General) */}
+      {deleteRentalTarget && isSuperAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#141414] border border-rose-800/80 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-400">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-white">Eliminar Registro de Alquiler</h3>
-                <p className="text-xs text-neutral-400">Acción permanente de Administrador</p>
+                <h3 className="text-base font-bold text-white">Borrado Físico Absoluto (DELETE)</h3>
+                <p className="text-xs text-rose-400 font-semibold">Exclusivo Superadministrador</p>
               </div>
             </div>
 
             <p className="text-xs sm:text-sm text-neutral-300">
-              ¿Estás seguro de eliminar permanentemente la orden{' '}
+              ¿Estás seguro de ejecutar el borrado físico permanente de la orden{' '}
               <strong className="text-white">[{deleteRentalTarget.ticket_code}]</strong> de{' '}
               <strong className="text-white">{deleteRentalTarget.client_first_name} {deleteRentalTarget.client_last_name}</strong>?
             </p>
+
+            <div className="bg-rose-950/30 border border-rose-800/40 rounded-xl p-3.5 space-y-2 text-xs text-rose-200">
+              <div className="font-bold flex items-center gap-1.5 text-rose-300">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>Impacto directo de esta operación:</span>
+              </div>
+              <ul className="list-disc pl-4 space-y-1 text-[11px] text-neutral-300">
+                <li>Eliminación física directa en la tabla <code className="text-white bg-black/40 px-1 rounded">public.dress_rentals</code>.</li>
+                <li>Liberación instantánea de la prenda <strong className="text-white">[{deleteRentalTarget.item_code}]</strong> a estado "Disponible" en el catálogo.</li>
+                <li>Recálculo automático e inmediato de ingresos y garantías en custodia.</li>
+              </ul>
+              {deleteRentalTarget.solicita_eliminacion && (
+                <div className="mt-2 pt-2 border-t border-rose-800/40 text-[11px]">
+                  <strong className="text-white">Motivo reportado por modista:</strong>{' '}
+                  <span className="italic text-rose-200">"{deleteRentalTarget.motivo_eliminacion || 'Sin motivo especificado'}"</span>
+                </div>
+              )}
+            </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
@@ -1672,9 +1864,83 @@ export const VestuarioManager: React.FC = () => {
                 type="button"
                 onClick={handleConfirmDeleteRental}
                 disabled={isDeletingRental}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/20 transition-all cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition-all cursor-pointer flex items-center gap-1.5"
               >
-                {isDeletingRental ? 'Eliminando...' : 'Sí, Eliminar'}
+                {isDeletingRental ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Eliminando en DB...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sí, Borrar Físicamente</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. Modal Solicitar Eliminación de Orden (Para Modistas) */}
+      {requestDeleteTarget && !isSuperAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#141414] border border-amber-800/80 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-amber-400">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Solicitar Eliminación de Orden</h3>
+                <p className="text-xs text-neutral-400">Requiere aprobación del Administrador General</p>
+              </div>
+            </div>
+
+            <p className="text-xs sm:text-sm text-neutral-300">
+              Como modista, las órdenes no pueden ser eliminadas directamente para garantizar la auditoría del inventario. Esta solicitud marcará la orden{' '}
+              <strong className="text-white">[{requestDeleteTarget.ticket_code}]</strong> para que el Administrador ejecute el borrado físico definitivo.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-neutral-300 block">
+                Motivo de la Solicitud (Opcional):
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Ej. Registro de prueba o duplicado por error, cliente canceló antes del evento, etc."
+                value={requestDeleteReason}
+                onChange={(e) => setRequestDeleteReason(e.target.value)}
+                className="w-full bg-[#181818] border border-neutral-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-[#C8A45C] resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRequestDeleteTarget(null)}
+                disabled={isSubmittingDeleteRequest}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRequestDelete}
+                disabled={isSubmittingDeleteRequest}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#C8A45C] hover:brightness-110 text-black shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                {isSubmittingDeleteRequest ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>Enviando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                    <span>Enviar Solicitud al Admin</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

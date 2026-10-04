@@ -16,7 +16,7 @@ export const ValidateVoucherModal: React.FC<ValidateVoucherModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { validateYapeVoucher, currentRole, openLightbox } = useApp();
+  const { validateYapeVoucher, currentRole, openLightbox, refreshData } = useApp();
   const isRecepcionista = currentRole === 'recepcionista';
 
   const [showRejectField, setShowRejectField] = useState(false);
@@ -38,7 +38,12 @@ export const ValidateVoucherModal: React.FC<ValidateVoucherModalProps> = ({
         setErrorMessage('No se pudo aprobar la reserva.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error al aprobar la reserva.');
+      const msg = err.message || 'Error al aprobar la reserva.';
+      setErrorMessage(msg);
+      // Si la reserva ya fue gestionada por otro compañero, refrescar datos
+      if (msg.includes('gestionada por otro usuario')) {
+        refreshData();
+      }
     } finally {
       setIsProcessing(false);
     }

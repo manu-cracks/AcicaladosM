@@ -136,9 +136,9 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
         <form onSubmit={handleSubmitReturn} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
-              <span>* GARANTÍA A DEVOLVER AL CLIENTE:</span>
+              <span>* MONTO REAL DEVUELTO AL CLIENTE:</span>
               <span className="text-[10px] text-neutral-400">
-                (Monto original: S/ {originalGuaranteeSoles.toFixed(0)})
+                (Garantía en custodia: S/ {originalGuaranteeSoles.toFixed(2)})
               </span>
             </label>
             <div className="relative">
@@ -149,40 +149,60 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
                 type="number"
                 min="0"
                 max={originalGuaranteeSoles}
-                step="1"
+                step="0.01"
                 required
                 value={returnedGuaranteeSoles}
                 onChange={(e) => setReturnedGuaranteeSoles(e.target.value)}
-                placeholder={originalGuaranteeSoles.toFixed(0)}
+                placeholder={originalGuaranteeSoles.toFixed(2)}
                 className="w-full pl-9 pr-3.5 py-2.5 bg-[#1C1C1C] border border-neutral-700 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-white outline-none transition"
               />
             </div>
             <p className="text-[10px] text-neutral-500">
-              ⚠️ Nota: Modifica este monto a un valor menor si el vestido presenta daños, manchas o demoras.
+              💡 Si el vestido presenta daños, manchas o mora, ingresa un monto menor. El sistema calculará automáticamente la retención.
             </p>
           </div>
 
-          {/* Detección de Retención de Garantía */}
-          {hasRetention && (
-            <div className="space-y-2 bg-amber-950/20 border border-amber-800/40 p-3.5 rounded-2xl animate-in fade-in duration-200">
+          {/* Detección y Desglose de Retención de Garantía */}
+          {hasRetention ? (
+            <div className="space-y-2.5 bg-amber-950/25 border border-amber-500/50 p-3.5 rounded-2xl animate-in fade-in duration-200">
               <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                <span>⚠️ SISTEMA: Se ha detectado una retención de S/ {retentionSoles.toFixed(0)}.</span>
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span>RETENCIÓN POR DAÑOS / MORA DETECTADA</span>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-neutral-300 block">
-                  * MOTIVO DE LA PENALIDAD (Obligatorio):
+              <div className="grid grid-cols-2 gap-2 text-[11px] bg-black/40 border border-amber-900/40 rounded-xl p-2.5">
+                <div>
+                  <span className="text-neutral-400 block text-[10px]">Devuelto al Cliente:</span>
+                  <span className="text-emerald-400 font-bold font-mono">S/ {returnedNum.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span className="text-neutral-400 block text-[10px]">Retención (Ingreso Vestuario):</span>
+                  <span className="text-amber-400 font-bold font-mono">+ S/ {retentionSoles.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="text-[10px] text-amber-200/90 leading-tight">
+                ℹ️ La garantía de S/ {originalGuaranteeSoles.toFixed(2)} se restará de <strong>Garantías en Custodia</strong> y los S/ {retentionSoles.toFixed(2)} retenidos se sumarán automáticamente a los <strong>Ingresos Totales</strong> de Vestuario.
+              </div>
+
+              <div className="space-y-1 pt-1">
+                <label className="text-xs font-semibold text-neutral-200 block">
+                  * MOTIVO DE LA PENALIDAD / RETENCIÓN (Obligatorio):
                 </label>
                 <textarea
                   rows={2}
                   required
                   value={penaltyReason}
                   onChange={(e) => setPenaltyReason(e.target.value)}
-                  placeholder="Ej. Quemadura en la parte inferior del vestido / Mancha severa / 1 día de mora..."
-                  className="w-full px-3 py-2 bg-[#171717] border border-amber-900/60 focus:border-amber-500 rounded-xl text-xs text-white placeholder-neutral-500 outline-none resize-none transition"
+                  placeholder="Ej. Quemadura leve en dobladillo / 1 día de mora / Mancha severa de licor..."
+                  className="w-full px-3 py-2 bg-[#171717] border border-amber-800/70 focus:border-amber-400 rounded-xl text-xs text-white placeholder-neutral-500 outline-none resize-none transition"
                 />
               </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-950/20 border border-emerald-800/40 px-3.5 py-2.5 rounded-xl">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Devolución completa de garantía (S/ {originalGuaranteeSoles.toFixed(2)}) sin retenciones.</span>
             </div>
           )}
 

@@ -84,7 +84,13 @@ export const downloadTicketPdf = async (data: TicketPdfData): Promise<void> => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(100, 100, 100);
-    doc.text('TICKET DE CONFIRMACIÓN PROVISIONAL', pageWidth / 2, y + 4.5, { align: 'center' });
+    const isVestuario = data.type === 'vestuario';
+    doc.text(
+      isVestuario ? 'TICKET WEB TEMPORAL - VESTUARIO' : 'TICKET DE CONFIRMACIÓN PROVISIONAL',
+      pageWidth / 2,
+      y + 4.5,
+      { align: 'center' }
+    );
 
     doc.setFontSize(13);
     doc.setTextColor(20, 20, 20);
@@ -96,14 +102,14 @@ export const downloadTicketPdf = async (data: TicketPdfData): Promise<void> => {
     // Badge de Estado
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    if (data.statusLabel.includes('APROBADA') || data.statusLabel.includes('CONFIRMADA')) {
+    if (data.statusLabel.includes('APROBADA') || data.statusLabel.includes('CONFIRMADA') || data.statusLabel.includes('Reservado') || data.statusLabel.includes('RESERVADO')) {
       doc.setTextColor(22, 101, 52); // Verde oscuro
-    } else if (data.statusLabel.includes('REVISIÓN') || data.statusLabel.includes('PROCESO')) {
+    } else if (data.statusLabel.includes('REVISIÓN') || data.statusLabel.includes('PROCESO') || data.statusLabel.includes('Validar')) {
       doc.setTextColor(180, 110, 10); // Ámbar / Dorado oscuro
     } else {
       doc.setTextColor(70, 70, 70);
     }
-    doc.text(`ESTADO: ${data.statusLabel}`, pageWidth / 2, y, { align: 'center' });
+    doc.text(`ESTADO: ${data.statusLabel.toUpperCase()}`, pageWidth / 2, y, { align: 'center' });
 
     y += 6;
     doc.setDrawColor(210, 210, 210);
@@ -153,7 +159,6 @@ export const downloadTicketPdf = async (data: TicketPdfData): Promise<void> => {
     doc.setFontSize(7.5);
     doc.setTextColor(20, 20, 20);
 
-    const isVestuario = data.type === 'vestuario';
     if (isVestuario) {
       doc.text(`Fecha del Evento: ${data.eventOrBookingDate}`, 6, y);
       y += 4;
@@ -249,8 +254,9 @@ export const downloadTicketPdf = async (data: TicketPdfData): Promise<void> => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(110, 110, 110);
-    const disclaimer =
-      'Este comprobante digital provisional certifica tu registro en el sistema. Los comprobantes adjuntos son auditados en caja antes del despacho o servicio. Para consultas o reagendamiento, comunícate al WhatsApp oficial.';
+    const disclaimer = isVestuario
+      ? `AVISO AL CLIENTE: Este ticket web temporal certifica la reserva de tu prenda. Al momento de recogerla en el local físico, deberás abonar el saldo pendiente de ${formatSoles(data.pendingCents)} y dejar la garantía reembolsable de ${formatSoles(data.guaranteeCents || 5000)} (reembolsable al 100% al devolver el vestido intacto).`
+      : 'Este comprobante digital provisional certifica tu registro en el sistema. Los comprobantes adjuntos son auditados en caja antes del despacho o servicio. Para consultas o reagendamiento, comunícate al WhatsApp oficial.';
     const splitDisclaimer = doc.splitTextToSize(disclaimer, pageWidth - 12);
     doc.text(splitDisclaimer, pageWidth / 2, y, { align: 'center' });
 

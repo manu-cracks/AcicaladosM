@@ -121,6 +121,10 @@ export interface DressRental {
   numero_ticket?: string | null;
   fecha_emision_ticket?: string | null;
   asesor_name?: string | null;
+  garantia_devuelta?: number | null;
+  garantia_retenida?: number | null;
+  solicita_eliminacion?: boolean | null;
+  motivo_eliminacion?: string | null;
   created_at: string;
   updated_at: string;
 }

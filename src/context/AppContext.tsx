@@ -228,6 +228,8 @@ interface AppContextType {
   processDressReturn: (rentalId: string, guaranteeReturnedCents: number, penaltyReason?: string) => Promise<boolean>;
   cancelDressRental: (rentalId: string, reason?: string) => Promise<boolean>;
   deleteDressRental: (rentalId: string) => Promise<boolean>;
+  requestDressRentalDeletion: (rentalId: string, reason?: string) => Promise<boolean>;
+  cancelDressRentalDeletionRequest: (rentalId: string) => Promise<boolean>;
 
   // KPI Calculations
   kpis: {
@@ -558,6 +560,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             numero_ticket: r.numero_ticket,
             fecha_emision_ticket: r.fecha_emision_ticket,
             asesor_name: r.asesor_name,
+            solicita_eliminacion: r.solicita_eliminacion === true,
+            motivo_eliminacion: r.motivo_eliminacion || null,
+            garantia_devuelta: r.garantia_devuelta != null ? Number(r.garantia_devuelta) : null,
+            garantia_retenida: r.garantia_retenida != null ? Number(r.garantia_retenida) : null,
             created_at: r.created_at,
             updated_at: r.updated_at,
           }))
@@ -984,6 +990,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             payload.table === 'ventas_mostrador' ||
             payload.table === 'expenses' ||
             payload.table === 'wardrobe_items' ||
+            payload.table === 'dress_rentals' ||
             payload.table === 'employee_attendances' ||
             payload.table === 'attendance_settings'
           ) {
@@ -4072,6 +4079,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
 
         setDressRentals((prev) => [newRental, ...prev]);
+
+        // FASE 2: Pre-bloqueo lógico temporal para evitar que el vestido sea alquilado por alguien más
+        if (data.wardrobe_item_id) {
+          setWardrobe((prev) =>
+            prev.map((item) =>
+              item.id === data.wardrobe_item_id
+                ? { ...item, status: 'reservado' }
+                : item
+            )
+          );
+          try {
+            await (supabase as any)
+              .from('wardrobe_items')
+              .update({
+                availability_status: 'reservado',
+                status: 'reservado',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', data.wardrobe_item_id);
+          } catch (lockErr) {
+            console.warn('Error en pre-bloqueo de prenda:', lockErr);
+          }
+        }
+
         pulseRealtime();
         return newRental;
       } catch (err: any) {
@@ -4079,19 +4110,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw err;
       }
     },
-    [pulseRealtime]
+    [currentUser, pulseRealtime]
   );
 
   const validateYapeVoucher = useCallback(
     async (rentalId: string, approved: boolean, reason?: string): Promise<boolean> => {
       try {
+        // FASE 3: Auditoría de Sesión Universal (Capturar nombre y rol del usuario logueado)
+        const roleTag =
+          currentRole === 'admin'
+            ? 'Admin'
+            : currentRole === 'recepcionista'
+            ? 'Recepción'
+            : 'Modista';
+
+        const auditorName = currentUser?.name
+          ? `${currentUser.name} (${roleTag})`
+          : roleTag;
+
         const nextStatus: DressRentalStatus = approved ? 'reservado' : 'anulado';
         const updatePayload: any = {
           status: nextStatus,
+          asesor_name: auditorName,
           updated_at: new Date().toISOString(),
         };
         if (!approved && reason) {
           updatePayload.rejection_reason = reason;
+        }
+
+        let targetItemId: string | null = null;
+
+        // FASE 3: Control Anti-Choques (Bloqueo Optimista contra concurrencia simultánea)
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          // 1. Consultar estado en tiempo real en la BD
+          const { data: currentOrder, error: checkErr } = await (supabase as any)
+            .from('dress_rentals')
+            .select('id, status, ticket_code, asesor_name, wardrobe_item_id')
+            .eq('id', rentalId)
+            .single();
+
+          if (checkErr || !currentOrder) {
+            throw new Error('No se encontró el registro de la orden en la base de datos.');
+          }
+
+          if (currentOrder.status !== 'por_validar') {
+            throw new Error('⚠️ Operación cancelada: Esta reserva ya fue gestionada por otro usuario');
+          }
+
+          targetItemId = currentOrder.wardrobe_item_id;
+
+          // 2. Ejecutar UPDATE condicional (solo si sigue en 'por_validar')
+          const { data: updatedRows, error: updateErr } = await (supabase as any)
+            .from('dress_rentals')
+            .update(updatePayload)
+            .eq('id', rentalId)
+            .eq('status', 'por_validar')
+            .select();
+
+          if (updateErr) {
+            throw new Error(updateErr.message || 'Error al actualizar estado en Supabase');
+          }
+
+          if (!updatedRows || updatedRows.length === 0) {
+            throw new Error('⚠️ Operación cancelada: Esta reserva ya fue gestionada por otro usuario');
+          }
+        }
+
+        // FASE 3: Confirmación de Bloqueo Oficial de Prenda o Liberación Inmediata
+        if (!targetItemId) {
+          targetItemId = dressRentals.find((r) => r.id === rentalId)?.wardrobe_item_id || null;
+        }
+
+        if (targetItemId) {
+          const newAvailability = approved ? 'reservado' : 'disponible';
+          setWardrobe((prev) =>
+            prev.map((w) =>
+              w.id === targetItemId ? { ...w, status: newAvailability } : w
+            )
+          );
+          try {
+            await (supabase as any)
+              .from('wardrobe_items')
+              .update({
+                availability_status: newAvailability,
+                status: newAvailability,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', targetItemId);
+          } catch (wErr) {
+            console.warn('Error al actualizar disponibilidad de prenda en catálogo:', wErr);
+          }
         }
 
         setDressRentals((prev) =>
@@ -4099,16 +4207,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         pulseRealtime();
 
-        if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
-        }
         return true;
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error validating Yape voucher:', err);
-        return false;
+        throw err;
       }
     },
-    [pulseRealtime]
+    [currentRole, currentUser, dressRentals, pulseRealtime]
   );
 
   const confirmDressDelivery = useCallback(
@@ -4167,6 +4272,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           guarantee_returned_cents: guaranteeReturnedCents,
           penalty_cents: penaltyCents,
           penalty_reason: penaltyReason || null,
+          garantia_devuelta: Math.round(guaranteeReturnedCents) / 100,
+          garantia_retenida: Math.round(penaltyCents) / 100,
           actual_return_date: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -4217,15 +4324,93 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteDressRental = useCallback(
     async (rentalId: string): Promise<boolean> => {
       try {
+        const targetRental = dressRentals.find((r) => r.id === rentalId);
+
         setDressRentals((prev) => prev.filter((r) => r.id !== rentalId));
+
+        // Liberación Inmediata de Prenda: asegurar que el vestido quede disponible
+        if (targetRental?.wardrobe_item_id) {
+          setWardrobe((prev) =>
+            prev.map((item) =>
+              item.id === targetRental.wardrobe_item_id
+                ? { ...item, status: 'disponible' as WardrobeStatus }
+                : item
+            )
+          );
+          try {
+            await (supabase as any)
+              .from('wardrobe_items')
+              .update({ status: 'disponible', updated_at: new Date().toISOString() })
+              .eq('id', targetRental.wardrobe_item_id);
+          } catch (itemErr) {
+            console.warn('Error liberando prenda en DB:', itemErr);
+          }
+        }
+
         pulseRealtime();
 
         if (rentalId.includes('-') && rentalId.length === 36) {
-          await (supabase as any).from('dress_rentals').delete().eq('id', rentalId);
+          const { error } = await (supabase as any).from('dress_rentals').delete().eq('id', rentalId);
+          if (error) {
+            console.error('Error físico al eliminar dress_rental:', error);
+            throw error;
+          }
         }
         return true;
       } catch (err) {
         console.error('Error deleting dress rental:', err);
+        return false;
+      }
+    },
+    [dressRentals, pulseRealtime]
+  );
+
+  const requestDressRentalDeletion = useCallback(
+    async (rentalId: string, reason?: string): Promise<boolean> => {
+      try {
+        const updatePayload = {
+          solicita_eliminacion: true,
+          motivo_eliminacion: reason || 'Solicitud de eliminación por Modista',
+          updated_at: new Date().toISOString(),
+        };
+
+        setDressRentals((prev) =>
+          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error requesting dress rental deletion:', err);
+        return false;
+      }
+    },
+    [pulseRealtime]
+  );
+
+  const cancelDressRentalDeletionRequest = useCallback(
+    async (rentalId: string): Promise<boolean> => {
+      try {
+        const updatePayload = {
+          solicita_eliminacion: false,
+          motivo_eliminacion: null,
+          updated_at: new Date().toISOString(),
+        };
+
+        setDressRentals((prev) =>
+          prev.map((r) => (r.id === rentalId ? { ...r, ...updatePayload } : r))
+        );
+        pulseRealtime();
+
+        if (rentalId.includes('-') && rentalId.length === 36) {
+          await (supabase as any).from('dress_rentals').update(updatePayload).eq('id', rentalId);
+        }
+        return true;
+      } catch (err) {
+        console.error('Error cancelling dress rental deletion request:', err);
         return false;
       }
     },
@@ -4364,6 +4549,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         processDressReturn,
         cancelDressRental,
         deleteDressRental,
+        requestDressRentalDeletion,
+        cancelDressRentalDeletionRequest,
         kpis,
         getFinancialMetrics,
       }}
