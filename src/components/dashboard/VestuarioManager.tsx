@@ -44,8 +44,12 @@ import {
   DressRental,
   DressRentalStatus,
   DressRentalOrigin,
+  formatLimaDate,
 } from '../../types';
+import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
+
+export type VestuarioTimeFilter = 'dia' | 'quincena' | 'mes';
 
 // Modales del flujo de alquileres
 import { NewDressRentalModal } from './vestuario/NewDressRentalModal';
@@ -209,44 +213,129 @@ export const VestuarioManager: React.FC = () => {
   // ==========================================
   // MÉTRICAS EN TIEMPO REAL
   // ==========================================
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }, []);
+  // ==========================================
+  // FILTRO DE TIEMPO INTERACTIVO & MÉTRICAS (DÍA / QUINCENA / MES)
+  // ==========================================
+  const [timeFilter, setTimeFilter] = useState<VestuarioTimeFilter>('dia');
 
-  const todayDisplay = useMemo(() => {
-    return new Date().toLocaleDateString('es-PE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  }, []);
+  const todayStr = useMemo(() => getTodayDateString(), []);
+
+  // Ventana temporal en hora oficial de Perú (America/Lima)
+  const timeFilterInfo = useMemo(() => {
+    const today = getTodayDateString(); // YYYY-MM-DD
+    const [yearStr, monthStr, dayStr] = today.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const day = parseInt(dayStr, 10);
+
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+    const monthName = monthNames[month - 1] || '';
+
+    if (timeFilter === 'dia') {
+      return {
+        filter: 'dia' as const,
+        startDate: today,
+        endDate: today,
+        label: `Hoy (${formatLimaDate(today)})`,
+        shortLabel: 'Hoy',
+      };
+    }
+
+    if (timeFilter === 'quincena') {
+      const isFirstHalf = day <= 15;
+      const lastDayOfFortnight = isFirstHalf ? 15 : new Date(year, month, 0).getDate();
+      const startDayStr = isFirstHalf ? '01' : '16';
+      const endDayStr = String(lastDayOfFortnight).padStart(2, '0');
+      const startDate = `${yearStr}-${monthStr}-${startDayStr}`;
+      const endDate = `${yearStr}-${monthStr}-${endDayStr}`;
+      const quincenaLabel = isFirstHalf ? '1ra Quincena' : '2da Quincena';
+
+      return {
+        filter: 'quincena' as const,
+        startDate,
+        endDate,
+        label: `${quincenaLabel} de ${monthName} (${startDayStr}/${monthStr} - ${endDayStr}/${monthStr})`,
+        shortLabel: quincenaLabel,
+      };
+    }
+
+    // timeFilter === 'mes'
+    const lastDayOfMonth = new Date(year, month, 0).getDate();
+    const startDate = `${yearStr}-${monthStr}-01`;
+    const endDate = `${yearStr}-${monthStr}-${String(lastDayOfMonth).padStart(2, '0')}`;
+
+    return {
+      filter: 'mes' as const,
+      startDate,
+      endDate,
+      label: `Mes de ${monthName} ${yearStr}`,
+      shortLabel: monthName,
+    };
+  }, [timeFilter]);
 
   const rentalKpis = useMemo(() => {
+    const { startDate, endDate } = timeFilterInfo;
+
+    // Alquileres cuyo registro o transacción corresponde al período
+    const periodRentals = dressRentals.filter((r) => {
+      const orderDate = getLimaDateFromTimestamp(r.created_at) || r.event_date;
+      return orderDate >= startDate && orderDate <= endDate;
+    });
+
+    // 1. Ingresos / Ganancias Totales: Sumatoria del dinero efectivamente cobrado por alquileres
+    // (Excluye órdenes anuladas; suma alquiler total si entregado/finalizado, o adelanto si reservado/por_validar)
+    const totalIngresosCents = periodRentals.reduce((acc, r) => {
+      if (r.status === 'anulado') return acc;
+      if (r.status === 'entregado' || r.status === 'finalizado') {
+        return acc + (r.rental_price_cents || 0);
+      }
+      // Para 'reservado' o 'por_validar', se suma lo efectivamente cobrado en adelanto o pago inicial
+      const cobrado = (r.advance_cents && r.advance_cents > 0)
+        ? r.advance_cents
+        : (r.is_immediate_delivery ? (r.rental_price_cents || 0) : 0);
+      return acc + cobrado;
+    }, 0);
+
+    // 2. Vestidos Reservados: Cantidad de prendas apartadas (status 'reservado')
+    const vestidosReservados = periodRentals.filter((r) => r.status === 'reservado').length;
+
+    // 3. Faltan Devolver: Contador de vestidos que están en uso y pendientes de retorno al local (status 'entregado')
+    const faltanDevolverPeriodo = dressRentals.filter((r) => {
+      if (r.status !== 'entregado') return false;
+      const retDate = r.return_date;
+      const createdDate = getLimaDateFromTimestamp(r.created_at);
+      const deliveryDate = getLimaDateFromTimestamp(r.delivery_date);
+      return (
+        (retDate && retDate >= startDate && retDate <= endDate) ||
+        (createdDate >= startDate && createdDate <= endDate) ||
+        (deliveryDate && deliveryDate >= startDate && deliveryDate <= endDate)
+      );
+    }).length;
+
+    const faltanDevolverTotal = dressRentals.filter((r) => r.status === 'entregado').length;
+    const faltanDevolver = timeFilter === 'dia'
+      ? (faltanDevolverPeriodo || faltanDevolverTotal)
+      : (faltanDevolverPeriodo || faltanDevolverTotal);
+
+    // Conteo y garantías complementarias
     const porValidar = dressRentals.filter((r) => r.status === 'por_validar').length;
-    // Entregas para hoy: órdenes reservadas cuya fecha de evento o entrega es hoy
-    const entregasHoy = dressRentals.filter(
-      (r) => r.status === 'reservado' && r.event_date === todayStr
-    ).length;
-    // Reservas activas totales pendientes de entrega
-    const reservadasTotal = dressRentals.filter((r) => r.status === 'reservado').length;
-    // Prendas actualmente en poder del cliente
-    const enUsoEntregados = dressRentals.filter((r) => r.status === 'entregado').length;
-    // Total garantías en custodia (Solo para Admin)
     const garantiasEnCustodia = dressRentals
       .filter((r) => r.status === 'entregado')
       .reduce((acc, r) => acc + (r.guarantee_cents || 0), 0);
 
     return {
+      totalIngresosCents,
+      vestidosReservados,
+      faltanDevolver,
+      faltanDevolverTotal,
       porValidar,
-      entregasHoy: entregasHoy || reservadasTotal,
-      enUsoEntregados,
       garantiasEnCustodia,
+      totalOrders: periodRentals.length,
     };
-  }, [dressRentals, todayStr]);
+  }, [dressRentals, timeFilterInfo, timeFilter]);
 
   // ==========================================
   // FILTRADO DE ALQUILERES
@@ -707,94 +796,168 @@ export const VestuarioManager: React.FC = () => {
       {/* ========================================================= */}
       {activeTab === 'rentals' && (
         <div className="space-y-6">
-          {/* CAMPO 1: MÉTRICAS RÁPIDAS (KPIs) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-neutral-400">
-              <span className="font-semibold text-neutral-300 flex items-center gap-1.5">
-                <span>📊 Resumen de Hoy: {todayDisplay}</span>
-              </span>
-              {isRecepcionista && (
-                <span className="text-[11px] text-amber-400/90 italic">
-                  🔒 Enfoque Operativo (Reportes financieros globales restringidos)
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              {/* Tarjeta 1: Por Validar Yape */}
-              <div
-                onClick={() => setStatusFilter(statusFilter === 'por_validar' ? 'all' : 'por_validar')}
-                className={`bg-[#121212] border rounded-2xl p-4 flex items-center gap-3.5 cursor-pointer transition-all ${
-                  statusFilter === 'por_validar'
-                    ? 'border-amber-400/80 bg-amber-950/20'
-                    : 'border-neutral-800/90 hover:border-amber-500/40'
-                }`}
-              >
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold">
-                  🟡
+          {/* CAMPO 1: FILTROS DE TIEMPO & MÉTRICAS PARA MODISTAS (DASHBOARD VESTUARIO) */}
+          <div className="space-y-4">
+            {/* Barra de Filtro de Tiempo Interactivo (Día / Quincena / Mes) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#121212] border border-neutral-800/90 rounded-2xl p-3 sm:px-4 sm:py-3 shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C]">
+                  <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xl sm:text-2xl font-bold text-amber-400 font-mono">
-                    {rentalKpis.porValidar}
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>Período Financiero:</span>
+                    <span className="text-[#E6C875] font-semibold">{timeFilterInfo.label}</span>
                   </div>
-                  <div className="text-[11px] text-neutral-400 font-medium">Por Validar Yape</div>
+                  <div className="text-[11px] text-neutral-400">
+                    Métricas dinámicas para modistas en tiempo real (Zona Horaria America/Lima)
+                  </div>
                 </div>
               </div>
 
-              {/* Tarjeta 2: Entregas para Hoy */}
+              {/* Selector interactivo Día / Quincena / Mes */}
+              <div className="flex items-center bg-[#181818] border border-neutral-800 p-1 rounded-xl gap-1 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter('dia')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    timeFilter === 'dia'
+                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                  }`}
+                >
+                  Día
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter('quincena')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    timeFilter === 'quincena'
+                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                  }`}
+                >
+                  Quincena
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter('mes')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    timeFilter === 'mes'
+                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                  }`}
+                >
+                  Mes
+                </button>
+              </div>
+            </div>
+
+            {/* Fila de Tarjetas de Resumen (KPIs Dinámicos) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              {/* Tarjeta 1: Ingresos / Ganancias Totales */}
+              <div className="bg-[#121212] border border-[#C8A45C]/40 hover:border-[#C8A45C]/70 rounded-2xl p-4.5 space-y-2.5 shadow-xl relative overflow-hidden transition-all group">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-neutral-300">Ingresos / Ganancias Totales</span>
+                  <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 text-[#C8A45C] flex items-center justify-center">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-2xl sm:text-3xl font-bold text-[#E6C875] font-serif-luxury tracking-tight">
+                    {formatSoles(rentalKpis.totalIngresosCents)}
+                  </div>
+                  <div className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#C8A45C]" />
+                    <span>Cobrado por alquileres en {timeFilterInfo.shortLabel}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tarjeta 2: Vestidos Reservados */}
               <div
                 onClick={() => setStatusFilter(statusFilter === 'reservado' ? 'all' : 'reservado')}
-                className={`bg-[#121212] border rounded-2xl p-4 flex items-center gap-3.5 cursor-pointer transition-all ${
+                className={`bg-[#121212] border rounded-2xl p-4.5 space-y-2.5 shadow-xl relative overflow-hidden cursor-pointer transition-all group ${
                   statusFilter === 'reservado'
                     ? 'border-blue-400/80 bg-blue-950/20'
                     : 'border-neutral-800/90 hover:border-blue-500/40'
                 }`}
               >
-                <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold">
-                  📦
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-neutral-300">Vestidos Reservados</span>
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 flex items-center justify-center font-bold">
+                    <Calendar className="w-4 h-4" />
+                  </div>
                 </div>
                 <div>
-                  <div className="text-xl sm:text-2xl font-bold text-blue-400 font-mono">
-                    {rentalKpis.entregasHoy}
+                  <div className="text-2xl sm:text-3xl font-bold text-blue-400 font-mono tracking-tight">
+                    {rentalKpis.vestidosReservados}
                   </div>
-                  <div className="text-[11px] text-neutral-400 font-medium">Entregas para Hoy</div>
+                  <div className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    <span>Prendas apartadas para eventos</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Tarjeta 3: Vestidos en Uso / Entregados */}
+              {/* Tarjeta 3: Faltan Devolver */}
               <div
                 onClick={() => setStatusFilter(statusFilter === 'entregado' ? 'all' : 'entregado')}
-                className={`bg-[#121212] border rounded-2xl p-4 flex items-center gap-3.5 cursor-pointer transition-all ${
+                className={`bg-[#121212] border rounded-2xl p-4.5 space-y-2.5 shadow-xl relative overflow-hidden cursor-pointer transition-all group ${
                   statusFilter === 'entregado'
-                    ? 'border-emerald-400/80 bg-emerald-950/20'
-                    : 'border-neutral-800/90 hover:border-emerald-500/40'
+                    ? 'border-amber-400/80 bg-amber-950/20'
+                    : 'border-neutral-800/90 hover:border-amber-500/40'
                 }`}
               >
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold">
-                  🟢
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-neutral-300">Faltan Devolver</span>
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                    <RotateCcw className="w-4 h-4" />
+                  </div>
                 </div>
                 <div>
-                  <div className="text-xl sm:text-2xl font-bold text-emerald-400 font-mono">
-                    {rentalKpis.enUsoEntregados}
+                  <div className="text-2xl sm:text-3xl font-bold text-amber-400 font-mono tracking-tight">
+                    {rentalKpis.faltanDevolver}
                   </div>
-                  <div className="text-[11px] text-neutral-400 font-medium">Vestidos en Uso</div>
+                  <div className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>Vestidos en uso pendientes de retorno</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Tarjeta 4: Solo para Administrador (Garantías en Custodia) */}
-              {isAdmin && (
-                <div className="bg-[#121212] border border-neutral-800/90 rounded-2xl p-4 flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center text-[#E6C875] font-bold">
-                    <ShieldCheck className="w-5 h-5 text-[#C8A45C]" />
-                  </div>
-                  <div>
-                    <div className="text-xl sm:text-2xl font-bold text-[#E6C875] font-mono">
-                      {formatSoles(rentalKpis.garantiasEnCustodia)}
-                    </div>
-                    <div className="text-[11px] text-neutral-400 font-medium">Garantías en Custodia</div>
+              {/* Tarjeta 4: Garantías en Custodia */}
+              <div className="bg-[#121212] border border-neutral-800/90 hover:border-emerald-500/40 rounded-2xl p-4.5 space-y-2.5 shadow-xl relative overflow-hidden transition-all group">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-neutral-300">Garantías en Custodia</span>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
+                    <ShieldCheck className="w-4 h-4" />
                   </div>
                 </div>
-              )}
+                <div>
+                  <div className="text-2xl sm:text-3xl font-bold text-emerald-400 font-mono tracking-tight">
+                    {formatSoles(rentalKpis.garantiasEnCustodia)}
+                  </div>
+                  <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span>Depósitos de seguridad activos</span>
+                    </span>
+                    {rentalKpis.porValidar > 0 && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStatusFilter('por_validar');
+                        }}
+                        className="text-[10px] text-amber-400 bg-amber-950/40 border border-amber-500/30 px-1.5 py-0.5 rounded cursor-pointer hover:bg-amber-900/50"
+                        title="Ver comprobantes pendientes de validación"
+                      >
+                        🟡 {rentalKpis.porValidar} por validar
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -877,6 +1040,7 @@ export const VestuarioManager: React.FC = () => {
                       <th className="py-3.5 px-4">Cliente y Evento</th>
                       <th className="py-3.5 px-4">Prenda / Vestido</th>
                       <th className="py-3.5 px-4">Origen</th>
+                      <th className="py-3.5 px-4">Modista</th>
                       <th className="py-3.5 px-4">Estado & Finanzas</th>
                       <th className="py-3.5 px-4 text-right">Acción Disponible</th>
                     </tr>
@@ -955,6 +1119,14 @@ export const VestuarioManager: React.FC = () => {
                                 <span>LOCAL</span>
                               </span>
                             )}
+                          </td>
+
+                          {/* Modista Asesora */}
+                          <td className="py-4 px-4 align-top">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#C8A45C]/10 border border-[#C8A45C]/25 text-[#E6C875] text-[11px] font-medium whitespace-nowrap shadow-sm">
+                              <User className="w-3.5 h-3.5 text-[#C8A45C]" />
+                              <span className="font-semibold">{rental.asesor_name || 'Recepción'}</span>
+                            </div>
                           </td>
 
                           {/* Estado & Finanzas */}

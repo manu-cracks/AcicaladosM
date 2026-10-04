@@ -39,9 +39,9 @@ function formatDateSlash(dateStr?: string | null): string {
   return clean;
 }
 
-/** Extracción del primer nombre con split(' ')[0] */
+/** Extracción del primer nombre con split(' ')[0] en mayúsculas */
 export function extractModistaFirstName(nameOrObj?: any): string {
-  if (!nameOrObj) return 'CARMEN';
+  if (!nameOrObj) return 'MODISTA';
   if (typeof nameOrObj === 'object') {
     const raw =
       nameOrObj.first_name ||
@@ -49,12 +49,12 @@ export function extractModistaFirstName(nameOrObj?: any): string {
       nameOrObj.name ||
       nameOrObj.asesor_name ||
       '';
-    const first = String(raw).trim().split(/\s+/)[0] || 'CARMEN';
+    const first = String(raw).trim().split(/\s+/)[0] || 'MODISTA';
     return first.toUpperCase();
   }
   const clean = String(nameOrObj).trim();
-  if (!clean) return 'CARMEN';
-  const first = clean.split(/\s+/)[0] || 'CARMEN';
+  if (!clean) return 'MODISTA';
+  const first = clean.split(/\s+/)[0] || 'MODISTA';
   return first.toUpperCase();
 }
 
@@ -94,12 +94,13 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
   const [selectedModista, setSelectedModista] = useState<string>(() => {
     if (rental.asesor_name && rental.asesor_name.trim()) return rental.asesor_name.trim();
     if (defaultModista && defaultModista.trim()) return defaultModista.trim();
+    if (currentUser?.name && currentUser.name.trim()) return currentUser.name.trim();
     if (currentUser?.first_name) return `${currentUser.first_name} ${currentUser.last_name || ''}`.trim();
     if (modistas.length > 0) {
       const firstMod = modistas[0];
-      return `${firstMod.first_name || ''} ${firstMod.last_name || ''}`.trim() || 'CARMEN';
+      return `${firstMod.first_name || ''} ${firstMod.last_name || ''}`.trim() || 'MODISTA';
     }
-    return 'CARMEN';
+    return 'MODISTA';
   });
 
   // =========================================================================
@@ -575,6 +576,12 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                 <span className="font-normal">DESTINO:</span>
                 <span className="font-bold text-right uppercase">{displayDestination}</span>
               </div>
+              {modistaFirstName && (
+                <div className="flex justify-between items-baseline pt-0.5">
+                  <span className="font-normal">MODISTA:</span>
+                  <span className="font-bold text-right uppercase">{modistaFirstName}</span>
+                </div>
+              )}
             </div>
 
             {/* Separador - */}
@@ -614,9 +621,9 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                     </span>
                   </div>
                 )}
-                {!isWebMode && (
+                {modistaFirstName && (
                   <div className="text-[10px] text-neutral-900 font-bold pt-0.5">
-                    ASESOR/MODISTA: {modistaFirstName}
+                    Modista: {modistaFirstName}
                   </div>
                 )}
               </div>

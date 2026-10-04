@@ -36,7 +36,7 @@ export interface FinancialMetrics {
   dateRange: DateRangeLima;
 
   // Ingresos por Servicios y Desglose por Área (SSOT)
-  totalIngresosCents: number;          // Total Cobrado = Servicios + Ventas + Vestuario
+  totalIngresosCents: number;          // Total Cobrado Salón = Servicios + Ventas de Mostrador (Vestuario estrictamente aislado)
   ingresosServiciosCents: number;      // Barbería Cobrado + Spa Cobrado
   barberiaCents: number;               // Tarjeta "INGRESOS POR BARBERÍA"
   barberiaCount: number;
@@ -47,8 +47,8 @@ export interface FinancialMetrics {
   ventasMostradorCents: number;        // Tarjeta "INGRESOS POR VENTAS"
   ventasCount: number;
 
-  // Vestuario
-  vestuarioCents: number;              // Tarjeta "ALQUILER DE VESTUARIO"
+  // Vestuario (Aislado de forma estricta en su propio ecosistema de Modistería)
+  vestuarioCents: number;
   vestuarioCount: number;
 
   // Egresos Operativos y Balance Neto
@@ -385,26 +385,15 @@ export function calculateFinancialMetrics(params: {
     ? 0
     : filteredVentas.reduce((acc, v) => acc + (v.total_price_cents || 0), 0);
 
-  // 4. Alquiler de Vestuario (Solo aplica globalmente)
-  const filteredRentals = dressRentals.filter((r) => {
-    if (r.status === 'anulado') return false;
-    const rDate = getLimaDateFromTimestamp(r.event_date || r.created_at);
-    if (isExact && exactDate) {
-      return rDate === exactDate;
-    }
-    return rDate >= startDate && rDate <= endDate;
-  });
+  // 4. Módulo de Vestuario (AISLAMIENTO FINANCIERO ESTRICTO)
+  // Las finanzas de Vestuario cuentan con su propio ecosistema independiente
+  // y bajo ninguna circunstancia se mezclan con los ingresos generales del salón
+  const vestuarioCents = 0;
+  const vestuarioCount = 0;
 
-  const vestuarioCents = employeeId
-    ? 0
-    : filteredRentals.reduce(
-        (acc, r) =>
-          acc + (r.status === 'entregado' ? r.rental_price_cents || 0 : r.advance_cents || 0),
-        0
-      );
-
-  // 5. Total Ingresos Cobrados (Servicios + Ventas + Vestuario)
-  const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents + vestuarioCents;
+  // 5. Total Ingresos Cobrados de Salón (Servicios Spa/Barbería + Ventas Mostrador)
+  // AISLAMIENTO ESTRICTO: Vestuario NO se suma ni cruza con finanzas del salón
+  const totalIngresosCents = ingresosServiciosCents + ventasMostradorCents;
 
   // 6. Egresos Operativos Activos (excluye estrictamente ANULADOS)
   const filteredExpenses = expenses.filter((e) => {
@@ -441,7 +430,7 @@ export function calculateFinancialMetrics(params: {
     ventasMostradorCents,
     ventasCount: filteredVentas.length,
     vestuarioCents,
-    vestuarioCount: filteredRentals.length,
+    vestuarioCount,
     totalEgresosCents,
     egresosCount: filteredExpenses.length,
     balanceNetoCents,

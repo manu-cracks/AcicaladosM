@@ -4015,6 +4015,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           voucher_declared_amount_cents: data.voucher_declared_amount_cents || null,
           rejection_reason: data.rejection_reason || null,
           notes: data.notes || null,
+          asesor_name: (data.asesor_name && data.asesor_name.trim()) || currentUser?.name || 'Recepción',
         };
 
         const { data: dbData, error } = await (supabase as any)
@@ -4065,7 +4066,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           notes: raw.notes,
           numero_ticket: raw.numero_ticket,
           fecha_emision_ticket: raw.fecha_emision_ticket,
-          asesor_name: raw.asesor_name,
+          asesor_name: raw.asesor_name || insertPayload.asesor_name,
           created_at: raw.created_at,
           updated_at: raw.updated_at,
         };

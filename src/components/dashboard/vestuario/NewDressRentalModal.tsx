@@ -32,7 +32,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { wardrobe, dressRentals, addDressRental, currentRole } = useApp();
+  const { wardrobe, dressRentals, addDressRental, currentRole, currentUser } = useApp();
   const isAdmin = currentRole === 'admin' || currentRole === 'VESTUARIO_ADMIN';
   const isRecepcionista = currentRole === 'recepcionista';
 
@@ -216,6 +216,11 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
         guarantee_cents: finalGuaranteeCents,
         is_immediate_delivery: isImmediateDelivery,
         delivery_date: isImmediateDelivery ? new Date().toISOString() : null,
+        asesor_name: (
+          currentUser?.name ||
+          (currentUser?.first_name ? `${currentUser.first_name} ${currentUser.last_name || ''}`.trim() : '') ||
+          'Modista Acicalados'
+        ).trim(),
       });
 
       if (created) {
@@ -247,10 +252,16 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
         {/* Encabezado del Modal */}
         <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
           <div className="space-y-1">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#C8A45C]/15 border border-[#C8A45C]/40 text-[#E6C875] flex items-center gap-1.5 w-fit">
-              <Sparkles className="w-3 h-3" />
-              Nueva Orden de Alquiler
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#C8A45C]/15 border border-[#C8A45C]/40 text-[#E6C875] flex items-center gap-1.5 w-fit">
+                <Sparkles className="w-3 h-3" />
+                Nueva Orden de Alquiler
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-neutral-800/90 border border-neutral-700/80 text-neutral-300 flex items-center gap-1">
+                <User className="w-3 h-3 text-[#C8A45C]" />
+                <span>Asesora: <strong className="text-[#E6C875] font-semibold">{currentUser?.name || 'Modista Acicalados'}</strong></span>
+              </span>
+            </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
               Reservar Vestidos & Prendas de Gala
             </h2>

@@ -166,7 +166,6 @@ export const ReportesView: React.FC = () => {
     barberiaCount,
     spaCount,
     ventasMostradorCents: ventasCents,
-    vestuarioCents,
     totalEgresosCents: egresosCents,
     totalIngresosCents,
     balanceNetoCents: gananciaNetaCents,
@@ -369,9 +368,8 @@ export const ReportesView: React.FC = () => {
 Producción por Especialista:
 ${specialistsLines}
 
-Otros Ingresos:
-- Ventas de Productos: ${formatSolesText(ventasCents)}
-- Vestuario / Trajes: ${formatSolesText(vestuarioCents)}
+Ventas de Mostrador:
+- Productos: ${formatSolesText(ventasCents)}
 
 Total Atenciones: ${totalAtenciones}
 Total Ingresos del Día: ${formatSolesText(totalIngresosCents)}
@@ -381,7 +379,6 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
     formattedDateLima,
     specialistProduction,
     ventasCents,
-    vestuarioCents,
     totalAtenciones,
     totalIngresosCents,
     egresosCents,
