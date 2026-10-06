@@ -50,6 +50,8 @@ import {
   getShiftConfigForDate,
   parseTimeToMinutes,
   formatMinutesToHours,
+  calculateAttendancePunctuality,
+  recalculateAttendanceRecord,
 } from '../lib/attendanceUtils';
 
 interface AppContextType {
@@ -197,6 +199,16 @@ interface AppContextType {
   registerAttendancePunch: (employeeId: string, punchType: 'check_in' | 'check_out') => void;
   manualAdjustBonus: (attendanceId: string, newBonusMinutes: number, reason: string) => void;
   submitJustification: (attendanceId: string, note: string, docUrl?: string) => void;
+  updateEmployeeAttendance: (
+    attendanceId: string,
+    data: {
+      date: string;
+      check_in: string;
+      check_out: string | null;
+      notes?: string;
+    }
+  ) => Promise<boolean>;
+  deleteEmployeeAttendance: (attendanceId: string) => Promise<boolean>;
 
   // Settings
   updatePaymentSettings: (settings: Partial<PaymentSettings>) => void;
@@ -943,8 +955,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 leave_start_time: a.leave_start_time || null,
                 leave_reason: a.leave_reason || null,
                 absence_minutes: Number(a.absence_minutes || 0),
+                notes: a.notes || undefined,
+                owed_minutes: Number(a.owed_minutes || 0),
               };
             })
+
           );
         }
       }
@@ -2787,10 +2802,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // CASO 1: ENTRADA (Check-In: No tiene registro hoy)
       if (!currentAttendance) {
-        const isLate = nowMinutes > shiftConfig.maxEntryAllowed;
-        const tardyMinutes = isLate ? Math.max(0, nowMinutes - shiftConfig.entryMinutes) : 0;
-        const status = isLate ? 'tardanza' : 'presente';
+        const { isLate, tardyMinutes, status } = calculateAttendancePunctuality(nowMinutes, shiftConfig);
         const punctuality = isLate ? 'tardanza' : 'puntual';
+
 
         const generatedId =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -3180,9 +3194,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const shiftConfig = getShiftConfigForDate(attendanceSettings);
 
       if (punchType === 'check_in') {
-        const isLate = nowMinutes > shiftConfig.maxEntryAllowed;
-        const tardyMinutes = isLate ? Math.max(0, nowMinutes - shiftConfig.entryMinutes) : 0;
-        const status = isLate ? 'tardanza' : 'presente';
+        const { isLate, tardyMinutes, status } = calculateAttendancePunctuality(nowMinutes, shiftConfig);
+
 
         const generatedId =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -3365,6 +3378,140 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     pulseRealtime();
   }, [pulseRealtime]);
+
+  const updateEmployeeAttendance = useCallback(
+    async (
+      attendanceId: string,
+      data: {
+        date: string;
+        check_in: string;
+        check_out: string | null;
+        notes?: string;
+      }
+    ): Promise<boolean> => {
+      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+      if (!isEffectiveAdmin) {
+        alert('Solo el Administrador tiene permisos para editar registros de asistencia.');
+        return false;
+      }
+
+      const currentRecord = attendance.find((a) => a.id === attendanceId);
+      if (!currentRecord) {
+        throw new Error('Registro de asistencia no encontrado.');
+      }
+
+      const absenceMinutes = currentRecord.absence_minutes || 0;
+      const cleanNotes = data.notes?.trim() || null;
+
+      // Recálculo integral inteligente usando la base de datos y política global
+      const recalc = recalculateAttendanceRecord({
+        date: data.date,
+        checkIn: data.check_in,
+        checkOut: data.check_out,
+        absenceMinutes,
+        settings: attendanceSettings,
+      });
+
+      // Formateo de timestamps en zona horaria America/Lima (-05:00)
+      const checkInIso = `${data.date}T${data.check_in}:00-05:00`;
+      const checkOutIso =
+        data.check_out && data.check_out.trim()
+          ? `${data.date}T${data.check_out.trim()}:00-05:00`
+          : null;
+
+      const updatedAtt: EmployeeAttendance = {
+        ...currentRecord,
+        date: data.date,
+        check_in: data.check_in,
+        check_out: data.check_out && data.check_out.trim() ? data.check_out.trim() : null,
+        status: recalc.status,
+        tardy_minutes: recalc.tardyMinutes,
+        worked_minutes: recalc.workedMinutes,
+        overtime_minutes: recalc.overtimeMinutes,
+        bonus_minutes: recalc.overtimeMinutes,
+        owed_minutes: recalc.owedMinutes,
+        notes: cleanNotes || undefined,
+        absence_minutes: absenceMinutes,
+      };
+
+      // 1. Actualización optimista inmediata en estado local
+      setAttendance((prev) =>
+        prev.map((a) => (a.id === attendanceId ? updatedAtt : a))
+      );
+      pulseRealtime();
+
+      // 2. Persistencia en Supabase
+      if (attendanceId.includes('-') && attendanceId.length === 36) {
+        try {
+          const { error } = await supabase
+            .from('employee_attendances')
+            .update({
+              date: data.date,
+              check_in: checkInIso,
+              check_out: checkOutIso,
+              status: recalc.status,
+              tardy_minutes: recalc.tardyMinutes,
+              overtime_minutes: recalc.overtimeMinutes,
+              bonus_minutes: recalc.overtimeMinutes,
+              owed_minutes: recalc.owedMinutes,
+              notes: cleanNotes,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', attendanceId);
+
+          if (error) {
+            console.error('Error al actualizar asistencia en Supabase:', error);
+            throw error;
+          }
+        } catch (err: any) {
+          console.error('Error en updateEmployeeAttendance:', err);
+          fetchAllFromSupabase();
+          throw err;
+        }
+      }
+
+      pulseRealtime();
+      return true;
+    },
+    [currentRole, currentUser, attendance, attendanceSettings, pulseRealtime, fetchAllFromSupabase]
+  );
+
+  const deleteEmployeeAttendance = useCallback(
+    async (attendanceId: string): Promise<boolean> => {
+      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+      if (!isEffectiveAdmin) {
+        alert('Solo el Administrador tiene permisos para eliminar registros de asistencia.');
+        return false;
+      }
+
+      // 1. Actualización optimista inmediata
+      setAttendance((prev) => prev.filter((a) => a.id !== attendanceId));
+      pulseRealtime();
+
+      // 2. Persistencia en Supabase
+      if (attendanceId.includes('-') && attendanceId.length === 36) {
+        try {
+          const { error } = await supabase
+            .from('employee_attendances')
+            .delete()
+            .eq('id', attendanceId);
+
+          if (error) {
+            console.error('Error al eliminar asistencia en Supabase:', error);
+            throw error;
+          }
+        } catch (err: any) {
+          console.error('Error en deleteEmployeeAttendance:', err);
+          fetchAllFromSupabase();
+          throw err;
+        }
+      }
+
+      pulseRealtime();
+      return true;
+    },
+    [currentRole, currentUser, pulseRealtime, fetchAllFromSupabase]
+  );
 
   // SETTINGS HANDLERS
   const updatePaymentSettings = useCallback((newSettings: Partial<PaymentSettings>) => {
@@ -4557,6 +4704,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         registerAttendancePunch,
         manualAdjustBonus,
         submitJustification,
+        updateEmployeeAttendance,
+        deleteEmployeeAttendance,
         updatePaymentSettings,
         updateBonusSettings,
         addService,

@@ -182,7 +182,10 @@ export interface EmployeeAttendance {
   leave_start_time?: string | null;
   leave_reason?: string | null;
   absence_minutes?: number;
+  notes?: string;
+  owed_minutes?: number;
 }
+
 
 export interface EmployeeBlock {
   id: string;

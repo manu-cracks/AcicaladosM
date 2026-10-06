@@ -8,9 +8,12 @@ import {
   formatMinutesToHours,
   calculateNetWorkedMinutes,
   parseTimeToMinutes,
+  calculateAttendancePunctuality,
 } from '../../lib/attendanceUtils';
 import { QRScannerModal } from './QRScannerModal';
 import { AttendanceSettingsModal } from './AttendanceSettingsModal';
+import { AttendanceEditModal } from './AttendanceEditModal';
+import { AttendanceDeleteModal } from './AttendanceDeleteModal';
 import QRCode from 'qrcode';
 import {
   QrCode,
@@ -35,18 +38,23 @@ import {
   TrendingUp,
   User,
   Info,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { DashboardSkeleton } from './DashboardSkeleton';
 
 export const AsistenciaView: React.FC = () => {
   const {
     currentRole,
+    currentUser,
     employees,
     attendance,
     attendanceRecords,
     attendanceSettings,
     isDataLoading,
   } = useApp();
+
+  const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
 
   if (isDataLoading) {
     return <DashboardSkeleton />;
@@ -71,6 +79,8 @@ export const AsistenciaView: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [badgeModalEmployee, setBadgeModalEmployee] = useState<Employee | null>(null);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
+  const [editingAttendance, setEditingAttendance] = useState<EmployeeAttendance | null>(null);
+  const [deletingAttendance, setDeletingAttendance] = useState<EmployeeAttendance | null>(null);
 
   // -------------------------------------------------------------
   // ESTADO TAB 1: CONTROL DIARIO
@@ -571,7 +581,13 @@ export const AsistenciaView: React.FC = () => {
                   {filteredRecords.length > 0 ? (
                     filteredRecords.map((rec) => {
                       const emp = employees.find((e) => e.id === rec.employee_id);
-                      const isLate = rec.status === 'tardanza' || (rec.tardy_minutes && rec.tardy_minutes > 0);
+                      const checkInMins = parseTimeToMinutes(rec.check_in);
+                      const punctuality = calculateAttendancePunctuality(checkInMins, currentShiftConfig);
+                      const effectiveLateMinutes =
+                        rec.tardy_minutes !== undefined && rec.tardy_minutes !== null
+                          ? rec.tardy_minutes
+                          : punctuality.tardyMinutes;
+                      const isLate = rec.status === 'tardanza' || effectiveLateMinutes > 0;
                       const overtime = rec.overtime_minutes || rec.bonus_minutes || 0;
                       const absenceMins = rec.absence_minutes || 0;
 
@@ -649,7 +665,7 @@ export const AsistenciaView: React.FC = () => {
                               {isLate ? (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1">
                                   <AlertTriangle className="w-2.5 h-2.5" />
-                                  <span>Tardanza (+{rec.tardy_minutes || 1} min)</span>
+                                  <span>Tardanza (+{effectiveLateMinutes} min)</span>
                                 </span>
                               ) : (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 inline-flex items-center gap-1">
@@ -748,17 +764,40 @@ export const AsistenciaView: React.FC = () => {
 
                           {/* Acciones */}
                           <td className="py-3.5 px-4 text-right">
-                            {emp && (
-                              <button
-                                type="button"
-                                onClick={() => setBadgeModalEmployee(emp)}
-                                className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-[#C8A45C] text-neutral-300 hover:text-black border border-neutral-800 hover:border-[#C8A45C] transition inline-flex items-center gap-1.5 text-xs font-semibold shadow cursor-pointer"
-                                title="Ver e imprimir carnet digital QR"
-                              >
-                                <QrCode className="w-3.5 h-3.5" />
-                                <span>Fotocheck QR</span>
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-1.5">
+                              {emp && (
+                                <button
+                                  type="button"
+                                  onClick={() => setBadgeModalEmployee(emp)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-[#C8A45C] text-neutral-300 hover:text-black border border-neutral-800 hover:border-[#C8A45C] transition inline-flex items-center gap-1.5 text-xs font-semibold shadow cursor-pointer"
+                                  title="Ver e imprimir carnet digital QR"
+                                >
+                                  <QrCode className="w-3.5 h-3.5" />
+                                  <span className="hidden xl:inline">QR</span>
+                                </button>
+                              )}
+
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingAttendance(rec)}
+                                    className="p-1.5 rounded-lg bg-neutral-900 hover:bg-amber-500/20 text-neutral-300 hover:text-amber-400 border border-neutral-800 hover:border-amber-500/40 transition cursor-pointer"
+                                    title="Editar asistencia (Ajuste manual administrativo)"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingAttendance(rec)}
+                                    className="p-1.5 rounded-lg bg-neutral-900 hover:bg-rose-500/20 text-neutral-300 hover:text-rose-400 border border-neutral-800 hover:border-rose-500/40 transition cursor-pointer"
+                                    title="Eliminar registro de asistencia"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1253,6 +1292,20 @@ export const AsistenciaView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL 4: Admin Manual Adjustment / Edit Attendance */}
+      <AttendanceEditModal
+        isOpen={!!editingAttendance}
+        onClose={() => setEditingAttendance(null)}
+        record={editingAttendance}
+      />
+
+      {/* MODAL 5: Admin Delete Attendance Confirmation */}
+      <AttendanceDeleteModal
+        isOpen={!!deletingAttendance}
+        onClose={() => setDeletingAttendance(null)}
+        record={deletingAttendance}
+      />
     </div>
   );
 };

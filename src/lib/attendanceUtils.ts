@@ -119,6 +119,33 @@ export function getShiftConfigForDate(
 }
 
 /**
+ * Calcula el estado de puntualidad y los minutos computables de tardanza.
+ * REGLA ESTRICTA DE TOLERANCIA:
+ * Los minutos extra en contra solo empiezan a contar DESPUÉS de agotar la tolerancia oficial.
+ * Fórmula: Minutos de Deuda = Hora de Entrada Real - (Hora Oficial de Entrada + Tolerancia).
+ * Ejemplo: Entrada 09:00, Tolerancia 5 min, Llegada 09:08 -> Deuda = 548 - 545 = +3 min.
+ */
+export function calculateAttendancePunctuality(
+  checkInMinutes: number,
+  shiftConfig: ShiftConfigResult
+): { isLate: boolean; tardyMinutes: number; status: 'presente' | 'tardanza' } {
+  const maxAllowed = shiftConfig.entryMinutes + shiftConfig.entryTolerance;
+  if (checkInMinutes > maxAllowed) {
+    const tardyMinutes = Math.max(0, checkInMinutes - maxAllowed);
+    return {
+      isLate: true,
+      tardyMinutes,
+      status: 'tardanza',
+    };
+  }
+  return {
+    isLate: false,
+    tardyMinutes: 0,
+    status: 'presente',
+  };
+}
+
+/**
  * Calcula la jornada neta trabajada restando las ausencias acumuladas (almuerzo, permisos médicos, etc.)
  */
 export function calculateNetWorkedMinutes(
@@ -132,6 +159,75 @@ export function calculateNetWorkedMinutes(
   const grossMinutes = Math.max(0, outMin - inMin);
   return Math.max(0, grossMinutes - (absenceMinutes || 0));
 }
+
+export interface AttendanceRecalculateInput {
+  date: string; // YYYY-MM-DD
+  checkIn: string; // HH:mm
+  checkOut: string | null; // HH:mm or null
+  absenceMinutes: number;
+  settings: AttendanceSettings;
+}
+
+export interface AttendanceRecalculateResult {
+  status: 'presente' | 'tardanza';
+  tardyMinutes: number;
+  workedMinutes: number;
+  overtimeMinutes: number;
+  owedMinutes: number;
+  officialShiftMinutes: number;
+  shiftConfig: ShiftConfigResult;
+}
+
+/**
+ * Recálculo integral de un registro de asistencia cruzando contra la política del día,
+ * deduciendo automáticamente el estado (Puntual/Tardanza), calculando la Jornada Neta
+ * (descontando obligatoriamente permisos/ausencias) y computando Horas Extra o Deuda.
+ */
+export function recalculateAttendanceRecord(
+  input: AttendanceRecalculateInput
+): AttendanceRecalculateResult {
+  const { date, checkIn, checkOut, absenceMinutes, settings } = input;
+  const shiftConfig = getShiftConfigForDate(settings, date);
+
+  // 1. Estado y Tardanza con descuento estricto de tolerancia
+  const inMinutes = parseTimeToMinutes(checkIn);
+  const { tardyMinutes, status } = calculateAttendancePunctuality(inMinutes, shiftConfig);
+
+  // 2. Jornada Neta y Horas Extra / Deuda
+  let workedMinutes = 0;
+  let overtimeMinutes = 0;
+  let owedMinutes = 0;
+  const officialShiftMinutes = Math.max(0, shiftConfig.exitMinutes - shiftConfig.entryMinutes);
+
+  if (checkOut && checkOut.trim()) {
+    const outMinutes = parseTimeToMinutes(checkOut);
+    const grossMinutes = Math.max(0, outMinutes - inMinutes);
+    workedMinutes = Math.max(0, grossMinutes - (absenceMinutes || 0));
+
+    // 3. Cruzar la Jornada Neta contra la jornada oficial
+    if (workedMinutes > officialShiftMinutes) {
+      overtimeMinutes = workedMinutes - officialShiftMinutes;
+      owedMinutes = 0;
+    } else if (workedMinutes < officialShiftMinutes) {
+      overtimeMinutes = 0;
+      owedMinutes = officialShiftMinutes - workedMinutes;
+    } else {
+      overtimeMinutes = 0;
+      owedMinutes = 0;
+    }
+  }
+
+  return {
+    status,
+    tardyMinutes,
+    workedMinutes,
+    overtimeMinutes,
+    owedMinutes,
+    officialShiftMinutes,
+    shiftConfig,
+  };
+}
+
 
 /**
  * Calcula el rango de fechas para los filtros rápidos de nómina:
