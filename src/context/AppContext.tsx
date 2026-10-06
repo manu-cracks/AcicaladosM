@@ -220,6 +220,7 @@ interface AppContextType {
   updateService: (srv: Service) => Promise<boolean>;
   deleteService: (serviceId: string) => Promise<boolean>;
   toggleServiceActive: (serviceId: string, currentActive: boolean) => Promise<boolean>;
+  toggleServiceVisibility: (serviceId: string, currentPublic: boolean) => Promise<boolean>;
   addProduct: (prod: Omit<Product, 'id'>) => Promise<boolean>;
   updateProduct: (prod: Product) => Promise<boolean>;
   deleteProduct: (productId: string) => Promise<boolean>;
@@ -456,8 +457,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // --- CARGA INICIAL DESDE SUPABASE ---
   const fetchAllFromSupabase = useCallback(async () => {
     try {
-      // 1. Servicios
-      const { data: dbServices } = await supabase.from('services').select('*').order('sort_order');
+      // 1. Servicios (ordenamiento determinista por sort_order y created_at para estabilidad absoluta)
+      const { data: dbServices } = await supabase
+        .from('services')
+        .select('*')
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
       if (dbServices) {
         setServices(
           dbServices.map((s: any) => ({
@@ -468,9 +473,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             price_cents: s.price_cents,
             duration_minutes: s.duration_minutes,
             capacity: s.capacity,
-            active: s.is_active,
+            active: s.is_active !== undefined ? Boolean(s.is_active) : true,
+            is_public: s.is_public !== undefined ? Boolean(s.is_public) : true,
             image_url: s.images && s.images.length > 0 ? s.images[0] : 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=600&q=80',
             description: s.description || '',
+            sort_order: s.sort_order ?? 0,
           }))
         );
       }
@@ -3591,7 +3598,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         capacity: srvData.capacity || 1,
         staff_required: 1,
         is_active: srvData.active !== undefined ? srvData.active : true,
-        is_public: srvData.active !== undefined ? srvData.active : true,
+        is_public: srvData.is_public !== undefined ? srvData.is_public : true,
         images: srvData.image_url ? [srvData.image_url] : [],
       };
 
@@ -3604,7 +3611,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (error) {
         console.error('Error al insertar servicio en Supabase:', error);
         // Fallback local
-        const newSrv: Service = { ...srvData, description: srvData.description?.trim() || '', id: `srv-${Date.now()}` };
+        const newSrv: Service = {
+          ...srvData,
+          description: srvData.description?.trim() || '',
+          id: `srv-${Date.now()}`,
+          active: srvData.active !== undefined ? srvData.active : true,
+          is_public: srvData.is_public !== undefined ? srvData.is_public : true,
+        };
         setServices((prev) => [...prev, newSrv]);
         pulseRealtime();
         return true;
@@ -3619,9 +3632,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           price_cents: data.price_cents,
           duration_minutes: data.duration_minutes,
           capacity: data.capacity,
-          active: data.is_active,
+          active: data.is_active !== undefined ? Boolean(data.is_active) : true,
+          is_public: data.is_public !== undefined ? Boolean(data.is_public) : true,
           image_url: data.images && data.images.length > 0 ? data.images[0] : srvData.image_url,
           description: data.description || '',
+          sort_order: data.sort_order ?? 0,
         };
         setServices((prev) => [...prev, newSrv]);
         pulseRealtime();
@@ -3639,6 +3654,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const sanitizedSrv: Service = {
         ...srv,
         description: srv.description?.trim() || '',
+        active: Boolean(srv.active),
+        is_public: srv.is_public !== undefined ? Boolean(srv.is_public) : true,
       };
       setServices((prev) => prev.map((s) => (s.id === srv.id ? sanitizedSrv : s)));
       pulseRealtime();
@@ -3652,7 +3669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           duration_minutes: srv.duration_minutes,
           description: srv.description?.trim() || null,
           is_active: srv.active,
-          is_public: srv.active,
+          is_public: srv.is_public !== undefined ? srv.is_public : true,
           images: srv.image_url ? [srv.image_url] : [],
           updated_at: new Date().toISOString(),
         }).eq('id', srv.id);
@@ -3697,18 +3714,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (serviceId.includes('-') && serviceId.length === 36) {
         const { error } = await supabase.from('services').update({
           is_active: nextActive,
-          is_public: nextActive,
           updated_at: new Date().toISOString(),
         }).eq('id', serviceId);
 
         if (error) {
-          console.error('Error al alternar estado de servicio en Supabase:', error);
+          console.error('Error al alternar estado operativo de servicio en Supabase:', error);
           return false;
         }
       }
       return true;
     } catch (err) {
       console.error('Error toggling service active:', err);
+      return false;
+    }
+  }, [pulseRealtime]);
+
+  const toggleServiceVisibility = useCallback(async (serviceId: string, currentPublic: boolean): Promise<boolean> => {
+    try {
+      const nextPublic = !currentPublic;
+      setServices((prev) => prev.map((s) => (s.id === serviceId ? { ...s, is_public: nextPublic } : s)));
+      pulseRealtime();
+
+      if (serviceId.includes('-') && serviceId.length === 36) {
+        const { error } = await supabase.from('services').update({
+          is_public: nextPublic,
+          updated_at: new Date().toISOString(),
+        }).eq('id', serviceId);
+
+        if (error) {
+          console.error('Error al alternar visibilidad de servicio en Supabase:', error);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('Error toggling service visibility:', err);
       return false;
     }
   }, [pulseRealtime]);
@@ -4712,6 +4752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateService,
         deleteService,
         toggleServiceActive,
+        toggleServiceVisibility,
         addProduct,
         updateProduct,
         deleteProduct,

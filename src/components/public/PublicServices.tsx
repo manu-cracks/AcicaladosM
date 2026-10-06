@@ -8,7 +8,7 @@ export const PublicServices: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState<'all' | 'barberia' | 'spa'>('all');
 
   const filtered = services.filter((s) => {
-    if (!s.active) return false;
+    if (!s.active || s.is_public === false) return false;
     if (filterCategory === 'all') return true;
     return s.category === filterCategory;
   });
@@ -122,7 +122,7 @@ export const PublicServices: React.FC = () => {
                 : 'bg-[#181818] text-neutral-300 hover:text-white border border-neutral-800'
             }`}
           >
-            Todos ({services.filter((s) => s.active).length})
+            Todos ({services.filter((s) => s.active && s.is_public !== false).length})
           </button>
           <button
             type="button"

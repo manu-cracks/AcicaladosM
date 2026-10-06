@@ -17,9 +17,11 @@ export interface Service {
   price_cents: number;
   duration_minutes: number;
   capacity: number;
-  active: boolean;
+  active: boolean; // Estado Operativo: true = Activo (se puede vender), false = Inactivo (bloqueado)
+  is_public?: boolean; // Visibilidad Web: true = Mostrar al cliente, false = Ocultar del cliente (default: true)
   image_url: string;
   description?: string;
+  sort_order?: number;
 }
 
 export type ProductUnitMeasure = 'unidad' | 'ml' | 'frasco' | 'paquete' | 'litro' | 'caja' | string;

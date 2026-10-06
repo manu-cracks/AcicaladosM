@@ -98,7 +98,7 @@ export const PublicBookingFlow: React.FC = () => {
   // Filter services available for current type
   const availableServices = useMemo(() => {
     return services.filter((s) => {
-      if (!s.active) return false;
+      if (!s.active || s.is_public === false) return false;
       if (selectedType === 'mixto') return true;
       return s.category === selectedType;
     });

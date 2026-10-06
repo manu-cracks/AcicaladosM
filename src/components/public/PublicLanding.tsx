@@ -19,8 +19,8 @@ import {
 export const PublicLanding: React.FC = () => {
   const { setActiveView, services } = useApp();
 
-  const featuredBarberia = services.filter((s) => s.category === 'barberia').slice(0, 3);
-  const featuredSpa = services.filter((s) => s.category === 'spa').slice(0, 3);
+  const featuredBarberia = services.filter((s) => s.active && s.is_public !== false && s.category === 'barberia').slice(0, 3);
+  const featuredSpa = services.filter((s) => s.active && s.is_public !== false && s.category === 'spa').slice(0, 3);
 
   const testimonials = [
     {

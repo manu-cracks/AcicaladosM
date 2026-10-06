@@ -242,21 +242,28 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   }, [selectedServicesList]);
 
 
-  // Filtrado de servicios para la lista
+  // Filtrado de servicios para la lista con ordenamiento determinista
   const filteredServices = useMemo(() => {
-    return services.filter((srv) => {
-      if (!srv.active) return false;
-      if (categoryFilter === 'barberia' && srv.category !== 'barberia') return false;
-      if (categoryFilter === 'spa' && srv.category !== 'spa') return false;
-      if (serviceSearch.trim()) {
-        const q = serviceSearch.toLowerCase();
-        return (
-          srv.name.toLowerCase().includes(q) ||
-          (srv.description && srv.description.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
+    return services
+      .filter((srv) => {
+        if (!srv.active) return false;
+        if (categoryFilter === 'barberia' && srv.category !== 'barberia') return false;
+        if (categoryFilter === 'spa' && srv.category !== 'spa') return false;
+        if (serviceSearch.trim()) {
+          const q = serviceSearch.toLowerCase();
+          return (
+            srv.name.toLowerCase().includes(q) ||
+            (srv.description && srv.description.toLowerCase().includes(q))
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const sortA = a.sort_order ?? 0;
+        const sortB = b.sort_order ?? 0;
+        if (sortA !== sortB) return sortA - sortB;
+        return a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      });
   }, [services, categoryFilter, serviceSearch]);
 
   // Toggle de selección de servicio (toggle puro: permite deselección total)
@@ -922,15 +929,25 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                       </div>
 
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-800/50">
-                        <span
-                          className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
-                            srv.category === 'barberia'
-                              ? 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
-                              : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
-                          }`}
-                        >
-                          {srv.category === 'barberia' ? 'Barbería' : 'Spa'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${
+                              srv.category === 'barberia'
+                                ? 'bg-amber-950/60 text-amber-300 border border-amber-500/30'
+                                : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                            }`}
+                          >
+                            {srv.category === 'barberia' ? 'Barbería' : 'Spa'}
+                          </span>
+                          {srv.is_public === false && (
+                            <span
+                              className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-950/50 text-amber-300 border border-amber-500/40"
+                              title="Servicio oculto en la web para clientes (sólo disponible internamente)"
+                            >
+                              Oculto Web
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2 font-mono text-[11px]">
                           <span className="text-neutral-400">{srv.duration_minutes}m</span>
                           <span className="font-bold text-[#E6C875]">

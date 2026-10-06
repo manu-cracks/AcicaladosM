@@ -16,6 +16,9 @@ import {
   EyeOff,
   Layers,
   Maximize2,
+  Globe,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DashboardSkeleton } from './DashboardSkeleton';
@@ -283,7 +286,7 @@ async function compressImageToWebP(file: File, quality = 0.85, maxWidth = 1200):
 // COMPONENTE PRINCIPAL
 // ==========================================
 export const ServiciosManager: React.FC = () => {
-  const { services, currentRole, addService, updateService, deleteService, toggleServiceActive, openLightbox, isDataLoading } = useApp();
+  const { services, currentRole, addService, updateService, deleteService, toggleServiceActive, toggleServiceVisibility, openLightbox, isDataLoading } = useApp();
 
   // Permisos: Administrador o Recepcionista
   const isAuthorized = currentRole === 'admin' || currentRole === 'recepcionista';
@@ -291,7 +294,7 @@ export const ServiciosManager: React.FC = () => {
   // Filtros y Búsqueda
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'all' | 'barberia' | 'spa'>('all');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'active' | 'inactive' | 'public' | 'hidden'>('all');
 
   // Estado del Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -308,6 +311,7 @@ export const ServiciosManager: React.FC = () => {
   const [formDurationValue, setFormDurationValue] = useState<number>(40);
   const [formDurationUnit, setFormDurationUnit] = useState<DurationUnit>('minutos');
   const [formIsActive, setFormIsActive] = useState<boolean>(true);
+  const [formIsPublic, setFormIsPublic] = useState<boolean>(true);
   const [formImageUrl, setFormImageUrl] = useState<string>('');
 
   // Estado de Carga de Imagen
@@ -354,6 +358,7 @@ export const ServiciosManager: React.FC = () => {
     setFormDurationValue(40);
     setFormDurationUnit('minutos');
     setFormIsActive(true);
+    setFormIsPublic(true);
     setFormImageUrl('https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=600&q=80');
     setImageCompressionInfo(null);
     setIsModalOpen(true);
@@ -375,6 +380,7 @@ export const ServiciosManager: React.FC = () => {
     setFormDurationUnit(bestUnit.unit);
 
     setFormIsActive(srv.active);
+    setFormIsPublic(srv.is_public !== false);
     setFormImageUrl(srv.image_url || '');
     setImageCompressionInfo(null);
     setIsModalOpen(true);
@@ -510,6 +516,7 @@ export const ServiciosManager: React.FC = () => {
           duration_minutes: computedDurationMinutes,
           capacity: 1,
           active: formIsActive,
+          is_public: formIsPublic,
           image_url: finalImageUrl,
           description: formDescription.trim(),
         });
@@ -530,6 +537,7 @@ export const ServiciosManager: React.FC = () => {
           duration_minutes: computedDurationMinutes,
           capacity: 1,
           active: formIsActive,
+          is_public: formIsPublic,
           image_url: finalImageUrl,
           description: formDescription.trim(),
         });
@@ -549,18 +557,34 @@ export const ServiciosManager: React.FC = () => {
     }
   };
 
-  // Alternar Estado Activo / Inactivo Directo desde la Grilla
+  // Alternar Visibilidad Web: Mostrar / Ocultar del catálogo de clientes
+  const handleToggleVisibility = async (srv: Service) => {
+    try {
+      const currentPublic = srv.is_public !== false;
+      const ok = await toggleServiceVisibility(srv.id, currentPublic);
+      if (ok) {
+        showToast(
+          'success',
+          `Servicio "${srv.name}" ${!currentPublic ? 'ahora es visible en la web para clientes' : 'ahora está oculto en la web para clientes'}.`
+        );
+      }
+    } catch (err) {
+      showToast('error', 'Error al cambiar visibilidad del servicio.');
+    }
+  };
+
+  // Alternar Estado Operativo: Activar / Inactivar ventas
   const handleToggleActive = async (srv: Service) => {
     try {
       const ok = await toggleServiceActive(srv.id, srv.active);
       if (ok) {
         showToast(
           'success',
-          `Servicio "${srv.name}" ${!srv.active ? 'activado' : 'desactivado'} con éxito.`
+          `Servicio "${srv.name}" ${!srv.active ? 'activado (habilitado para ventas)' : 'inactivado (bloqueado para ventas)'}.`
         );
       }
     } catch (err) {
-      showToast('error', 'Error al cambiar estado del servicio.');
+      showToast('error', 'Error al cambiar estado operativo del servicio.');
     }
   };
 
@@ -583,9 +607,9 @@ export const ServiciosManager: React.FC = () => {
     }
   };
 
-  // Filtrado reactivo de servicios
+  // Filtrado reactivo de servicios con ordenamiento DETERMINISTA e INMUTABLE
   const filteredServices = useMemo(() => {
-    return services.filter((srv) => {
+    const list = services.filter((srv) => {
       // Filtro por texto
       const matchesText =
         srv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -595,13 +619,31 @@ export const ServiciosManager: React.FC = () => {
       const matchesCategory =
         selectedCategoryFilter === 'all' || srv.category === selectedCategoryFilter;
 
-      // Filtro por estado
-      const matchesStatus =
-        selectedStatusFilter === 'all' ||
-        (selectedStatusFilter === 'active' && srv.active) ||
-        (selectedStatusFilter === 'inactive' && !srv.active);
+      // Filtro por estado operativo o visibilidad
+      let matchesStatus = true;
+      if (selectedStatusFilter === 'active') {
+        matchesStatus = srv.active;
+      } else if (selectedStatusFilter === 'inactive') {
+        matchesStatus = !srv.active;
+      } else if (selectedStatusFilter === 'public') {
+        matchesStatus = srv.is_public !== false;
+      } else if (selectedStatusFilter === 'hidden') {
+        matchesStatus = srv.is_public === false;
+      }
 
       return matchesText && matchesCategory && matchesStatus;
+    });
+
+    // REGLA ESTRICTA DE UI: La tarjeta NO debe cambiar de posición ni irse al final de la lista.
+    // Ordenamos de forma determinista y fija por (sort_order ASC, name ASC, id ASC).
+    // Ningún cambio de active o is_public altera el orden relativo de las tarjetas.
+    return [...list].sort((a, b) => {
+      const sortA = a.sort_order ?? 0;
+      const sortB = b.sort_order ?? 0;
+      if (sortA !== sortB) return sortA - sortB;
+      const nameComp = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+      if (nameComp !== 0) return nameComp;
+      return a.id.localeCompare(b.id);
     });
   }, [services, searchQuery, selectedCategoryFilter, selectedStatusFilter]);
 
@@ -611,7 +653,8 @@ export const ServiciosManager: React.FC = () => {
     const barberiaCount = services.filter((s) => s.category === 'barberia').length;
     const spaCount = services.filter((s) => s.category === 'spa').length;
     const activeCount = services.filter((s) => s.active).length;
-    return { total, barberiaCount, spaCount, activeCount };
+    const publicCount = services.filter((s) => s.is_public !== false).length;
+    return { total, barberiaCount, spaCount, activeCount, publicCount };
   }, [services]);
 
   if (isDataLoading) {
@@ -735,7 +778,9 @@ export const ServiciosManager: React.FC = () => {
           </div>
           <div>
             <div className="text-xl sm:text-2xl font-bold text-[#C8A45C]">{stats.activeCount}</div>
-            <div className="text-[11px] text-neutral-400 font-medium">Servicios Activos</div>
+            <div className="text-[11px] text-neutral-400 font-medium">
+              Activos Ventas <span className="text-neutral-500 font-mono">({stats.publicCount} en web)</span>
+            </div>
           </div>
         </div>
       </div>
@@ -802,12 +847,12 @@ export const ServiciosManager: React.FC = () => {
           </button>
         </div>
 
-        {/* Filtros por Estado */}
-        <div className="flex items-center gap-1.5 bg-[#181818] p-1 rounded-xl border border-neutral-700/70 shrink-0">
+        {/* Filtros por Estado Operativo / Visibilidad */}
+        <div className="flex items-center gap-1 bg-[#181818] p-1 rounded-xl border border-neutral-700/70 shrink-0 overflow-x-auto">
           <button
             type="button"
             onClick={() => setSelectedStatusFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               selectedStatusFilter === 'all'
                 ? 'bg-neutral-700 text-white shadow'
                 : 'text-neutral-400 hover:text-white'
@@ -818,7 +863,7 @@ export const ServiciosManager: React.FC = () => {
           <button
             type="button"
             onClick={() => setSelectedStatusFilter('active')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               selectedStatusFilter === 'active'
                 ? 'bg-emerald-600/90 text-white shadow'
                 : 'text-neutral-400 hover:text-white'
@@ -829,13 +874,35 @@ export const ServiciosManager: React.FC = () => {
           <button
             type="button"
             onClick={() => setSelectedStatusFilter('inactive')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               selectedStatusFilter === 'inactive'
                 ? 'bg-rose-900/80 text-rose-200 shadow'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
             Inactivos
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedStatusFilter('public')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              selectedStatusFilter === 'public'
+                ? 'bg-blue-600/90 text-white shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            En Web
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedStatusFilter('hidden')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              selectedStatusFilter === 'hidden'
+                ? 'bg-amber-700/90 text-amber-100 shadow'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Ocultos
           </button>
         </div>
       </div>
@@ -906,10 +973,10 @@ export const ServiciosManager: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Badge de Categoría */}
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  {/* Badges superiores: Categoría, Estado Operativo y Visibilidad Web */}
+                  <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 max-w-[72%]">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase backdrop-blur-md shadow ${
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase backdrop-blur-md shadow ${
                         srv.category === 'barberia'
                           ? 'bg-blue-500/80 text-white border border-blue-400/40'
                           : 'bg-emerald-500/80 text-white border border-emerald-400/40'
@@ -918,20 +985,47 @@ export const ServiciosManager: React.FC = () => {
                       {srv.category === 'barberia' ? 'Barbería' : 'Spa'}
                     </span>
 
-                    {/* Badge de Estado Activo/Inactivo */}
+                    {/* Badge de Estado Operativo */}
                     <span
-                      className={`px-2 py-1 rounded-full text-[10px] font-bold backdrop-blur-md shadow flex items-center gap-1 ${
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-md shadow flex items-center gap-1 ${
                         srv.active
-                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
-                          : 'bg-neutral-900/80 text-neutral-400 border border-neutral-700'
+                          ? 'bg-emerald-950/85 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-rose-950/85 text-rose-300 border border-rose-500/40'
                       }`}
+                      title={srv.active ? 'Habilitado para venta' : 'Bloqueado para ventas (Inactivo)'}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          srv.active ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'
+                          srv.active ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
                         }`}
                       />
                       {srv.active ? 'Activo' : 'Inactivo'}
+                    </span>
+
+                    {/* Badge de Visibilidad Web */}
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-md shadow flex items-center gap-1 ${
+                        srv.is_public !== false
+                          ? 'bg-sky-950/85 text-sky-300 border border-sky-500/40'
+                          : 'bg-amber-950/85 text-amber-300 border border-amber-500/40'
+                      }`}
+                      title={
+                        srv.is_public !== false
+                          ? 'Visible para clientes en el catálogo web'
+                          : 'Oculto al cliente (sólo reservas internas)'
+                      }
+                    >
+                      {srv.is_public !== false ? (
+                        <>
+                          <Globe className="w-2.5 h-2.5 text-sky-400" />
+                          <span>En Web</span>
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff className="w-2.5 h-2.5 text-amber-400" />
+                          <span>Oculto Web</span>
+                        </>
+                      )}
                     </span>
                   </div>
 
@@ -977,20 +1071,61 @@ export const ServiciosManager: React.FC = () => {
                   </div>
 
                   {/* Acciones de Edición, Toggle y Eliminación */}
-                  <div className="flex items-center gap-2 pt-1">
-                    {/* Botón Alternar Estado */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    {/* Botón 1: Visibilidad Web (Mostrar / Ocultar) */}
+                    <button
+                      type="button"
+                      onClick={() => handleToggleVisibility(srv)}
+                      title={
+                        srv.is_public !== false
+                          ? 'Ocultar del catálogo web (los clientes no lo verán)'
+                          : 'Mostrar en catálogo web para clientes'
+                      }
+                      className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        srv.is_public !== false
+                          ? 'bg-neutral-800/70 border-neutral-700 text-neutral-300 hover:bg-amber-950/30 hover:border-amber-700/50 hover:text-amber-200'
+                          : 'bg-sky-950/50 border-sky-600/60 text-sky-200 hover:bg-sky-900/60'
+                      }`}
+                    >
+                      {srv.is_public !== false ? (
+                        <>
+                          <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Ocultar</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-3.5 h-3.5 shrink-0 text-sky-300" />
+                          <span className="truncate">Mostrar</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Botón 2: Estado Operativo (Activar / Inactivar) */}
                     <button
                       type="button"
                       onClick={() => handleToggleActive(srv)}
-                      title={srv.active ? 'Desactivar del catálogo' : 'Activar en el catálogo'}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                      title={
                         srv.active
-                          ? 'bg-neutral-800/60 border-neutral-700 text-neutral-300 hover:bg-neutral-700'
-                          : 'bg-emerald-950/40 border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/50'
+                          ? 'Inactivar servicio (bloquea ventas en web y mostrador)'
+                          : 'Activar servicio para ventas'
+                      }
+                      className={`flex-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        srv.active
+                          ? 'bg-neutral-800/70 border-neutral-700 text-neutral-300 hover:bg-rose-950/30 hover:border-rose-700/50 hover:text-rose-200'
+                          : 'bg-emerald-950/50 border-emerald-600/60 text-emerald-200 hover:bg-emerald-900/60'
                       }`}
                     >
-                      {srv.active ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      <span>{srv.active ? 'Ocultar' : 'Activar'}</span>
+                      {srv.active ? (
+                        <>
+                          <PowerOff className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                          <span className="truncate">Inactivar</span>
+                        </>
+                      ) : (
+                        <>
+                          <Power className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                          <span className="truncate">Activar</span>
+                        </>
+                      )}
                     </button>
 
                     {/* Botón Editar */}
@@ -998,9 +1133,9 @@ export const ServiciosManager: React.FC = () => {
                       type="button"
                       onClick={() => handleOpenEditModal(srv)}
                       title="Editar servicio"
-                      className="p-2 rounded-xl bg-[#1A1A1A] border border-neutral-700/70 hover:border-[#C8A45C] text-neutral-300 hover:text-[#C8A45C] transition-all cursor-pointer"
+                      className="p-2 rounded-xl bg-[#1A1A1A] border border-neutral-700/70 hover:border-[#C8A45C] text-neutral-300 hover:text-[#C8A45C] transition-all cursor-pointer shrink-0"
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 className="w-3.5 h-3.5" />
                     </button>
 
                     {/* Botón Eliminar (Admin y Recepcionista con confirmación) */}
@@ -1008,9 +1143,9 @@ export const ServiciosManager: React.FC = () => {
                       type="button"
                       onClick={() => setServiceToDelete(srv)}
                       title="Eliminar servicio"
-                      className="p-2 rounded-xl bg-[#1A1A1A] border border-neutral-700/70 hover:border-rose-500/70 text-neutral-400 hover:text-rose-400 transition-all cursor-pointer"
+                      className="p-2 rounded-xl bg-[#1A1A1A] border border-neutral-700/70 hover:border-rose-500/70 text-neutral-400 hover:text-rose-400 transition-all cursor-pointer shrink-0"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -1335,23 +1470,69 @@ export const ServiciosManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* 7. Estado Público y Activo */}
-              <div className="p-3.5 bg-[#181818] rounded-xl border border-neutral-800 flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-semibold text-white">Estado Activo / Público</div>
-                  <div className="text-[11px] text-neutral-400">
-                    Visible en el flujo de reservas y en el catálogo público
+              {/* 7. Configuración de Estados Independientes */}
+              <div className="space-y-3">
+                <div className="text-xs font-bold text-neutral-300 uppercase tracking-wider">
+                  Estados y Visibilidad
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Control 1: Estado Operativo (Ventas Habilitadas) */}
+                  <div className="p-3.5 bg-[#181818] rounded-2xl border border-neutral-800 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            formIsActive ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+                          }`}
+                        />
+                        <span>Estado Operativo</span>
+                      </div>
+                      <div className="text-[11px] text-neutral-400 leading-tight">
+                        {formIsActive
+                          ? 'Habilitado para venta (Web y Mostrador)'
+                          : 'Inactivo: bloqueado para nuevas ventas'}
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={formIsActive}
+                        onChange={(e) => setFormIsActive(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600" />
+                    </label>
+                  </div>
+
+                  {/* Control 2: Visibilidad en Catálogo Web (Clientes) */}
+                  <div className="p-3.5 bg-[#181818] rounded-2xl border border-neutral-800 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                        {formIsPublic ? (
+                          <Globe className="w-3.5 h-3.5 text-sky-400" />
+                        ) : (
+                          <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>Visibilidad en Web</span>
+                      </div>
+                      <div className="text-[11px] text-neutral-400 leading-tight">
+                        {formIsPublic
+                          ? 'Visible para clientes en el catálogo'
+                          : 'Oculto al cliente (Sólo panel interno)'}
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={formIsPublic}
+                        onChange={(e) => setFormIsPublic(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600" />
+                    </label>
                   </div>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formIsActive}
-                    onChange={(e) => setFormIsActive(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#C8A45C]" />
-                </label>
               </div>
 
               {/* Botones del Footer del Modal */}

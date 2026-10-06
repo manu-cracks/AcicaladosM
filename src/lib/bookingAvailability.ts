@@ -330,6 +330,7 @@ export function computeSlotsAvailability(params: {
             duration_minutes: 45,
             capacity: 1,
             active: true,
+            is_public: true,
             image_url: '',
             description: '',
           },
