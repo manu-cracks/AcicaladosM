@@ -302,6 +302,7 @@ export interface Booking {
   yape_cents?: number;
   transfer_cents?: number;
   payment_notes?: string;
+  assigned_employee_id?: string | null;
 }
 
 export interface PaymentLog {

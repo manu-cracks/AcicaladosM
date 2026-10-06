@@ -220,15 +220,20 @@ export function isEmployeeBooked(
   return bookings.some((b) => {
     if (b.date !== date) return false;
 
+    // Ignorar reservas canceladas o expiradas
+    if (b.cancelled_at || b.status === 'cancelada' || b.expired_at || b.status === 'expirada') {
+      return false;
+    }
+
     // Verificar si el colaborador está asignado a nivel de algún servicio específico
-    const matchingServices = b.services?.filter((s) => s.employee_id === empId) || [];
+    const matchingServices = b.services?.filter((s) => !s.liberado_at && s.employee_id === empId) || [];
     const isMainAssigned = (b as any).assigned_employee_id === empId;
 
     if (matchingServices.length > 0) {
       // Bloqueo de tiempo estricto: fin = inicio + duración de SU servicio particular
       return matchingServices.some((s) => {
         const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
-        const duration = s.duration_minutes || (timeToMinutes(b.end_time) - timeToMinutes(b.start_time));
+        const duration = s.duration_minutes || (timeToMinutes(s.hora_fin || s.end_time || b.end_time) - sStart) || 30;
         const sEnd = sStart + duration;
         return startMin < sEnd && endMin > sStart;
       });
@@ -521,34 +526,47 @@ export function checkEmployeeAvailability(params: {
   });
 
   if (blockConflict) {
+    const blockStart = blockConflict.start_time ? blockConflict.start_time.substring(0, 5) : '';
+    const blockEnd = blockConflict.end_time ? blockConflict.end_time.substring(0, 5) : '';
+    const timeDetail = blockStart && blockEnd ? ` (${blockStart} a ${blockEnd})` : ' (Día completo)';
     return {
       isAvailable: false,
       reason: 'permiso_bloqueo',
-      message: `En permiso o ausencia (${blockConflict.reason || 'Horario bloqueado'})`,
+      message: `En permiso o ausencia${timeDetail}: ${blockConflict.reason || 'Horario bloqueado'}`,
       conflictingBlock: blockConflict,
     };
   }
 
   // 3. Validar citas agendadas que solapen
-  let conflictingBookingDetails: { code?: string; start_time: string; end_time: string } | null = null;
+  let conflictingBookingDetails: { code?: string; serviceName?: string; start_time: string; end_time: string } | null = null;
   const bookingConflict = (bookings || []).find((b) => {
     if (b.date !== date) return false;
 
-    const matchingServices = b.services?.filter((s) => s.employee_id === employee.id) || [];
-    const isMainAssigned = (b as any).assigned_employee_id === employee.id;
+    // Ignorar reservas canceladas o expiradas
+    if (b.cancelled_at || b.status === 'cancelada' || b.expired_at || b.status === 'expirada') {
+      return false;
+    }
+
+    const matchingServices = (b.services || []).filter(
+      (s) => !s.liberado_at && (s.employee_id === employee.id || s.employee_name === employee.full_name)
+    );
+    const isMainAssigned =
+      (b as any).assigned_employee_id === employee.id ||
+      (b as any).employee_id === employee.id;
 
     if (matchingServices.length > 0) {
       const match = matchingServices.find((s) => {
         const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
-        const duration = s.duration_minutes || (timeToMinutes(b.end_time) - timeToMinutes(b.start_time));
+        const duration = s.duration_minutes || (timeToMinutes(s.hora_fin || s.end_time || b.end_time) - sStart) || 30;
         const sEnd = sStart + duration;
         return startMin < sEnd && endMin > sStart;
       });
       if (match) {
         const sStart = timeToMinutes(match.hora_inicio || match.start_time || b.start_time);
-        const duration = match.duration_minutes || (timeToMinutes(b.end_time) - timeToMinutes(b.start_time));
+        const duration = match.duration_minutes || (timeToMinutes(match.hora_fin || match.end_time || b.end_time) - sStart) || 30;
         conflictingBookingDetails = {
           code: b.code,
+          serviceName: match.service_name,
           start_time: minutesToTime(sStart),
           end_time: minutesToTime(sStart + duration),
         };
@@ -563,8 +581,9 @@ export function checkEmployeeAvailability(params: {
       if (startMin < bEnd && endMin > bStart) {
         conflictingBookingDetails = {
           code: b.code,
-          start_time: b.start_time,
-          end_time: b.end_time,
+          serviceName: b.services?.[0]?.service_name || 'Servicio',
+          start_time: b.start_time?.substring(0, 5) || minutesToTime(bStart),
+          end_time: b.end_time?.substring(0, 5) || minutesToTime(bEnd),
         };
         return true;
       }
@@ -574,10 +593,11 @@ export function checkEmployeeAvailability(params: {
   });
 
   if (bookingConflict && conflictingBookingDetails) {
+    const srvInfo = conflictingBookingDetails.serviceName ? ` - ${conflictingBookingDetails.serviceName}` : '';
     return {
       isAvailable: false,
       reason: 'cita_solapada',
-      message: `Cita ya reservada (${conflictingBookingDetails.code || 'Cita'}: ${conflictingBookingDetails.start_time} - ${conflictingBookingDetails.end_time})`,
+      message: `Cita ya reservada (${conflictingBookingDetails.code || 'Cita'}${srvInfo}: ${conflictingBookingDetails.start_time} a ${conflictingBookingDetails.end_time})`,
       conflictingBooking: bookingConflict,
     };
   }

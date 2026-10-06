@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Service, Employee, formatSoles, BusinessCategory } from '../../types';
+import { Service, Employee, formatSoles, BusinessCategory, Booking } from '../../types';
 import { getTodayDateString } from '../../data/initialData';
 import {
   checkEmployeeAvailability,
@@ -15,6 +15,7 @@ import {
   PHONE_PLACEHOLDER,
   DNI_PLACEHOLDER,
 } from '../../lib/validators';
+import { supabase } from '../../lib/supabase/client';
 import {
   Plus,
   X,
@@ -73,6 +74,109 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   const [startTime, setStartTime] = useState('11:00');
   const [assignmentMode, setAssignmentMode] = useState<'auto' | 'manual'>('auto');
   const [serviceAssignments, setServiceAssignments] = useState<Record<string, string>>({});
+
+  // Carga reactiva de citas frescas desde Supabase para la fecha seleccionada
+  const [dateBookings, setDateBookings] = useState<Booking[]>([]);
+  const [isLoadingDateBookings, setIsLoadingDateBookings] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !date) return;
+    let isCancelled = false;
+
+    const fetchDateBookings = async () => {
+      try {
+        setIsLoadingDateBookings(true);
+        const { data: dbData, error } = await supabase
+          .from('bookings')
+          .select('*, booking_services(*)')
+          .eq('booking_date', date);
+
+        if (error) {
+          console.warn('Error al consultar citas de la fecha en Supabase:', error);
+          return;
+        }
+
+        if (!isCancelled && dbData) {
+          const mapped: Booking[] = dbData.map((b: any) => ({
+            id: b.id,
+            code: b.booking_code,
+            client_name: `${b.client_first_name || ''} ${b.client_last_name || ''}`.trim(),
+            client_phone: sanitizePhone(b.client_phone) || '',
+            client_email: b.client_email || '',
+            client_dni: sanitizeDni(b.client_dni) || '',
+            date: b.booking_date,
+            start_time: b.start_time?.substring(0, 5) || '10:00',
+            end_time: b.end_time?.substring(0, 5) || '11:00',
+            type: b.service_type as any,
+            assigned_employee_id: b.assigned_employee_id || null,
+            services: b.booking_services ? b.booking_services.map((bs: any) => {
+              const assignedEmpId = bs.assigned_employee_id || b.assigned_employee_id || '';
+              const srvStart = (bs.hora_inicio || bs.start_time || b.start_time)?.substring(0, 5) || '10:00';
+              const srvDuration = bs.duration_minutes || 30;
+              const calcEnd = minutesToTime(timeToMinutes(srvStart) + srvDuration);
+              const rawEnd = (bs.hora_fin || bs.end_time)?.substring(0, 5) || calcEnd;
+              const effectiveEnd = (timeToMinutes(rawEnd) - timeToMinutes(srvStart) > srvDuration + 5) ? calcEnd : rawEnd;
+              return {
+                id: bs.id,
+                service_id: bs.service_id || '',
+                service_name: bs.service_name,
+                employee_id: assignedEmpId,
+                employee_name: bs.assigned_employee_name || '',
+                price_cents: bs.service_price_cents,
+                duration_minutes: srvDuration,
+                hora_inicio: srvStart,
+                hora_fin: effectiveEnd,
+                start_time: srvStart,
+                end_time: effectiveEnd,
+                liberado_at: bs.liberado_at || undefined,
+                solicitud_eliminacion: Boolean(bs.solicitud_eliminacion),
+                advance_amount_cents: bs.advance_amount_cents || 0,
+              };
+            }) : [],
+            total_price_cents: b.total_price_cents,
+            advance_amount_cents: b.advance_amount_cents || 0,
+            payment_status: b.payment_status as any,
+            created_at: b.created_at,
+            confirmed_at: b.confirmed_at || undefined,
+            completed_at: b.completed_at || undefined,
+            cancelled_at: b.cancelled_at || undefined,
+            expired_at: b.expired_at || undefined,
+            status: b.cancelled_at
+              ? 'cancelada'
+              : b.expired_at
+              ? 'expirada'
+              : b.completed_at
+              ? 'completada'
+              : b.confirmed_at
+              ? 'confirmada'
+              : 'pendiente',
+          }));
+          setDateBookings(mapped);
+        }
+      } catch (err) {
+        console.error('Error fetching date bookings:', err);
+      } finally {
+        if (!isCancelled) setIsLoadingDateBookings(false);
+      }
+    };
+
+    fetchDateBookings();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen, date]);
+
+  // Combinación en tiempo real de reservas en memoria y reservas frescas de Supabase para esta fecha
+  const effectiveBookings = useMemo(() => {
+    const bookingMap = new Map<string, Booking>();
+    for (const b of bookings) {
+      bookingMap.set(b.id, b);
+    }
+    for (const b of dateBookings) {
+      bookingMap.set(b.id, b);
+    }
+    return Array.from(bookingMap.values());
+  }, [bookings, dateBookings]);
 
   // 4. Modalidades y Métodos de Pago
   const [paymentType, setPaymentType] = useState<'sin_pago' | 'completo' | 'adelanto'>('sin_pago');
@@ -190,17 +294,18 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   const employeeWorkloads = useMemo(() => {
     const workloads: Record<string, number> = {};
     for (const emp of availableEmployeesList) {
-      const activeCount = bookings.filter((b) => {
+      const activeCount = effectiveBookings.filter((b) => {
         if (b.date !== date) return false;
+        if (b.cancelled_at || b.status === 'cancelada' || b.expired_at || b.status === 'expirada') return false;
         return (
           (b as any).assigned_employee_id === emp.id ||
-          b.services?.some((s) => s.employee_id === emp.id)
+          b.services?.some((s) => !s.liberado_at && s.employee_id === emp.id)
         );
       }).length;
       workloads[emp.id] = activeCount;
     }
     return workloads;
-  }, [availableEmployeesList, bookings, date]);
+  }, [availableEmployeesList, effectiveBookings, date]);
 
   // Programación simultánea (paralela) de cada servicio seleccionado:
   // Todos inician exactamente a la misma hora base (startTime), y cada uno finaliza según su propia duración
@@ -246,7 +351,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
           date,
           startTime: item.startTime,
           durationMinutes: item.durationMinutes,
-          bookings,
+          bookings: effectiveBookings,
           employeeBlocks,
         }).isAvailable ? 1 : 0;
 
@@ -255,7 +360,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
           date,
           startTime: item.startTime,
           durationMinutes: item.durationMinutes,
-          bookings,
+          bookings: effectiveBookings,
           employeeBlocks,
         }).isAvailable ? 1 : 0;
 
@@ -274,7 +379,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     }
 
     return result;
-  }, [scheduledServices, availableEmployeesList, date, bookings, employeeBlocks, employeeWorkloads]);
+  }, [scheduledServices, availableEmployeesList, date, effectiveBookings, employeeBlocks, employeeWorkloads]);
 
   // Colaborador efectivo asignado a cada servicio
   const getEffectiveEmployeeForService = useCallback(
@@ -303,11 +408,11 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
         date,
         startTime: item.startTime,
         durationMinutes: item.durationMinutes,
-        bookings,
+        bookings: effectiveBookings,
         employeeBlocks,
       });
     },
-    [date, bookings, employeeBlocks]
+    [date, effectiveBookings, employeeBlocks]
   );
 
   // Manejo de importes en Pago Mixto
@@ -358,15 +463,35 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     });
   }, [scheduledServices, getEffectiveEmployeeForService]);
 
-  const hasAvailabilityConflict = useMemo(() => {
-    if (assignmentMode !== 'manual') return false;
-    return scheduledServices.some((item) => {
+  // Evaluación de conflictos de disponibilidad en tiempo real para TODOS los servicios y modos (Auto y Manual)
+  const serviceConflicts = useMemo(() => {
+    return scheduledServices.map((item) => {
       const emp = getEffectiveEmployeeForService(item.service.id);
-      if (!emp) return true;
+      if (!emp) {
+        return {
+          item,
+          employee: null,
+          isAvailable: false,
+          message: 'Sin especialista calificado asignado',
+        };
+      }
       const avail = getServiceAvailability(item, emp);
-      return !avail.isAvailable;
+      return {
+        item,
+        employee: emp,
+        isAvailable: avail.isAvailable,
+        message: avail.message || 'Horario ocupado',
+      };
     });
-  }, [assignmentMode, scheduledServices, getEffectiveEmployeeForService, getServiceAvailability]);
+  }, [scheduledServices, getEffectiveEmployeeForService, getServiceAvailability]);
+
+  const hasAvailabilityConflict = useMemo(() => {
+    return serviceConflicts.some((sc) => !sc.isAvailable);
+  }, [serviceConflicts]);
+
+  const activeConflictItems = useMemo(() => {
+    return serviceConflicts.filter((sc) => !sc.isAvailable);
+  }, [serviceConflicts]);
 
   // Control de colisión simultánea: Detectar si el mismo especialista fue asignado a 2 o más servicios en paralelo
   const duplicateSpecialistCollisions = useMemo(() => {
@@ -441,21 +566,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
       return;
     }
 
-    if (assignmentMode === 'manual' && hasAvailabilityConflict) {
-      const conflictItem = scheduledServices.find((item) => {
-        const emp = getEffectiveEmployeeForService(item.service.id);
-        if (!emp) return true;
-        return !getServiceAvailability(item, emp).isAvailable;
-      });
-      if (conflictItem) {
-        const emp = getEffectiveEmployeeForService(conflictItem.service.id);
-        const avail = getServiceAvailability(conflictItem, emp);
-        setSubmitError(
-          `Conflicto en "${conflictItem.service.name}": ${emp?.full_name || 'Especialista'} no está disponible (${avail.message || 'Horario ocupado'}).`
-        );
-      } else {
-        setSubmitError('Uno o más especialistas seleccionados tienen conflicto de horario.');
-      }
+    if (hasAvailabilityConflict) {
+      const firstConf = activeConflictItems[0];
+      setSubmitError(
+        `Conflicto de disponibilidad en "${firstConf?.item?.service?.name || 'Servicio'}": ${
+          firstConf?.employee?.full_name || 'Especialista'
+        } no está disponible (${firstConf?.message || 'Horario ocupado'}). Seleccione otro horario o asigne colaboradores libres.`
+      );
       return;
     }
 
@@ -924,17 +1041,51 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
               </div>
             </div>
 
-            {/* Alerta de Colisión por Especialista Duplicado */}
-            {hasDuplicateCollision && (
-              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-amber-200 flex items-start gap-2.5 text-xs animate-fadeIn">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <strong className="block text-amber-300">Conflicto: Especialista asignado a múltiples servicios simultáneos</strong>
-                  {duplicateSpecialistCollisions.map((col, cIdx) => (
-                    <span key={cIdx} className="block text-[11px] text-amber-200/90">
-                      • <strong>{col.employee.full_name}</strong> está asignado/a a {col.serviceNames.length} servicios al mismo tiempo: <em>{col.serviceNames.join(', ')}</em>. Asigne especialistas diferentes para cada servicio.
+            {/* Alerta de Colisión Reactiva de Disponibilidad y/o Duplicados */}
+            {(hasAvailabilityConflict || hasDuplicateCollision) && (
+              <div className="p-3.5 rounded-xl bg-red-950/60 border-2 border-red-500/80 text-red-200 space-y-2.5 animate-fadeIn shadow-lg">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <strong className="text-red-200 text-xs font-bold uppercase tracking-wide">
+                    Atención: Hay conflictos de horario que impiden guardar la reserva
+                  </strong>
+                </div>
+
+                {hasDuplicateCollision && (
+                  <div className="space-y-1 pl-6 border-l border-red-500/30">
+                    <span className="block text-xs font-semibold text-amber-300">
+                      Especialista asignado a múltiples servicios simultáneos:
                     </span>
-                  ))}
+                    {duplicateSpecialistCollisions.map((col, cIdx) => (
+                      <span key={cIdx} className="block text-[11px] text-amber-200/90">
+                        • <strong>{col.employee.full_name}</strong> está asignado a {col.serviceNames.length} servicios al mismo tiempo ({col.serviceNames.join(', ')}). Debe asignar colaboradores distintos.
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {hasAvailabilityConflict && (
+                  <div className="space-y-1 pl-6 border-l border-red-500/30">
+                    <span className="block text-xs font-semibold text-red-300">
+                      Colisiones de agenda detectadas en tiempo real:
+                    </span>
+                    {activeConflictItems.map((conflict, idx) => (
+                      <span key={idx} className="block text-[11px] text-red-200/90 leading-snug">
+                        • <strong>{conflict.item.service.name}</strong> ({conflict.item.startTime} a {conflict.item.endTime}):{' '}
+                        {conflict.employee ? (
+                          <>
+                            Colaborador <strong>{conflict.employee.full_name}</strong> {conflict.message}.
+                          </>
+                        ) : (
+                          'No hay ningún especialista calificado disponible en este horario.'
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="text-[10px] text-red-300/80 pl-6 pt-0.5 font-medium">
+                  ⚠️ El botón de confirmación está bloqueado preventivamente hasta que se elija un horario o especialista libre.
                 </div>
               </div>
             )}
@@ -1032,14 +1183,17 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                 const isDuplicate = assignedEmp
                   ? duplicateSpecialistCollisions.some((col) => col.employee.id === assignedEmp.id)
                   : false;
+                const isConflict = !availStatus.isAvailable || isDuplicate;
 
                 return (
                   <div
                     key={srv.id}
-                    className={`p-3.5 sm:p-4 rounded-xl bg-[#161616] border transition space-y-3 ${
-                      isDuplicate
+                    className={`p-3.5 sm:p-4 rounded-xl transition space-y-3 ${
+                      isConflict
+                        ? 'border-2 border-red-500/80 bg-red-950/20 shadow-[0_0_15px_rgba(239,68,68,0.15)] ring-1 ring-red-500/40'
+                        : isDuplicate
                         ? 'border-amber-500/60 bg-amber-950/10'
-                        : 'border-neutral-800/90 hover:border-[#C8A45C]/30'
+                        : 'border border-neutral-800/90 bg-[#161616] hover:border-[#C8A45C]/30'
                     }`}
                   >
                     {/* Header de la tarjeta del servicio */}
@@ -1103,8 +1257,10 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                               [srv.id]: e.target.value,
                             }));
                           }}
-                          className={`w-full bg-[#1a1a1a] border text-white rounded-xl p-2.5 outline-none text-xs ${
-                            isDuplicate
+                          className={`w-full bg-[#1a1a1a] border text-white rounded-xl p-2.5 outline-none text-xs transition ${
+                            !availStatus.isAvailable
+                              ? 'border-red-500/90 bg-red-950/30 text-red-200 ring-2 ring-red-500/40'
+                              : isDuplicate
                               ? 'border-amber-500/80 focus:border-amber-400'
                               : 'border-neutral-800 focus:border-[#C8A45C]'
                           }`}
@@ -1115,13 +1271,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                               date,
                               startTime: item.startTime,
                               durationMinutes: item.durationMinutes,
-                              bookings,
+                              bookings: effectiveBookings,
                               employeeBlocks,
                             });
                             const load = employeeWorkloads[emp.id] || 0;
                             return (
-                              <option key={emp.id} value={emp.id}>
-                                {emp.full_name} ({emp.type}) — {empAvail.isAvailable ? '🟢 Disponible' : `🔴 Ocupado (${empAvail.message || 'Conflicto'})`} — {load} cita{load === 1 ? '' : 's'} hoy
+                              <option key={emp.id} value={emp.id} className="bg-[#1a1a1a] text-white">
+                                {emp.full_name} ({emp.type}) — {empAvail.isAvailable ? '🟢 DISPONIBLE' : `🔴 OCUPADO (${empAvail.message || 'Conflicto'})`} — {load} cita{load === 1 ? '' : 's'} hoy
                               </option>
                             );
                           })}
@@ -1129,16 +1285,28 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                       </div>
                     ) : (
                       /* Vista en Modo Automático */
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-[#1a1a1a] p-3 rounded-xl border border-neutral-800/80">
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl border transition ${
+                        !availStatus.isAvailable
+                          ? 'bg-red-950/30 border-red-500/50'
+                          : 'bg-[#1a1a1a] border-neutral-800/80'
+                      }`}>
                         <div className="flex items-center gap-3">
                           {assignedEmp?.avatar ? (
                             <img
                               src={assignedEmp.avatar}
                               alt={assignedEmp.full_name}
-                              className="w-9 h-9 rounded-lg object-cover border border-[#C8A45C]/30 shrink-0"
+                              className={`w-9 h-9 rounded-lg object-cover shrink-0 ${
+                                !availStatus.isAvailable
+                                  ? 'border-2 border-red-500'
+                                  : 'border border-[#C8A45C]/30'
+                              }`}
                             />
                           ) : (
-                            <div className="w-9 h-9 rounded-lg bg-neutral-800 border border-neutral-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0 ${
+                              !availStatus.isAvailable
+                                ? 'bg-red-900/60 border border-red-500'
+                                : 'bg-neutral-800 border border-neutral-700'
+                            }`}>
                               {assignedEmp?.full_name?.charAt(0) || 'E'}
                             </div>
                           )}
@@ -1158,10 +1326,17 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                         </div>
 
                         <div className="flex items-center gap-2 self-start sm:self-center">
-                          <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" />
-                            <span>Auto-Asignado</span>
-                          </span>
+                          {availStatus.isAvailable ? (
+                            <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 shadow-sm">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Auto-Asignado (Libre)</span>
+                            </span>
+                          ) : (
+                            <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-1 rounded-md bg-red-950/80 border border-red-500/60 text-red-300 flex items-center gap-1.5 shadow-sm animate-pulse">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                              <span>Sin Cupo / Ocupado</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1183,20 +1358,30 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                     {assignedEmp && !isDuplicate && (
                       <div>
                         {availStatus.isAvailable ? (
-                          <div className="px-3 py-1.5 rounded-lg bg-emerald-950/30 border border-emerald-500/20 text-emerald-300 flex items-center gap-2 text-[11px]">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            <span>
-                              <strong>{assignedEmp.full_name}</strong> está disponible para este servicio de {item.startTime} a {item.endTime}.
+                          <div className="px-3 py-2 rounded-xl bg-emerald-950/35 border border-emerald-500/30 text-emerald-300 flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>
+                                <strong>{assignedEmp.full_name}</strong> está 100% disponible para este servicio ({item.startTime} a {item.endTime}).
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-emerald-400/80 bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/20">
+                              Libre
                             </span>
                           </div>
                         ) : (
-                          <div className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-500/40 text-red-300 flex items-start gap-2 text-[11px] animate-fadeIn">
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                            <div>
-                              <span className="font-semibold block">Conflicto de Horario:</span>
-                              <span className="text-[10px] text-red-300/90 leading-snug">
+                          <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/60 text-red-200 flex items-start gap-2.5 text-xs animate-fadeIn shadow-inner">
+                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                              <strong className="block text-red-300 text-xs font-semibold">
+                                ⛔ Especialista Ocupado ({assignedEmp.full_name}):
+                              </strong>
+                              <p className="text-[11px] text-red-200/95 leading-relaxed">
                                 {availStatus.message || 'El especialista ya cuenta con una cita o bloqueo en este intervalo.'}
-                              </span>
+                              </p>
+                              <p className="text-[10px] text-red-300/80 italic">
+                                Por favor, cambie la hora de la cita o seleccione otro colaborador libre para este servicio.
+                              </p>
                             </div>
                           </div>
                         )}
@@ -1480,8 +1665,8 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
           </div>
 
           {/* RESUMEN FINAL & BOTONES DE ACCIÓN */}
-          <div className="pt-2 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-[11px] text-neutral-400 space-y-0.5 text-center sm:text-left">
+          <div className="pt-3 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-[11px] text-neutral-400 space-y-1 text-center sm:text-left w-full sm:w-auto">
               <div>
                 Cliente: <strong className="text-white">{clientName.trim() || '—'}</strong>
                 {clientPhone && <span className="text-neutral-500 font-mono"> ({clientPhone})</span>}
@@ -1507,6 +1692,23 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                   </>
                 )}
               </div>
+
+              {/* Indicador Reactivo de Validación Preventiva */}
+              {selectedServicesList.length > 0 && (
+                <div className="flex items-center gap-2 pt-0.5">
+                  {hasAvailabilityConflict || hasDuplicateCollision ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-950/90 border border-red-500/60 text-red-300 text-[10px] font-bold tracking-wide animate-pulse shadow-sm">
+                      <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span>Colisión en horario de atención — Registro bloqueado preventivamente</span>
+                    </span>
+                  ) : allServicesAssigned ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-[10px] font-semibold shadow-sm">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Personal 100% disponible en este horario</span>
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1525,9 +1727,19 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                 className={`flex-1 sm:flex-initial px-6 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg ${
                   selectedServiceIds.length > 0 && canSubmit && !isSubmitting
                     ? 'bg-gradient-to-r from-[#D4AF37] to-[#C8A45C] text-black hover:brightness-110 shadow-[0_4px_20px_rgba(200,164,92,0.3)] cursor-pointer'
-                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/50'
+                    : 'bg-neutral-850 text-neutral-500 cursor-not-allowed border border-neutral-700/50 opacity-60'
                 }`}
-                title={selectedServiceIds.length === 0 ? 'Debe seleccionar al menos un servicio' : undefined}
+                title={
+                  hasAvailabilityConflict
+                    ? 'No se puede guardar: Hay conflicto de disponibilidad con el especialista'
+                    : hasDuplicateCollision
+                    ? 'No se puede guardar: Hay colaboradores asignados a múltiples servicios a la vez'
+                    : !clientName.trim()
+                    ? 'Debe ingresar el nombre del cliente'
+                    : selectedServiceIds.length === 0
+                    ? 'Debe seleccionar al menos un servicio'
+                    : undefined
+                }
               >
                 <Plus className="w-4 h-4" />
                 <span>{isSubmitting ? 'Guardando Reserva...' : 'Confirmar y Crear Cita'}</span>

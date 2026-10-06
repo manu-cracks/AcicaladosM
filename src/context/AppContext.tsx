@@ -680,12 +680,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // Restricción estricta de seguridad para Recepcionista: Solo consultar reservas del día de Hoy
-      if (effectiveRole === 'recepcionista') {
-        const todayStr = getTodayDateString();
-        bookingsQuery = bookingsQuery.eq('booking_date', todayStr);
-      }
-
       const { data: dbBookings, error: bookingsError } = await bookingsQuery;
       if (!bookingsError && dbBookings) {
         setBookings(
@@ -700,6 +694,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             start_time: b.start_time?.substring(0, 5) || '10:00',
             end_time: b.end_time?.substring(0, 5) || '11:00',
             type: b.service_type as any,
+            assigned_employee_id: b.assigned_employee_id || null,
             services: b.booking_services ? b.booking_services.map((bs: any) => {
               const assignedEmpId = bs.assigned_employee_id || b.assigned_employee_id || '';
               const assignedEmpName = empMap.get(assignedEmpId) || 'Especialista';
@@ -1398,6 +1393,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: insertedBooking.id,
         code: insertedBooking.booking_code,
         created_at: insertedBooking.created_at || `${today}T12:00:00Z`,
+        assigned_employee_id: safeEmployeeId || primaryEmpId || null,
       };
 
       setBookings((prev) => [savedBooking, ...prev]);
