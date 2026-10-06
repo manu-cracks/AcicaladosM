@@ -1898,8 +1898,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       const currentBk = bookings.find((b) => b.id === bookingId);
+      // Si la reserva tiene 1 solo servicio (reserva individual), eliminar ese servicio elimina la reserva por completo
       if (currentBk && (currentBk.services?.length || 0) <= 1) {
-        throw new Error('La eliminación con extorno solo es aplicable a reservas con múltiples servicios.');
+        await deleteBooking(bookingId);
+        return { success: true, booking_deleted: true };
       }
 
       let effectiveServiceItemId = serviceItemId;
@@ -1929,6 +1931,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error(rpcError.message || 'Error al ejecutar el extorno en Supabase.');
       }
 
+      // Si la RPC reporta que la reserva fue eliminada (porque era el último servicio)
+      if ((rpcResult as any)?.booking_deleted) {
+        setBookings((prev) => prev.filter((b) => b.id !== bookingId));
+        pulseRealtime();
+        return rpcResult;
+      }
+
       // Actualizar estado local inmediatamente
       setBookings((prev) =>
         prev.map((b) => {
@@ -1940,9 +1949,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               return idx !== serviceIndex;
             });
 
+            if (filteredServices.length === 0) {
+              return {
+                ...b,
+                services: [],
+                total_price_cents: 0,
+                advance_amount_cents: 0,
+                balance_cents: 0,
+                payment_status: 'sin_pago',
+                status: 'cancelada',
+              };
+            }
+
             const parsedResult = rpcResult as any;
             const newTotal = parsedResult?.new_total_price_cents ?? filteredServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
-            const newAdvance = parsedResult?.new_advance_amount_cents ?? b.advance_amount_cents;
+            
+            // Recálculo financiero estricto:
+            // Si la reserva ya estaba pagada o el adelanto supera el newTotal,
+            // se descuenta de inmediato el valor del servicio eliminado del fondo cobrado
+            let newAdvance = parsedResult?.new_advance_amount_cents ?? b.advance_amount_cents;
+            if (newAdvance > newTotal) {
+              newAdvance = newTotal;
+            }
             const newBalance = parsedResult?.new_balance_cents ?? Math.max(0, newTotal - newAdvance);
             const newPaymentStatus = parsedResult?.new_payment_status ?? (newAdvance >= newTotal && newTotal > 0 ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago');
 

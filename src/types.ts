@@ -483,23 +483,33 @@ export function getBookingCollectedAmountCents(b: Booking): number {
     return 0;
   }
 
-  const totalPrice = b.total_price_cents || 0;
-  const advance = b.advance_amount_cents || 0;
+  // Costo total activo de los servicios presentes en la reserva
+  const activeServicesTotal = (b.services && b.services.length > 0)
+    ? b.services.reduce((sum, s) => sum + (s.price_cents || 0), 0)
+    : (b.total_price_cents || 0);
 
-  // Lógica Estricta de "Adelantos":
-  // Si el cliente hizo un pago parcial o adelanto menor al precio total,
-  // se suma ESTRICTAMENTE el monto de ese adelanto cobrado, NUNCA el precio total.
-  if (b.payment_status === 'parcial' || (advance > 0 && totalPrice > 0 && advance < totalPrice)) {
-    return advance;
+  if (activeServicesTotal <= 0) {
+    return 0;
   }
 
-  // Solo se suma el monto total si el estado del pago es completamente cancelado/liquidado (100% pagado)
+  const advance = b.advance_amount_cents || 0;
+
+  // Lógica Estricta de Recaudación en Reservas (Recálculo Parcial):
+  // Si la cita está completamente cancelada/liquidada (100% pagada):
+  // El monto recaudado corresponde exactamente al costo total de los servicios activos.
+  // Cualquier servicio eliminado se descuenta de inmediato y no infla los totales.
   const isPaidTotal =
     b.payment_status === 'total' ||
-    (advance > 0 && totalPrice > 0 && advance >= totalPrice);
+    (advance > 0 && advance >= activeServicesTotal);
 
   if (isPaidTotal) {
-    return Math.max(totalPrice, advance);
+    return activeServicesTotal;
+  }
+
+  // Si el cliente hizo un pago parcial o adelanto menor al precio total:
+  // Se suma el monto del adelanto, pero nunca puede superar el costo de los servicios activos.
+  if (b.payment_status === 'parcial' || advance > 0) {
+    return Math.min(advance, activeServicesTotal);
   }
 
   // Pendiente o sin pago confirmado
@@ -607,7 +617,8 @@ export function getBookingServicesWithCollectedCents(
     return b.services.map((s) => ({ ...s, collected_cents: 0 }));
   }
 
-  const totalPrice = b.total_price_cents || 0;
+  const activeTotalPrice = b.services.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+  const totalPrice = activeTotalPrice > 0 ? activeTotalPrice : (b.total_price_cents || 0);
   if (totalPrice <= 0) {
     const perService = Math.floor(collectedTotal / b.services.length);
     return b.services.map((s, idx) => ({
@@ -620,15 +631,10 @@ export function getBookingServicesWithCollectedCents(
   }
 
   if (collectedTotal >= totalPrice) {
-    let accumulated = 0;
-    return b.services.map((s, idx) => {
-      if (idx === b.services.length - 1) {
-        return { ...s, collected_cents: Math.max(0, collectedTotal - accumulated) };
-      }
-      const sPrice = s.price_cents || 0;
-      accumulated += sPrice;
-      return { ...s, collected_cents: sPrice };
-    });
+    return b.services.map((s) => ({
+      ...s,
+      collected_cents: s.price_cents || 0,
+    }));
   }
 
   // Si cada ítem ya tiene su advance_amount_cents guardado y suma exactamente el collectedTotal

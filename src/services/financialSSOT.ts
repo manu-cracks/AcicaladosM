@@ -415,7 +415,10 @@ export function calculateFinancialMetrics(params: {
   // 8. Saldos por Cobrar
   const saldosPorCobrarCents = validBookings.reduce((acc, b) => {
     const collected = getBookingCollectedAmountCents(b);
-    const saldo = Math.max(0, (b.total_price_cents || 0) - collected);
+    const activeTotal = (b.services && b.services.length > 0)
+      ? b.services.reduce((sum, s) => sum + (s.price_cents || 0), 0)
+      : (b.total_price_cents || 0);
+    const saldo = Math.max(0, activeTotal - collected);
     return acc + saldo;
   }, 0);
 
