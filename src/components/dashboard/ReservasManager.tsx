@@ -546,6 +546,8 @@ export const ReservasManager: React.FC = () => {
 
   // Permisos: Administrador estricto vs Recepcionista
   const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+  const isRecepcionista = !isAdmin;
+
 
   // Filters
   const [dateFilter, setDateFilter] = useState<'hoy' | 'manana' | 'todas' | 'custom'>('hoy');
@@ -1374,38 +1376,14 @@ export const ReservasManager: React.FC = () => {
                               </button>
                             )}
 
-                            {/* Botón Solicitar Eliminación (Para Recepcionista en Citas Individuales) o Alerta de Pendiente */}
-                            {!isAdmin && (
-                              b.services && b.services.length === 1 ? (
-                                b.services[0].solicitud_eliminacion ? (
-                                  <button
-                                    type="button"
-                                    disabled={actionLoadingServiceId === (b.services[0].id || `${b.id}-0`)}
-                                    onClick={() => handleCancelServiceDeletion(b.id, b.services[0].id || '', 0)}
-                                    className="p-1.5 rounded bg-orange-950/80 hover:bg-orange-900/90 text-orange-300 transition cursor-pointer border border-orange-700/60 flex items-center gap-1"
-                                    title="Solicitud de eliminación enviada (Pendiente Admin). Clic para deshacer."
-                                  >
-                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    disabled={actionLoadingServiceId === (b.services[0].id || `${b.id}-0`)}
-                                    onClick={() => handleRequestServiceDeletion(b.id, b.services[0].id || '', 0)}
-                                    className="p-1.5 rounded bg-neutral-800 hover:bg-amber-950/60 text-amber-400 hover:text-amber-300 transition cursor-pointer border border-amber-900/40"
-                                    title="Solicitar eliminación de esta reserva individual al Administrador"
-                                  >
-                                    <AlertTriangle className="w-3.5 h-3.5" />
-                                  </button>
-                                )
-                              ) : hasPendingDeletion ? (
-                                <span
-                                  className="p-1.5 rounded bg-orange-950/80 text-orange-300 border border-orange-700/60 flex items-center gap-1"
-                                  title="Esta reserva tiene una solicitud de eliminación pendiente de Administrador"
-                                >
-                                  <AlertTriangle className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
-                                </span>
-                              ) : null
+                            {/* Alerta de Solicitud de Eliminación Pendiente (Exclusivo Recepcionista) */}
+                            {!isAdmin && hasPendingDeletion && (
+                              <span
+                                className="p-1.5 rounded bg-orange-950/80 text-orange-300 border border-orange-700/60 flex items-center gap-1 shadow-sm"
+                                title="Esta reserva tiene una solicitud de eliminación enviada (Pendiente de autorización por el Administrador)"
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
+                              </span>
                             )}
                           </div>
                         </td>
@@ -1523,7 +1501,7 @@ export const ReservasManager: React.FC = () => {
                                         )}
 
                                         {/* ACCIONES RBAC: SOLICITUD DE ELIMINACIÓN Y EXTORNO (Para todas las reservas: individuales y múltiples) */}
-                                          !isAdmin ? (
+                                        {!isAdmin ? (
                                           /* Rol Recepcionista: Botón [⚠️ Solicitar Eliminación] / Estado Pendiente */
                                           isSolicitado ? (
                                             <div className="flex items-center gap-1.5">
@@ -1600,7 +1578,7 @@ export const ReservasManager: React.FC = () => {
                                               </button>
                                             )}
                                           </div>
-                                        )
+                                        )}
                                       </div>
                                     </div>
                                   );
