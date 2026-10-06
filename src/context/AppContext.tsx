@@ -1778,10 +1778,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const requestServiceDeletion = useCallback(
     async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
       const currentBk = bookings.find((b) => b.id === bookingId);
-      if (currentBk && (currentBk.services?.length || 0) <= 1) {
-        console.warn('La solicitud de eliminación solo aplica a reservas con múltiples servicios.');
-        return;
+      let effectiveServiceItemId = serviceItemId;
+      if (!effectiveServiceItemId || effectiveServiceItemId.length !== 36) {
+        effectiveServiceItemId = currentBk?.services?.[serviceIndex]?.id || '';
       }
+
       // 1. Actualización optimista inmediata en estado local de React
       setBookings((prev) =>
         prev.map((b) => {
@@ -1801,17 +1802,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pulseRealtime();
 
       // 2. Persistencia en Supabase
-      if (serviceItemId && serviceItemId.length === 36) {
+      if (effectiveServiceItemId && effectiveServiceItemId.length === 36) {
         try {
           const { error } = await supabase.rpc('solicitar_eliminacion_servicio', {
-            p_service_item_id: serviceItemId,
+            p_service_item_id: effectiveServiceItemId,
             p_solicitar: true,
           });
           if (error) {
             await supabase
               .from('booking_services')
               .update({ solicitud_eliminacion: true })
-              .eq('id', serviceItemId);
+              .eq('id', effectiveServiceItemId);
           }
           pulseRealtime();
         } catch (err) {
@@ -1837,6 +1838,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cancelServiceDeletionRequest = useCallback(
     async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      const currentBk = bookings.find((b) => b.id === bookingId);
+      let effectiveServiceItemId = serviceItemId;
+      if (!effectiveServiceItemId || effectiveServiceItemId.length !== 36) {
+        effectiveServiceItemId = currentBk?.services?.[serviceIndex]?.id || '';
+      }
+
       // 1. Actualización optimista inmediata en estado local de React
       setBookings((prev) =>
         prev.map((b) => {
@@ -1856,17 +1863,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       pulseRealtime();
 
       // 2. Persistencia en Supabase
-      if (serviceItemId && serviceItemId.length === 36) {
+      if (effectiveServiceItemId && effectiveServiceItemId.length === 36) {
         try {
           const { error } = await supabase.rpc('solicitar_eliminacion_servicio', {
-            p_service_item_id: serviceItemId,
+            p_service_item_id: effectiveServiceItemId,
             p_solicitar: false,
           });
           if (error) {
             await supabase
               .from('booking_services')
               .update({ solicitud_eliminacion: false })
-              .eq('id', serviceItemId);
+              .eq('id', effectiveServiceItemId);
           }
           pulseRealtime();
         } catch (err) {
@@ -1887,7 +1894,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
     },
-    [pulseRealtime]
+    [bookings, pulseRealtime]
   );
 
   const deleteBookingServiceWithExtorno = useCallback(
