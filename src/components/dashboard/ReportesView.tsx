@@ -50,6 +50,8 @@ export const ReportesView: React.FC = () => {
   } = useApp();
 
   const isAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+  const isRecepcionista = currentRole === 'recepcionista' || currentUser?.role === 'recepcionista';
+  const canViewAudit = isAdmin || isRecepcionista;
 
   if (isDataLoading) {
     return <DashboardSkeleton />;
@@ -248,7 +250,7 @@ export const ReportesView: React.FC = () => {
 
   // Consulta RPC a Supabase get_services_audit_breakdown con fallback local reactivo
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canViewAudit) return;
 
     let isMounted = true;
     const fetchAudit = async () => {
@@ -329,7 +331,7 @@ export const ReportesView: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedDate, selectedEmployeeId, isAdmin, lastSyncTimestamp, dayBookings, services, employees, selectedEmployee]);
+  }, [selectedDate, selectedEmployeeId, canViewAudit, lastSyncTimestamp, dayBookings, services, employees, selectedEmployee]);
 
   // Filtrado reactivo de auditoría por área y buscador de texto
   const filteredAuditServices = useMemo(() => {
@@ -1198,8 +1200,8 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
         </div>
       </div>
 
-      {/* 4. Tabla: Desglose de Servicios por Módulo (Auditoría) - Exclusivo ADMIN */}
-      {isAdmin && (
+      {/* 4. Tabla: Desglose de Servicios por Módulo (Auditoría) - Administrador y Recepcionista */}
+      {canViewAudit && (
         <div className="bg-[#141414] border border-neutral-800 rounded-3xl p-5 sm:p-7 space-y-6 shadow-2xl">
           {/* Cabecera y Controles */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-neutral-800/80 pb-5">

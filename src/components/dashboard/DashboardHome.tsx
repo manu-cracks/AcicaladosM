@@ -63,6 +63,13 @@ export const DashboardHome: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<string>('hoy');
   const [activeTab, setActiveTab] = useState<'todos' | 'reservas' | 'ventas' | 'egresos'>('todos');
 
+  // Restricción estricta: para Recepcionista y roles no administradores, siempre forzar 'hoy'
+  useEffect(() => {
+    if (!isAdmin && dateFilter !== 'hoy') {
+      setDateFilter('hoy');
+    }
+  }, [isAdmin, dateFilter]);
+
   const isExactDate = useMemo(() => /^\d{4}-\d{2}-\d{2}$/.test(dateFilter), [dateFilter]);
 
   // Consulta y sincronización con la función RPC get_financial_balances de Supabase
@@ -154,19 +161,30 @@ export const DashboardHome: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           {/* Preset Buttons */}
           <div className="flex items-center bg-[#141414] border border-neutral-800 rounded-xl p-1 text-xs">
-            {(['hoy', 'semana', 'mes', 'todo'] as const).map((range) => (
+            {isAdmin ? (
+              (['hoy', 'semana', 'mes', 'todo'] as const).map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setDateFilter(range)}
+                  className={`px-3 py-1.5 rounded-lg font-medium capitalize transition cursor-pointer ${
+                    dateFilter === range
+                      ? 'bg-[#C8A45C] text-black font-semibold shadow'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  {range}
+                </button>
+              ))
+            ) : (
               <button
-                key={range}
-                onClick={() => setDateFilter(range)}
-                className={`px-3 py-1.5 rounded-lg font-medium capitalize transition ${
-                  dateFilter === range
-                    ? 'bg-[#C8A45C] text-black font-semibold shadow'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
+                type="button"
+                className="px-3.5 py-1.5 rounded-lg font-semibold capitalize bg-[#C8A45C] text-black shadow cursor-default"
+                title="Vista restringida a la jornada de hoy para recepción"
               >
-                {range}
+                Hoy
               </button>
-            ))}
+            )}
           </div>
 
           {/* Selector de Fecha Calendario (Exclusivo Administrador) */}

@@ -655,14 +655,21 @@ export const ReservasManager: React.FC = () => {
     });
   }, [bookings, categoryFilter, customDate, dateFilter, isAdmin, searchQuery, todayStr]);
 
-  // 4 Métricas Financieras y Operativas en Tiempo Real (Exclusivo Administrador)
+  // 4 Métricas Financieras y Operativas en Tiempo Real (Administrador y Recepcionista)
   const adminKPIs = useMemo(() => {
+    // REGLA ESTRICTA: Para el rol Recepcionista, los montos y cantidades deben estar
+    // estrictamente filtrados por la fecha de hoy (su turno o día actual).
+    // Para el rol Administrador, se calculan sobre filteredBookings según sus filtros activos.
+    const kpiSourceBookings = isRecepcionista
+      ? bookings.filter((b) => b.date === todayStr)
+      : filteredBookings;
+
     let citasPendientesCobrarCount = 0;
     let citasConfirmadasCount = 0;
     let totalIngresosCobradosCents = 0;
     let totalPorCobrarLocalCents = 0;
 
-    for (const b of filteredBookings) {
+    for (const b of kpiSourceBookings) {
       const cobrado = getBookingCollectedAmountCents(b);
       const activeTotal = (b.services && b.services.length > 0)
         ? b.services.reduce((sum, s) => sum + (s.price_cents || 0), 0)
@@ -698,7 +705,7 @@ export const ReservasManager: React.FC = () => {
       totalIngresosCobradosCents,
       totalPorCobrarLocalCents,
     };
-  }, [filteredBookings]);
+  }, [bookings, filteredBookings, isRecepcionista, todayStr]);
 
   // Acciones de Solicitud de Eliminación y Extorno Proporcional
   const handleRequestServiceDeletion = async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
@@ -923,8 +930,8 @@ export const ReservasManager: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Métricas Financieras y Operativas (Exclusivo Administrador) */}
-      {isAdmin && (
+      {/* 4 Métricas Financieras y Operativas (Administrador y Recepcionista) */}
+      {(isAdmin || isRecepcionista) && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {/* Cuadro 1: Citas Pendientes por Cobrar */}
           <div className="bg-[#141414] border border-amber-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-amber-500/50 transition-all">
@@ -939,7 +946,7 @@ export const ReservasManager: React.FC = () => {
                 {adminKPIs.citasPendientesCobrarCount} {adminKPIs.citasPendientesCobrarCount === 1 ? 'cita' : 'citas'}
               </span>
               <span className="text-[11px] text-neutral-500 mt-0.5 block">
-                Con saldo restante por liquidar
+                {isRecepcionista ? 'Pendiente en jornada de hoy' : 'Con saldo restante por liquidar'}
               </span>
             </div>
           </div>
@@ -957,7 +964,7 @@ export const ReservasManager: React.FC = () => {
                 {adminKPIs.citasConfirmadasCount} {adminKPIs.citasConfirmadasCount === 1 ? 'cita' : 'citas'}
               </span>
               <span className="text-[11px] text-neutral-500 mt-0.5 block">
-                Citas activas en agenda
+                {isRecepcionista ? 'Citas de hoy en agenda' : 'Citas activas en agenda'}
               </span>
             </div>
           </div>
@@ -975,7 +982,7 @@ export const ReservasManager: React.FC = () => {
                 {formatSoles(adminKPIs.totalIngresosCobradosCents)}
               </span>
               <span className="text-[11px] text-neutral-500 mt-0.5 block">
-                Monto ya pagado (Adelanto + Total)
+                {isRecepcionista ? 'Cobrado hoy (Adelanto + Total)' : 'Monto ya pagado (Adelanto + Total)'}
               </span>
             </div>
           </div>
@@ -993,7 +1000,7 @@ export const ReservasManager: React.FC = () => {
                 {formatSoles(adminKPIs.totalPorCobrarLocalCents)}
               </span>
               <span className="text-[11px] text-neutral-500 mt-0.5 block">
-                Saldo pendiente a cobrar en caja
+                {isRecepcionista ? 'Por liquidar hoy en mostrador' : 'Saldo pendiente a cobrar en caja'}
               </span>
             </div>
           </div>
