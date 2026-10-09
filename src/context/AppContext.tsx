@@ -1664,7 +1664,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               .update({
                 completed_at: nowIso,
                 end_time: targetBookingEndTime,
-                status: 'completada', // <- Asegurar estado principal
                 updated_at: nowIso,
               })
               .eq('id', bookingId);

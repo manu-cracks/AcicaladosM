@@ -51,6 +51,25 @@ export const ALL_30MIN_SLOTS: string[] = generateSlots(
 export type SlotStatus = 'disponible' | 'pasado' | 'lleno';
 export type SlotStatusLabel = 'Libre' | 'Pasado' | 'Lleno';
 
+/**
+ * Convierte un timestamp ISO a formato HH:mm en hora local
+ */
+function extractTimeFromIso(iso: string): string {
+  if (!iso) return '';
+  // Si ya es un formato de tiempo simple (ej: "13:20")
+  if (iso.length <= 5 && iso.includes(':')) return iso;
+  
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const h = d.getHours().toString().padStart(2, '0');
+    const m = d.getMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+  } catch {
+    return iso;
+  }
+}
+
 export interface ServiceExecutionPlan {
   serviceId: string;
   serviceName: string;
@@ -259,7 +278,8 @@ export function isEmployeeBooked(
         // Bloqueo de tiempo estricto considerando duración efectiva o recorte
         return activeMatchingServices.some((s) => {
           const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
-          const sEndRecorded = s.hora_fin || s.end_time;
+          // CÁLCULO DE FIN EFECTIVO (FALLBACK): Usar la hora real de culminación (liberado_at) si está disponible
+          const sEndRecorded = s.liberado_at ? extractTimeFromIso(s.liberado_at) : (s.hora_fin || s.end_time);
           const duration = s.duration_minutes || (sEndRecorded ? timeToMinutes(sEndRecorded) - sStart : 30);
           const sEnd = sEndRecorded ? timeToMinutes(sEndRecorded) : (sStart + duration);
           return startMin < sEnd && endMin > sStart;
@@ -276,8 +296,17 @@ export function isEmployeeBooked(
     // Fallback exclusivo para reservas globales legacy sin desglose de servicios
     const isMainAssigned = (b as any).assigned_employee_id === empId;
     if (isMainAssigned) {
+      // EXCLUSIÓN DIRECTA (Fallback): Revisar si algún servicio dentro del fallback ya fue liberado
+      if (b.services && b.services.length > 0) {
+        const allLiberated = b.services.every((s) => s.liberado_at || s.status === 'completada' || (s as any).status === 'culminada');
+        if (allLiberated) return false;
+      }
+      
       const bStart = timeToMinutes(b.start_time);
-      const bEnd = timeToMinutes(b.end_time);
+      // CÁLCULO DE FIN EFECTIVO (Fallback)
+      const bEndRecorded = b.completed_at ? extractTimeFromIso(b.completed_at) : b.end_time;
+      const bEnd = timeToMinutes(bEndRecorded);
+      
       return startMin < bEnd && endMin > bStart;
     }
 
@@ -642,7 +671,8 @@ export function checkEmployeeAvailability(params: {
 
         if (match) {
           const sStart = timeToMinutes(match.hora_inicio || match.start_time || b.start_time);
-          const sEndRecorded = match.hora_fin || match.end_time;
+          // 2. CÁLCULO DE FIN EFECTIVO (FALLBACK): Usar la hora real de culminación (liberado_at)
+          const sEndRecorded = match.liberado_at ? extractTimeFromIso(match.liberado_at) : (match.hora_fin || match.end_time);
           const duration = match.duration_minutes || (sEndRecorded ? timeToMinutes(sEndRecorded) - sStart : 30);
           const sEnd = sEndRecorded ? timeToMinutes(sEndRecorded) : (sStart + duration);
           conflictingBookingDetails = {
@@ -671,8 +701,17 @@ export function checkEmployeeAvailability(params: {
       (b as any).employee_id === employee.id;
 
     if (isMainAssigned) {
+      // 1. EXCLUSIÓN DIRECTA (Fallback): Revisar si algún servicio dentro del fallback ya fue liberado
+      if (b.services && b.services.length > 0) {
+        const allLiberated = b.services.every((s) => s.liberado_at || s.status === 'completada' || (s as any).status === 'culminada');
+        if (allLiberated) return false;
+      }
+      
       const bStart = timeToMinutes(b.start_time);
-      const bEnd = timeToMinutes(b.end_time);
+      // 2. CÁLCULO DE FIN EFECTIVO (Fallback)
+      const bEndRecorded = b.completed_at ? extractTimeFromIso(b.completed_at) : b.end_time;
+      const bEnd = timeToMinutes(bEndRecorded);
+      
       if (startMin < bEnd && endMin > bStart) {
         conflictingBookingDetails = {
           code: b.code,
