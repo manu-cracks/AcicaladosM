@@ -1594,7 +1594,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // Opción A: Recorte real del bloque de tiempo
             if (nowMin > srvStartMin) {
               updatedDuration = Math.max(1, nowMin - srvStartMin);
-              newEndStr = nowLimaTime;
+              // Forzar congruencia estricta para evitar bloqueos del trigger trg_sync_booking_services_time_ranges
+              newEndStr = minutesToTime(srvStartMin + updatedDuration);
             } else {
               // Si se libera al mismo minuto o antes de iniciar
               updatedDuration = 1;
@@ -1641,7 +1642,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (bookingId.includes('-') && bookingId.length === 36) {
       const persistLiberation = async (sId: string) => {
         try {
-          await supabase
+          console.log(`[liberateServiceEarly] Actualizando servicio ${sId} con end_time=${newEndStr}, duration=${updatedDuration}`);
+          const { error: dbErr1 } = await supabase
             .from('booking_services')
             .update({
               liberado_at: nowIso,
@@ -1652,24 +1654,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             })
             .eq('id', sId);
 
+          if (dbErr1) {
+            console.error('[liberateServiceEarly] Error al actualizar booking_services en Supabase:', dbErr1);
+          }
+
           if (allCompleted) {
-            await supabase
+            const { error: dbErr2 } = await supabase
               .from('bookings')
               .update({
                 completed_at: nowIso,
                 end_time: targetBookingEndTime,
+                status: 'completada', // <- Asegurar estado principal
                 updated_at: nowIso,
               })
               .eq('id', bookingId);
+            if (dbErr2) console.error('[liberateServiceEarly] Error al actualizar bookings (allCompleted) en Supabase:', dbErr2);
           } else {
             // Actualizar hora de fin si se redujo el tiempo total
-            await supabase
+            const { error: dbErr3 } = await supabase
               .from('bookings')
               .update({
                 end_time: targetBookingEndTime,
                 updated_at: nowIso,
               })
               .eq('id', bookingId);
+            if (dbErr3) console.error('[liberateServiceEarly] Error al actualizar bookings en Supabase:', dbErr3);
           }
           pulseRealtime();
         } catch (dbErr) {
