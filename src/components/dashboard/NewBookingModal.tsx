@@ -128,6 +128,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                 hora_fin: effectiveEnd,
                 start_time: srvStart,
                 end_time: effectiveEnd,
+                status: bs.status || (bs.liberado_at ? 'completada' : 'confirmada'),
                 liberado_at: bs.liberado_at || undefined,
                 solicitud_eliminacion: Boolean(bs.solicitud_eliminacion),
                 advance_amount_cents: bs.advance_amount_cents || 0,
@@ -169,10 +170,10 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   // Combinación en tiempo real de reservas en memoria y reservas frescas de Supabase para esta fecha
   const effectiveBookings = useMemo(() => {
     const bookingMap = new Map<string, Booking>();
-    for (const b of bookings) {
+    for (const b of dateBookings) {
       bookingMap.set(b.id, b);
     }
-    for (const b of dateBookings) {
+    for (const b of bookings) {
       bookingMap.set(b.id, b);
     }
     return Array.from(bookingMap.values());
@@ -303,11 +304,29 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     for (const emp of availableEmployeesList) {
       const activeCount = effectiveBookings.filter((b) => {
         if (b.date !== date) return false;
-        if (b.cancelled_at || b.status === 'cancelada' || b.expired_at || b.status === 'expirada') return false;
-        return (
-          (b as any).assigned_employee_id === emp.id ||
-          b.services?.some((s) => !s.liberado_at && s.employee_id === emp.id)
-        );
+        if (
+          b.cancelled_at ||
+          b.status === 'cancelada' ||
+          b.expired_at ||
+          b.status === 'expirada' ||
+          b.completed_at ||
+          b.status === 'completada' ||
+          b.status === 'culminada'
+        ) {
+          return false;
+        }
+
+        if (b.services && b.services.length > 0) {
+          return b.services.some(
+            (s) =>
+              !s.liberado_at &&
+              s.status !== 'completada' &&
+              (s as any).status !== 'culminada' &&
+              s.employee_id === emp.id
+          );
+        }
+
+        return (b as any).assigned_employee_id === emp.id;
       }).length;
       workloads[emp.id] = activeCount;
     }

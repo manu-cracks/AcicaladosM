@@ -219,9 +219,11 @@ const ServiceSpecialistSelector: React.FC<ServiceSpecialistSelectorProps> = ({
       const conflictSameBooking = (booking.services || []).some((otherSrv, idx) => {
         if (idx === serviceIndex) return false;
         if (otherSrv.employee_id !== emp.id) return false;
+        if (otherSrv.liberado_at || otherSrv.status === 'completada' || (otherSrv as any).status === 'culminada') return false;
         const otherStart = timeToMinutes(otherSrv.hora_inicio || otherSrv.start_time || booking.start_time);
-        const otherDuration = otherSrv.duration_minutes || 30;
-        const otherEnd = otherStart + otherDuration;
+        const otherEndRecorded = otherSrv.hora_fin || otherSrv.end_time;
+        const otherDuration = otherSrv.duration_minutes || (otherEndRecorded ? timeToMinutes(otherEndRecorded) - otherStart : 30);
+        const otherEnd = otherEndRecorded ? timeToMinutes(otherEndRecorded) : (otherStart + otherDuration);
         return startMin < otherEnd && endMin > otherStart;
       });
 
@@ -1490,7 +1492,7 @@ export const ReservasManager: React.FC = () => {
                                           onUpdatePrice={updateBookingServicePrice}
                                         />
 
-                                        {srv.liberado_at ? (
+                                        {srv.liberado_at || srv.status === 'completada' ? (
                                           <span className="px-2.5 py-1 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 text-[10px] font-semibold flex items-center gap-1.5 shadow-sm">
                                             <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
                                             <span>Culminado a las {formatCompletionTime(srv.liberado_at)}</span>
@@ -1498,7 +1500,17 @@ export const ReservasManager: React.FC = () => {
                                         ) : (
                                           <button
                                             type="button"
-                                            onClick={() => liberateServiceEarly(b.id, sIdx)}
+                                            onClick={() => {
+                                              const srvName = srv.service_name || 'este servicio';
+                                              const empName = srv.employee_name ? ` (${srv.employee_name})` : '';
+                                              if (
+                                                window.confirm(
+                                                  `¿Confirmas culminar "${srvName}"${empName} ahora mismo? El especialista quedará libre de inmediato en la agenda.`
+                                                )
+                                              ) {
+                                                liberateServiceEarly(b.id, sIdx);
+                                              }
+                                            }}
                                             className="px-2.5 py-1 rounded text-[10px] font-semibold bg-[#C8A45C]/15 hover:bg-emerald-600/30 text-[#E6C875] hover:text-emerald-200 border border-[#C8A45C]/35 hover:border-emerald-500/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
                                             title="Culminar servicio y liberar disponibilidad del especialista de inmediato"
                                           >

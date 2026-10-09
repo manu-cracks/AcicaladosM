@@ -219,6 +219,7 @@ export interface BookingServiceItem {
   hora_fin?: string; // HH:mm
   start_time?: string; // HH:mm
   end_time?: string; // HH:mm
+  status?: string; // Estado individual del servicio ('confirmada' | 'completada' | etc.)
   liberado_at?: string; // If service finished early
   solicitud_eliminacion?: boolean; // Solicitud de eliminación pendiente de autorización de Administrador
   advance_amount_cents?: number; // Adelanto proporcional retenido por este servicio

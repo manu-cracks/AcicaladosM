@@ -40,7 +40,7 @@ import {
 } from '../data/initialData';
 import { sanitizePhone, sanitizeDni } from '../lib/validators';
 import { supabase } from '../lib/supabase/client';
-import { timeToMinutes, minutesToTime } from '../lib/bookingAvailability';
+import { timeToMinutes, minutesToTime, getLimaDateTime } from '../lib/bookingAvailability';
 import {
   calculateFinancialMetrics,
   FinancialMetrics,
@@ -735,6 +735,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 hora_fin: effectiveEnd,
                 start_time: srvStart,
                 end_time: effectiveEnd,
+                status: bs.status || (bs.liberado_at ? 'completada' : 'confirmada'),
                 liberado_at: bs.liberado_at || undefined,
                 solicitud_eliminacion: Boolean(bs.solicitud_eliminacion),
                 advance_amount_cents: bs.advance_amount_cents || 0,
@@ -1571,50 +1572,125 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const liberateServiceEarly = useCallback((bookingId: string, serviceIndex: number) => {
     const nowIso = new Date().toISOString();
-    const nowTime = new Date().toLocaleTimeString('es-PE', {
-      timeZone: 'America/Lima',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+    const { timeStr: nowLimaTime } = getLimaDateTime();
+
+    let updatedDuration = 30;
+    let newEndStr = nowLimaTime;
+    let serviceDbId: string | null = null;
+    let allCompleted = false;
+    let targetBookingEndTime = nowLimaTime;
 
     setBookings((prev) =>
       prev.map((b) => {
         if (b.id === bookingId) {
-          const updatedServices = [...b.services];
-          if (updatedServices[serviceIndex]) {
+          const updatedServices = [...(b.services || [])];
+          const targetSrv = updatedServices[serviceIndex];
+          if (targetSrv) {
+            serviceDbId = targetSrv.id || null;
+            const srvStartStr = (targetSrv.hora_inicio || targetSrv.start_time || b.start_time || '10:00').substring(0, 5);
+            const srvStartMin = timeToMinutes(srvStartStr);
+            const nowMin = timeToMinutes(nowLimaTime);
+
+            // Opción A: Recorte real del bloque de tiempo
+            if (nowMin > srvStartMin) {
+              updatedDuration = Math.max(1, nowMin - srvStartMin);
+              newEndStr = nowLimaTime;
+            } else {
+              // Si se libera al mismo minuto o antes de iniciar
+              updatedDuration = 1;
+              newEndStr = minutesToTime(srvStartMin + 1);
+            }
+
             updatedServices[serviceIndex] = {
-              ...updatedServices[serviceIndex],
-              liberado_at: nowTime,
+              ...targetSrv,
+              liberado_at: nowIso,
+              hora_fin: newEndStr,
+              end_time: newEndStr,
+              duration_minutes: updatedDuration,
+              status: 'completada',
             };
           }
-          return { ...b, services: updatedServices };
+
+          // Verificar si todos los servicios de la cita están culminados / liberados
+          allCompleted =
+            updatedServices.length > 0 &&
+            updatedServices.every(
+              (s) => Boolean(s.liberado_at) || s.status === 'completada' || (s as any).status === 'culminada'
+            );
+
+          // Calcular la hora máxima de fin de los servicios de esta reserva
+          const maxEndMin = updatedServices.reduce((max, s) => {
+            const end = s.hora_fin || s.end_time || s.start_time || '10:00';
+            return Math.max(max, timeToMinutes(end));
+          }, timeToMinutes(b.start_time || '10:00'));
+          targetBookingEndTime = minutesToTime(maxEndMin);
+
+          return {
+            ...b,
+            services: updatedServices,
+            end_time: targetBookingEndTime,
+            ...(allCompleted ? { completed_at: b.completed_at || nowIso, status: 'completada' } : {}),
+          };
         }
         return b;
       })
     );
     pulseRealtime();
 
+    // Persistencia asíncrona en Supabase
     if (bookingId.includes('-') && bookingId.length === 36) {
-      supabase
-        .from('booking_services')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .order('created_at')
-        .then(({ data }) => {
-          if (data && data[serviceIndex]) {
-            supabase
-              .from('booking_services')
+      const persistLiberation = async (sId: string) => {
+        try {
+          await supabase
+            .from('booking_services')
+            .update({
+              liberado_at: nowIso,
+              status: 'completada',
+              hora_fin: newEndStr,
+              end_time: newEndStr,
+              duration_minutes: updatedDuration,
+            })
+            .eq('id', sId);
+
+          if (allCompleted) {
+            await supabase
+              .from('bookings')
               .update({
-                liberado_at: nowIso,
-                status: 'completada',
+                completed_at: nowIso,
+                end_time: targetBookingEndTime,
+                updated_at: nowIso,
               })
-              .eq('id', data[serviceIndex].id)
-              .then(() => {
-                pulseRealtime();
-              });
+              .eq('id', bookingId);
+          } else {
+            // Actualizar hora de fin si se redujo el tiempo total
+            await supabase
+              .from('bookings')
+              .update({
+                end_time: targetBookingEndTime,
+                updated_at: nowIso,
+              })
+              .eq('id', bookingId);
           }
-        });
+          pulseRealtime();
+        } catch (dbErr) {
+          console.error('Error persistiendo liberación de servicio en Supabase:', dbErr);
+        }
+      };
+
+      if (serviceDbId) {
+        persistLiberation(serviceDbId);
+      } else {
+        supabase
+          .from('booking_services')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('created_at')
+          .then(({ data }) => {
+            if (data && data[serviceIndex]) {
+              persistLiberation(data[serviceIndex].id);
+            }
+          });
+      }
     }
   }, [pulseRealtime]);
 

@@ -131,7 +131,12 @@ export function formatCompletionTime(dateString?: string | null): string {
   try {
     const d = new Date(trimmed);
     if (isNaN(d.getTime())) return trimmed;
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('es-PE', {
+      timeZone: 'America/Lima',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
   } catch {
     return trimmed;
   }
@@ -225,22 +230,52 @@ export function isEmployeeBooked(
       return false;
     }
 
-    // Verificar si el colaborador está asignado a nivel de algún servicio específico
-    const matchingServices = b.services?.filter((s) => !s.liberado_at && s.employee_id === empId) || [];
-    const isMainAssigned = (b as any).assigned_employee_id === empId;
-
-    if (matchingServices.length > 0) {
-      // Bloqueo de tiempo estricto: fin = inicio + duración de SU servicio particular
-      return matchingServices.some((s) => {
-        const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
-        const duration = s.duration_minutes || (timeToMinutes(s.hora_fin || s.end_time || b.end_time) - sStart) || 30;
-        const sEnd = sStart + duration;
-        return startMin < sEnd && endMin > sStart;
-      });
+    // Opción B: Ignorar reservas culminadas o completadas en su totalidad
+    if (b.completed_at || b.status === 'completada' || b.status === 'culminada') {
+      return false;
     }
 
+    const hasServicesArray = Array.isArray(b.services) && b.services.length > 0;
+
+    if (hasServicesArray) {
+      // Filtrar servicios asignados a este colaborador que continúen activos (NO liberados ni completados)
+      const activeMatchingServices = b.services.filter((s) => {
+        if (s.employee_id !== empId) return false;
+        // Si el servicio ya fue liberado o marcado como completado/culminado, el especialista está libre
+        if (s.liberado_at || s.status === 'completada' || (s as any).status === 'culminada') {
+          return false;
+        }
+        return true;
+      });
+
+      // Si el colaborador tenía servicios en esta cita pero TODOS ya fueron culminados o liberados,
+      // queda libre de inmediato (evitar que caiga en el fallback de asignación global)
+      const anyServiceBelongedToEmp = b.services.some((s) => s.employee_id === empId);
+      if (anyServiceBelongedToEmp && activeMatchingServices.length === 0) {
+        return false;
+      }
+
+      if (activeMatchingServices.length > 0) {
+        // Bloqueo de tiempo estricto considerando duración efectiva o recorte
+        return activeMatchingServices.some((s) => {
+          const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
+          const sEndRecorded = s.hora_fin || s.end_time;
+          const duration = s.duration_minutes || (sEndRecorded ? timeToMinutes(sEndRecorded) - sStart : 30);
+          const sEnd = sEndRecorded ? timeToMinutes(sEndRecorded) : (sStart + duration);
+          return startMin < sEnd && endMin > sStart;
+        });
+      }
+
+      // Si los servicios están distribuidos a colaboradores y ninguno activo corresponde a este empId:
+      const hasAnySpecificAssignment = b.services.some((s) => s.employee_id && s.employee_id.trim() !== '');
+      if (hasAnySpecificAssignment) {
+        return false;
+      }
+    }
+
+    // Fallback exclusivo para reservas globales legacy sin desglose de servicios
+    const isMainAssigned = (b as any).assigned_employee_id === empId;
     if (isMainAssigned) {
-      // Fallback solo cuando la asignación fue global sin detalle de servicios
       const bStart = timeToMinutes(b.start_time);
       const bEnd = timeToMinutes(b.end_time);
       return startMin < bEnd && endMin > bStart;
@@ -264,6 +299,27 @@ export function countUnassignedBookings(
 
   return bookings.filter((b) => {
     if (b.date !== date) return false;
+
+    // Ignorar reservas canceladas, expiradas o culminadas/completadas
+    if (
+      b.cancelled_at ||
+      b.status === 'cancelada' ||
+      b.expired_at ||
+      b.status === 'expirada' ||
+      b.completed_at ||
+      b.status === 'completada' ||
+      b.status === 'culminada'
+    ) {
+      return false;
+    }
+
+    // Si tiene desglose de servicios y todos están completados/liberados, no compite por cupos
+    if (b.services && b.services.length > 0) {
+      const hasActiveService = b.services.some(
+        (s) => !s.liberado_at && s.status !== 'completada' && (s as any).status !== 'culminada'
+      );
+      if (!hasActiveService) return false;
+    }
 
     // Si no tiene asignado colaborador principal ni en servicios
     const hasAssigned =
@@ -548,33 +604,71 @@ export function checkEmployeeAvailability(params: {
       return false;
     }
 
-    const matchingServices = (b.services || []).filter(
-      (s) => !s.liberado_at && (s.employee_id === employee.id || s.employee_name === employee.full_name)
-    );
+    // Opción B: Ignorar reservas completadas o culminadas
+    if (b.completed_at || b.status === 'completada' || b.status === 'culminada') {
+      return false;
+    }
+
+    const hasServicesArray = Array.isArray(b.services) && b.services.length > 0;
+
+    if (hasServicesArray) {
+      // Filtrar servicios asignados a este colaborador que continúen activos (NO liberados ni completados)
+      const activeMatchingServices = (b.services || []).filter((s) => {
+        const isThisEmp = s.employee_id === employee.id || s.employee_name === employee.full_name;
+        if (!isThisEmp) return false;
+        if (s.liberado_at || s.status === 'completada' || (s as any).status === 'culminada') {
+          return false;
+        }
+        return true;
+      });
+
+      // Si el colaborador tenía servicios en esta cita pero TODOS ya fueron culminados o liberados,
+      // queda libre de inmediato (evitar que caiga en el fallback de asignación global)
+      const anyServiceBelongedToEmp = (b.services || []).some(
+        (s) => s.employee_id === employee.id || s.employee_name === employee.full_name
+      );
+      if (anyServiceBelongedToEmp && activeMatchingServices.length === 0) {
+        return false;
+      }
+
+      if (activeMatchingServices.length > 0) {
+        const match = activeMatchingServices.find((s) => {
+          const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
+          const sEndRecorded = s.hora_fin || s.end_time;
+          const duration = s.duration_minutes || (sEndRecorded ? timeToMinutes(sEndRecorded) - sStart : 30);
+          const sEnd = sEndRecorded ? timeToMinutes(sEndRecorded) : (sStart + duration);
+          return startMin < sEnd && endMin > sStart;
+        });
+
+        if (match) {
+          const sStart = timeToMinutes(match.hora_inicio || match.start_time || b.start_time);
+          const sEndRecorded = match.hora_fin || match.end_time;
+          const duration = match.duration_minutes || (sEndRecorded ? timeToMinutes(sEndRecorded) - sStart : 30);
+          const sEnd = sEndRecorded ? timeToMinutes(sEndRecorded) : (sStart + duration);
+          conflictingBookingDetails = {
+            code: b.code,
+            serviceName: match.service_name,
+            start_time: minutesToTime(sStart),
+            end_time: minutesToTime(sEnd),
+          };
+          return true;
+        }
+        return false;
+      }
+
+      // Si los servicios están distribuidos a colaboradores y ninguno activo corresponde a este especialista:
+      const hasAnySpecificAssignment = (b.services || []).some(
+        (s) => (s.employee_id && s.employee_id.trim() !== '') || (s.employee_name && s.employee_name.trim() !== '')
+      );
+      if (hasAnySpecificAssignment) {
+        return false;
+      }
+    }
+
+    // Fallback exclusivo para reservas globales legacy sin desglose de servicios
     const isMainAssigned =
       (b as any).assigned_employee_id === employee.id ||
       (b as any).employee_id === employee.id;
-
-    if (matchingServices.length > 0) {
-      const match = matchingServices.find((s) => {
-        const sStart = timeToMinutes(s.hora_inicio || s.start_time || b.start_time);
-        const duration = s.duration_minutes || (timeToMinutes(s.hora_fin || s.end_time || b.end_time) - sStart) || 30;
-        const sEnd = sStart + duration;
-        return startMin < sEnd && endMin > sStart;
-      });
-      if (match) {
-        const sStart = timeToMinutes(match.hora_inicio || match.start_time || b.start_time);
-        const duration = match.duration_minutes || (timeToMinutes(match.hora_fin || match.end_time || b.end_time) - sStart) || 30;
-        conflictingBookingDetails = {
-          code: b.code,
-          serviceName: match.service_name,
-          start_time: minutesToTime(sStart),
-          end_time: minutesToTime(sStart + duration),
-        };
-        return true;
-      }
-      return false;
-    }
 
     if (isMainAssigned) {
       const bStart = timeToMinutes(b.start_time);
