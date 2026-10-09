@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Booking, formatSoles, formatLimaDate, PaymentLog, Service, Employee, EmployeeBlock, BookingServiceItem, getBookingCollectedAmountCents, BusinessCategory } from '../../types';
 import { getTodayDateString, OFFICIAL_YAPE_PHONE, OFFICIAL_YAPE_HOLDER } from '../../data/initialData';
 import { isEmployeeBlocked, isEmployeeBooked, timeToMinutes, minutesToTime, formatCompletionTime } from '../../lib/bookingAvailability';
+import { supabase } from '../../lib/supabase/client';
 import { DashboardSkeleton } from './DashboardSkeleton';
 import {
   BookOpen,
@@ -529,7 +530,7 @@ export const ReservasManager: React.FC = () => {
     updatePaymentSettings,
     registerBookingPayment,
     voidPayment,
-    liberateServiceEarly,
+    setBookings,
     reassignBookingService,
     updateBookingServicePrice,
     requestServiceDeletion,
@@ -540,6 +541,7 @@ export const ReservasManager: React.FC = () => {
     addBooking,
     openTicketModal,
     isDataLoading,
+    pulseRealtime,
   } = useApp();
 
   if (isDataLoading) {
@@ -1500,22 +1502,86 @@ export const ReservasManager: React.FC = () => {
                                         ) : (
                                           <button
                                             type="button"
-                                            onClick={() => {
+                                            disabled={isActionLoading}
+                                            onClick={async (e) => {
+                                              const btn = e.currentTarget;
+                                              btn.disabled = true;
                                               const srvName = srv.service_name || 'este servicio';
                                               const empName = srv.employee_name ? ` (${srv.employee_name})` : '';
+                                              
+                                              // FASE 2: Nueva Interfaz (Botón "Liberar" y Confirmación)
                                               if (
-                                                window.confirm(
-                                                  `¿Confirmas culminar "${srvName}"${empName} ahora mismo? El especialista quedará libre de inmediato en la agenda.`
+                                                !window.confirm(
+                                                  `¿Estás seguro de liberar a este especialista en este momento?\n\nServicio: "${srvName}"${empName}`
                                                 )
                                               ) {
-                                                liberateServiceEarly(b.id, sIdx);
+                                                return; // Si el usuario cancela, la acción se detiene ahí
+                                              }
+
+                                              if (!srv.id) {
+                                                btn.disabled = false;
+                                                return;
+                                              }
+
+                                              try {
+                                                setActionLoadingServiceId(serviceKey);
+
+                                                // FASE 3: Nueva Lógica Definitiva (Corte de Horario en BD)
+                                                const tzOffset = (new Date()).getTimezoneOffset() + 300; // Lima UTC-5
+                                                const limaDate = new Date(Date.now() - tzOffset * 60000);
+                                                const currentTimeStr = limaDate.toISOString().substring(11, 16);
+                                                const nowIso = new Date().toISOString();
+                                                
+                                                const originalStart = srv.hora_inicio || srv.start_time || b.start_time || '10:00';
+                                                const startMin = timeToMinutes(originalStart);
+                                                const endMin = timeToMinutes(currentTimeStr);
+                                                const newDuration = Math.max(1, endMin - startMin);
+
+                                                // UPDATE directo a la base de datos en Supabase para ese servicio específico.
+                                                // Sobrescribir el campo original de la hora de finalización
+                                                const { error: dbErr } = await supabase
+                                                  .from('booking_services')
+                                                  .update({
+                                                    end_time: currentTimeStr,
+                                                    hora_fin: currentTimeStr,
+                                                    duration_minutes: newDuration,
+                                                    liberado_at: nowIso,
+                                                    status: 'completada'
+                                                  })
+                                                  .eq('id', srv.id);
+
+                                                if (dbErr) throw dbErr;
+
+                                                // FASE 4: Refresco y Disponibilidad Inmediata
+                                                // Actualizar estado local inmediatamente para reacción instantánea sin esperar la red
+                                                setBookings((prev) => 
+                                                  prev.map(bk => bk.id === b.id ? {
+                                                    ...bk,
+                                                    services: (bk.services || []).map(s => s.id === srv.id ? {
+                                                      ...s,
+                                                      end_time: currentTimeStr,
+                                                      hora_fin: currentTimeStr,
+                                                      duration_minutes: newDuration,
+                                                      liberado_at: nowIso,
+                                                      status: 'completada' // Just for safety if we still use status somewhere locally
+                                                    } : s)
+                                                  } : bk)
+                                                );
+
+                                                pulseRealtime();
+                                              } catch (err: any) {
+                                                console.error('Error al liberar especialista:', err);
+                                                alert('Error de conexión al liberar horario: ' + err.message);
+                                              } finally {
+                                                btn.disabled = false;
+                                                setActionLoadingServiceId(null);
                                               }
                                             }}
-                                            className="px-2.5 py-1 rounded text-[10px] font-semibold bg-[#C8A45C]/15 hover:bg-emerald-600/30 text-[#E6C875] hover:text-emerald-200 border border-[#C8A45C]/35 hover:border-emerald-500/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-                                            title="Culminar servicio y liberar disponibilidad del especialista de inmediato"
+                                            className="px-2.5 py-1 rounded text-[10px] font-semibold bg-[#C8A45C]/15 hover:bg-emerald-600/30 text-[#E6C875] hover:text-emerald-200 border border-[#C8A45C]/35 hover:border-emerald-500/50 transition flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                                            title="Liberar disponibilidad del especialista de inmediato"
                                           >
                                             <Sparkles className="w-3 h-3 text-[#E6C875] shrink-0" />
-                                            <span>Culminar / Liberar</span>
+                                            <span>Liberar</span>
                                           </button>
                                         )}
 

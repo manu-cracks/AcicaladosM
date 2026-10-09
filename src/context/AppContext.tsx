@@ -130,7 +130,7 @@ interface AppContextType {
     notes?: string
   ) => void;
   voidPayment: (paymentId: string, reason: string) => void;
-  liberateServiceEarly: (bookingId: string, serviceIndex: number) => void;
+  setBookings: React.Dispatch<React.SetStateAction<Booking[]>>;
   reassignBookingService: (bookingId: string, serviceIndex: number, newEmployeeId: string, newEmployeeName: string) => Promise<void>;
   updateBookingServicePrice: (bookingId: string, serviceIndex: number, newPriceCents: number) => Promise<void>;
   requestServiceDeletion: (bookingId: string, serviceItemId: string, serviceIndex: number) => Promise<void>;
@@ -4808,7 +4808,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addBooking,
         registerBookingPayment,
         voidPayment,
-        liberateServiceEarly,
+        setBookings,
         reassignBookingService,
         updateBookingServicePrice,
         requestServiceDeletion,
