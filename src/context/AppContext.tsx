@@ -4097,10 +4097,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (!id.startsWith('prod-')) {
         // Soft delete en Supabase para proteger la integridad de ventas y movimientos
+        // Liberar barcode y slug para evitar conflictos únicos al crear nuevos productos
+        const uniqueSuffix = `-del-${Date.now()}`;
+        
         const { error } = await supabase
           .from('products')
-          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .update({ 
+            is_active: false, 
+            updated_at: new Date().toISOString(),
+            // Evitar problemas si el slug ya tenía un sufijo, garantizamos uno nuevo
+            slug: `${id}${uniqueSuffix}`.substring(0, 100), 
+            barcode: null // Liberar código de barras para que el escáner pueda reutilizarlo
+          })
           .eq('id', id);
+          
         if (error) {
           console.error('Error al realizar soft delete de producto en Supabase:', error);
           return false;
