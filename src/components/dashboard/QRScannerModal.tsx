@@ -35,6 +35,75 @@ interface ScanResultState {
   minutes?: number;
 }
 
+/**
+ * Evalúa y puntúa los dispositivos de video para seleccionar específicamente
+ * la cámara trasera estándar/principal (lente x1), evitando el ultra-wide / gran angular (0.5x).
+ */
+function pickBestCameraDevice(
+  devices: MediaDeviceInfo[],
+  targetFacing: 'environment' | 'user'
+): MediaDeviceInfo | null {
+  const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+  if (videoDevices.length === 0) return null;
+  if (videoDevices.length === 1) return videoDevices[0];
+
+  if (targetFacing === 'user') {
+    const front = videoDevices.find((d) =>
+      /front|delanter|frontal|user|selfie/i.test(d.label || '')
+    );
+    return front || videoDevices[0];
+  }
+
+  // Búsqueda de cámara trasera principal (x1)
+  const scored = videoDevices.map((device) => {
+    const label = (device.label || '').toLowerCase();
+    let score = 0;
+
+    const isBack = /back|rear|traser|environment/i.test(label);
+    const isFront = /front|delanter|frontal|user|selfie/i.test(label);
+
+    // Descartar frontales si buscamos trasera
+    if (isFront) return { device, score: -1000 };
+    if (isBack) score += 30;
+
+    // Penalizar fuertemente lentes ultra-wide / gran angular / 0.5x
+    if (/ultra[\s_-]?wide|ultrawide|gran[\s_-]?angular|super[\s_-]?wide|0\.[456]x?/i.test(label)) {
+      score -= 150;
+    }
+
+    // Penalizar teleobjetivos o zoom lejano (> 2x)
+    if (/tele|telephoto|periscope|[2-9]x/i.test(label)) {
+      score -= 50;
+    }
+
+    // Penalizar lentes macro, profundidad o sensores infrarrojos
+    if (/macro|depth|tof|virtual|ir|infrared/i.test(label)) {
+      score -= 80;
+    }
+
+    // Bonificaciones para lente principal estándar / 1x
+    if (/main|principal|standard|est[aá]ndar|normal/i.test(label)) {
+      score += 60;
+    }
+    if (/1x|1\.0x/i.test(label)) {
+      score += 60;
+    }
+    // "Back Camera" o "Back Wide Camera" (en iOS/Android sin "ultra") es el lente principal 1x
+    if (isBack && !/ultra/i.test(label)) {
+      score += 35;
+    }
+    if (/wide/i.test(label) && !/ultra/i.test(label)) {
+      score += 25;
+    }
+
+    return { device, score };
+  });
+
+  // Ordenar de mayor a menor puntuación
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.device || videoDevices[0];
+}
+
 export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose, userRole }) => {
   const {
     employees,
@@ -55,6 +124,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'manual'>('camera');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [activeCameraLabel, setActiveCameraLabel] = useState<string>('');
   const [isScanning, setIsScanning] = useState<boolean>(true);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
@@ -269,7 +339,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
     }
   }, [isOpen, activeTab, isScanning, pendingExit, scanFrame]);
 
-  // Start camera stream
+  // Start camera stream (priorizando lente principal x1 y evitando gran angular)
   const startCamera = useCallback(async () => {
     stopCamera();
     setCameraError(null);
@@ -280,16 +350,116 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
     }
 
     try {
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      };
+      // 1. Obtener lista previa de dispositivos si los permisos ya existen en la sesión
+      let videoDevices: MediaDeviceInfo[] = [];
+      try {
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = allDevices.filter((d) => d.kind === 'videoinput');
+      } catch (e) {
+        console.warn('No se pudo enumerar dispositivos inicialmente:', e);
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const hasLabels = videoDevices.some((d) => d.label && d.label.trim() !== '');
+      let bestDevice = hasLabels ? pickBestCameraDevice(videoDevices, facingMode) : null;
+      let stream: MediaStream | null = null;
+
+      // Si conocemos el deviceId del lente estándar x1, solicitarlo directamente
+      if (bestDevice && bestDevice.deviceId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: bestDevice.deviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+        } catch (exactErr) {
+          console.warn('Fallo con deviceId exacto, intentando con ideal:', exactErr);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                deviceId: { ideal: bestDevice.deviceId },
+                facingMode: { ideal: facingMode },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+              audio: false,
+            });
+          } catch (idealErr) {
+            console.warn('Fallo con deviceId ideal:', idealErr);
+          }
+        }
+      }
+
+      // Si no se obtuvo stream aún (primer acceso o dispositivo único), solicitar con facingMode
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+
+        // Con los permisos ya otorgados, verificar si seleccionó gran angular y corregir
+        if (facingMode === 'environment') {
+          try {
+            const postPermissionDevices = await navigator.mediaDevices.enumerateDevices();
+            const postVideo = postPermissionDevices.filter((d) => d.kind === 'videoinput');
+            const targetMainCam = pickBestCameraDevice(postVideo, 'environment');
+
+            const currentTrack = stream.getVideoTracks()[0];
+            const currentSettings = currentTrack?.getSettings();
+
+            if (
+              targetMainCam &&
+              targetMainCam.deviceId &&
+              currentSettings?.deviceId &&
+              targetMainCam.deviceId !== currentSettings.deviceId
+            ) {
+              stream.getTracks().forEach((t) => t.stop());
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  deviceId: { exact: targetMainCam.deviceId },
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                },
+                audio: false,
+              });
+              bestDevice = targetMainCam;
+            }
+          } catch (postErr) {
+            console.warn('Error en selección de cámara principal post-permiso:', postErr);
+          }
+        }
+      }
+
+      // 2. Forzar zoom en 1.0 (óptico/digital estándar) si el track lo soporta
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        try {
+          const capabilities = ((track.getCapabilities && track.getCapabilities()) || {}) as any;
+          if (capabilities.zoom) {
+            const minZ = capabilities.zoom.min || 1;
+            const maxZ = capabilities.zoom.max || 1;
+            const targetZoom = Math.min(Math.max(1, minZ), maxZ);
+            await (track as any).applyConstraints({
+              advanced: [{ zoom: targetZoom }],
+            });
+          }
+        } catch (zoomErr) {
+          console.warn('No se pudo aplicar restricción de zoom x1:', zoomErr);
+        }
+
+        const label =
+          track.label ||
+          bestDevice?.label ||
+          (facingMode === 'environment' ? 'Cámara Trasera (x1)' : 'Cámara Frontal');
+        setActiveCameraLabel(label);
+      }
+
       streamRef.current = stream;
 
       if (videoRef.current) {
@@ -543,15 +713,26 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({ isOpen, onClose,
               </div>
 
               {/* Camera Controls Bar */}
-              <div className="flex items-center justify-between text-xs text-neutral-400">
-                <span className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-[#C8A45C]" />
-                  <span>Enfoca el código QR del colaborador dentro del recuadro</span>
-                </span>
+              <div className="flex items-center justify-between text-xs text-neutral-400 gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1.5 text-[#E6C875] bg-[#C8A45C]/15 border border-[#C8A45C]/30 px-2 py-0.5 rounded text-[11px] font-semibold">
+                    <Sparkles className="w-3.5 h-3.5 text-[#E6C875]" />
+                    <span>Lente Principal (x1)</span>
+                  </span>
+                  {activeCameraLabel && (
+                    <span
+                      className="text-[10px] text-neutral-400 font-mono hidden sm:inline truncate max-w-[200px]"
+                      title={activeCameraLabel}
+                    >
+                      {activeCameraLabel}
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={toggleCameraFacing}
-                  className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white flex items-center gap-1.5 transition font-medium"
+                  className="px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white flex items-center gap-1.5 transition font-medium cursor-pointer"
+                  title="Alternar entre cámara trasera y delantera"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Cambiar Cámara</span>
