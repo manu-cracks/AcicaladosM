@@ -291,7 +291,7 @@ export const ProductosManager: React.FC = () => {
         setSelectedAdjustmentProduct(found);
         setIsAdjustmentModalOpen(true);
       } else {
-        if (currentRole === 'admin') {
+        if (isAuthorized) {
           handleOpenCreateModalWithBarcode(clean);
         } else {
           setNotFoundBarcode(clean);
@@ -305,7 +305,7 @@ export const ProductosManager: React.FC = () => {
     const pending = sessionStorage.getItem('pendingBarcode');
     if (pending) {
       sessionStorage.removeItem('pendingBarcode');
-      if (currentRole === 'admin') {
+      if (isAuthorized) {
         handleOpenCreateModalWithBarcode(pending);
       }
     }

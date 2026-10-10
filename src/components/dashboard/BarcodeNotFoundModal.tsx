@@ -18,7 +18,7 @@ export const BarcodeNotFoundModal: React.FC<BarcodeNotFoundModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const isAdmin = userRole === 'admin';
+  const isAuthorized = userRole === 'admin' || userRole === 'recepcionista';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -60,14 +60,14 @@ export const BarcodeNotFoundModal: React.FC<BarcodeNotFoundModalProps> = ({
           </div>
 
           {/* Mensaje condicional según rol */}
-          {isAdmin ? (
+          {isAuthorized ? (
             <div className="space-y-2 text-left bg-amber-950/20 border border-amber-800/40 rounded-xl p-4">
               <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
                 <Plus className="w-4 h-4 text-amber-400" />
-                <span>Alta Rápida de Producto (Modo Administrador)</span>
+                <span>Alta Rápida de Producto</span>
               </div>
               <p className="text-xs text-neutral-300 leading-relaxed">
-                Este código de barras aún no existe en el catálogo. Como <strong>Administrador</strong>, puedes dar de alta este producto inmediatamente con este código precargado.
+                Este código de barras aún no existe en el catálogo. Como <strong>{userRole === 'admin' ? 'Administrador' : 'Recepcionista'}</strong>, puedes dar de alta este producto inmediatamente con este código precargado.
               </p>
             </div>
           ) : (
@@ -93,7 +93,7 @@ export const BarcodeNotFoundModal: React.FC<BarcodeNotFoundModalProps> = ({
             Cerrar
           </button>
 
-          {isAdmin && onRegisterNew && (
+          {isAuthorized && onRegisterNew && (
             <button
               type="button"
               onClick={() => {
