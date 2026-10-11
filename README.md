@@ -1,1 +1,1 @@
-> yordi bb aa
+> yordi bebita
