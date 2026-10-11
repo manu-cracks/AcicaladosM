@@ -146,6 +146,26 @@ export function calculateAttendancePunctuality(
 }
 
 /**
+ * Calcula las horas extra aplicando el descuento estricto de la tolerancia de salida.
+ * REGLA ESTRICTA DE TOLERANCIA DE SALIDA:
+ * "Excedente tras Hora Oficial + Tolerancia = Horas extra"
+ * El tiempo de horas extra se acumula ÚNICAMENTE DESPUÉS de haber superado la tolerancia.
+ * Fórmula: Si checkOutMinutes > (exitMinutes + exitTolerance) -> Horas Extra = checkOutMinutes - (exitMinutes + exitTolerance)
+ * Ejemplo: Salida 21:25, Hora Oficial 21:00, Tolerancia 10 min -> 1285 - 1270 = +15 min.
+ * Si la salida es a las 21:08 (dentro de tolerancia) -> 0 min.
+ */
+export function calculateAttendanceOvertime(
+  checkOutMinutes: number,
+  shiftConfig: ShiftConfigResult
+): number {
+  const threshold = shiftConfig.exitMinutes + shiftConfig.exitTolerance;
+  if (checkOutMinutes > threshold) {
+    return Math.max(0, checkOutMinutes - threshold);
+  }
+  return 0;
+}
+
+/**
  * Calcula la jornada neta trabajada restando las ausencias acumuladas (almuerzo, permisos médicos, etc.)
  */
 export function calculateNetWorkedMinutes(
@@ -204,15 +224,12 @@ export function recalculateAttendanceRecord(
     const grossMinutes = Math.max(0, outMinutes - inMinutes);
     workedMinutes = Math.max(0, grossMinutes - (absenceMinutes || 0));
 
-    // 3. Cruzar la Jornada Neta contra la jornada oficial
-    if (workedMinutes > officialShiftMinutes) {
-      overtimeMinutes = workedMinutes - officialShiftMinutes;
-      owedMinutes = 0;
-    } else if (workedMinutes < officialShiftMinutes) {
-      overtimeMinutes = 0;
+    // 3. Cruzar la Jornada Neta contra la jornada oficial con descuento estricto de tolerancia de salida
+    overtimeMinutes = calculateAttendanceOvertime(outMinutes, shiftConfig);
+
+    if (workedMinutes < officialShiftMinutes) {
       owedMinutes = officialShiftMinutes - workedMinutes;
     } else {
-      overtimeMinutes = 0;
       owedMinutes = 0;
     }
   }

@@ -9,6 +9,7 @@ import {
   calculateNetWorkedMinutes,
   parseTimeToMinutes,
   calculateAttendancePunctuality,
+  calculateAttendanceOvertime,
 } from '../../lib/attendanceUtils';
 import { QRScannerModal } from './QRScannerModal';
 import { AttendanceSettingsModal } from './AttendanceSettingsModal';
@@ -140,10 +141,17 @@ export const AsistenciaView: React.FC = () => {
     const tardanzas = dayRecords.filter(
       (a) => a.status === 'tardanza' || (a.tardy_minutes && a.tardy_minutes > 0)
     ).length;
-    const totalOvertimeMinutes = dayRecords.reduce(
-      (acc, a) => acc + (a.overtime_minutes || a.bonus_minutes || 0),
-      0
-    );
+    const totalOvertimeMinutes = dayRecords.reduce((acc, a) => {
+      if (a.bonus_calculation_type === 'manual') {
+        return acc + (a.overtime_minutes || a.bonus_minutes || 0);
+      }
+      if (a.check_out) {
+        const outM = parseTimeToMinutes(a.check_out);
+        const sc = a.date ? getShiftConfigForDate(attendanceSettings, a.date) : currentShiftConfig;
+        return acc + calculateAttendanceOvertime(outM, sc);
+      }
+      return acc + (a.overtime_minutes || a.bonus_minutes || 0);
+    }, 0);
     const totalAbsenceMinutes = dayRecords.reduce(
       (acc, a) => acc + (a.absence_minutes || 0),
       0
@@ -158,7 +166,7 @@ export const AsistenciaView: React.FC = () => {
       totalAbsenceMinutes,
       totalAbsenceDisplay: formatMinutesToHours(totalAbsenceMinutes),
     };
-  }, [safeAttendance, selectedDate]);
+  }, [safeAttendance, selectedDate, attendanceSettings, currentShiftConfig]);
 
   const setQuickDate = (type: 'today' | 'yesterday') => {
     if (type === 'today') {
@@ -243,7 +251,13 @@ export const AsistenciaView: React.FC = () => {
         );
       }
 
-      totalOvertimeMin += rec.overtime_minutes || rec.bonus_minutes || 0;
+      let recOvertime = rec.overtime_minutes || rec.bonus_minutes || 0;
+      if (rec.bonus_calculation_type !== 'manual' && rec.check_out) {
+        const outM = parseTimeToMinutes(rec.check_out);
+        const sc = rec.date ? getShiftConfigForDate(attendanceSettings, rec.date) : currentShiftConfig;
+        recOvertime = calculateAttendanceOvertime(outM, sc);
+      }
+      totalOvertimeMin += recOvertime;
       totalAbsenceMin += rec.absence_minutes || 0;
 
       if (rec.tardy_minutes && rec.tardy_minutes > 0) {
@@ -265,7 +279,7 @@ export const AsistenciaView: React.FC = () => {
       totalTardyMin,
       tardyCount,
     };
-  }, [employeePayrollRecords]);
+  }, [employeePayrollRecords, attendanceSettings, currentShiftConfig]);
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto animate-in fade-in duration-200">
@@ -588,7 +602,15 @@ export const AsistenciaView: React.FC = () => {
                           ? rec.tardy_minutes
                           : punctuality.tardyMinutes;
                       const isLate = rec.status === 'tardanza' || effectiveLateMinutes > 0;
-                      const overtime = rec.overtime_minutes || rec.bonus_minutes || 0;
+                      const recShiftConfig = rec.date ? getShiftConfigForDate(attendanceSettings, rec.date) : currentShiftConfig;
+                      const checkOutMins = rec.check_out ? parseTimeToMinutes(rec.check_out) : 0;
+                      const dynamicOvertime = checkOutMins > 0 ? calculateAttendanceOvertime(checkOutMins, recShiftConfig) : 0;
+                      const overtime =
+                        rec.bonus_calculation_type === 'manual'
+                          ? rec.overtime_minutes || rec.bonus_minutes || 0
+                          : rec.check_out
+                          ? dynamicOvertime
+                          : rec.overtime_minutes || rec.bonus_minutes || 0;
                       const absenceMins = rec.absence_minutes || 0;
 
                       // Jornada neta trabajada
@@ -1089,7 +1111,15 @@ export const AsistenciaView: React.FC = () => {
                       {employeePayrollRecords.length > 0 ? (
                         employeePayrollRecords.map((rec) => {
                           const isLate = rec.status === 'tardanza' || (rec.tardy_minutes && rec.tardy_minutes > 0);
-                          const overtime = rec.overtime_minutes || rec.bonus_minutes || 0;
+                          const recShiftConfig = rec.date ? getShiftConfigForDate(attendanceSettings, rec.date) : currentShiftConfig;
+                          const checkOutMins = rec.check_out ? parseTimeToMinutes(rec.check_out) : 0;
+                          const dynamicOvertime = checkOutMins > 0 ? calculateAttendanceOvertime(checkOutMins, recShiftConfig) : 0;
+                          const overtime =
+                            rec.bonus_calculation_type === 'manual'
+                              ? rec.overtime_minutes || rec.bonus_minutes || 0
+                              : rec.check_out
+                              ? dynamicOvertime
+                              : rec.overtime_minutes || rec.bonus_minutes || 0;
                           const absenceMins = rec.absence_minutes || 0;
 
                           // Día de la semana en formato legible

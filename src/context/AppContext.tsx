@@ -52,6 +52,7 @@ import {
   parseTimeToMinutes,
   formatMinutesToHours,
   calculateAttendancePunctuality,
+  calculateAttendanceOvertime,
   recalculateAttendanceRecord,
 } from '../lib/attendanceUtils';
 
@@ -3175,8 +3176,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const totalAbsence = currentAttendance.absence_minutes || 0;
           const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
 
-          const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
-          const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
+          const overtimeMinutes = calculateAttendanceOvertime(nowMinutes, shiftConfig);
+          const hasOvertime = overtimeMinutes > 0;
           const workedHoursStr = formatMinutesToHours(netWorkedMinutes);
 
           const updatedAtt: EmployeeAttendance = {
@@ -3338,8 +3339,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const totalAbsence = currentAttendance?.absence_minutes || 0;
       const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
 
-      const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
-      const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
+      const overtimeMinutes = calculateAttendanceOvertime(nowMinutes, shiftConfig);
+      const hasOvertime = overtimeMinutes > 0;
       const workedHoursStr = formatMinutesToHours(netWorkedMinutes);
       const cleanReason = (exitReason || '').trim() || null;
 
@@ -3489,8 +3490,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const totalAbsence = existing?.absence_minutes || 0;
           const netWorkedMinutes = Math.max(0, grossWorkedMinutes - totalAbsence);
 
-          const hasOvertime = nowMinutes > shiftConfig.overtimeThreshold;
-          const overtimeMinutes = hasOvertime ? Math.max(0, nowMinutes - shiftConfig.exitMinutes) : 0;
+          const overtimeMinutes = calculateAttendanceOvertime(nowMinutes, shiftConfig);
+          const hasOvertime = overtimeMinutes > 0;
 
           if (existing) {
             if (existing.id.includes('-') && existing.id.length === 36) {
