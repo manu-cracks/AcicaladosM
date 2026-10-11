@@ -59,6 +59,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
 
   const todayStr = getTodayDateString();
 
+  const getDeviceCurrentTime = () => {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
   // 1. Datos del Cliente
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
@@ -72,7 +79,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
 
   // 3. Fecha, Hora y Asignación
   const [date, setDate] = useState(todayStr);
-  const [startTime, setStartTime] = useState('11:00');
+  const [startTime, setStartTime] = useState(getDeviceCurrentTime);
   const [assignmentMode, setAssignmentMode] = useState<'auto' | 'manual'>('auto');
   const [serviceAssignments, setServiceAssignments] = useState<Record<string, string>>({});
 
@@ -199,13 +206,14 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Reset de formulario al abrir el modal (estado inicial limpio, sin servicios preseleccionados)
+  // Reset de formulario al abrir el modal (estado inicial limpio, sin servicios preseleccionados y hora actual)
   useEffect(() => {
     if (isOpen) {
       setNameError(false);
       setSubmitError(null);
       setSelectedServiceIds([]);
       setServiceAssignments({});
+      setStartTime(getDeviceCurrentTime());
     }
   }, [isOpen]);
 

@@ -881,8 +881,8 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
                             {formatSolesSafe(srv.price_cents)}
                           </span>
                         </div>
-                        <div className="text-[10px] text-neutral-800 font-medium">
-                          Esp: {extractSpecialistFirstName(srv.specialist || (srv as any).especialista || (srv as any).trabajador_nombre, 'ESPECIALISTA')}
+                        <div className="text-[10px] text-neutral-900 font-bold">
+                          <strong>Esp: {extractSpecialistFirstName(srv.specialist || (srv as any).especialista || (srv as any).trabajador_nombre, 'ESPECIALISTA')}</strong>
                         </div>
                       </div>
                     ))}
