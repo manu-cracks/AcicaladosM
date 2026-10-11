@@ -26,6 +26,7 @@ import {
   getBookingCollectedAmountCents,
   BusinessCategory,
   distributeAdvanceStrictInteger,
+  BookingServiceItem,
 } from '../types';
 import {
   INITIAL_PAYMENT_SETTINGS,
@@ -1321,6 +1322,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 2. Insertar servicios asociados si existen
+      let insertedSrvs: any[] | null = null;
       if (bookingData.services && bookingData.services.length > 0) {
         const serviceRows = bookingData.services.map((srv, idx) => {
           const matchedService = services.find(
@@ -1367,7 +1369,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             advance_amount_cents: srvAdvance,
           };
         });
-        const { error: srvError } = await supabase.from('booking_services').insert(serviceRows);
+        const { data: srvData, error: srvError } = await supabase
+          .from('booking_services')
+          .insert(serviceRows)
+          .select();
+        insertedSrvs = srvData;
         if (srvError) {
           console.error('Error al insertar booking_services:', srvError);
         } else if (advanceAmount > 0) {
@@ -1412,7 +1418,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 4. Únicamente tras confirmación de inserción en Supabase, actualizar estado local
       const savedBooking: Booking = {
         ...bookingData,
-        services: sanitizedServices,
+        services: sanitizedServices.map((srv, idx) => ({
+          ...srv,
+          id: insertedSrvs?.[idx]?.id || (bookingData.services && (bookingData.services as any)[idx]?.id) || undefined,
+        })),
         id: insertedBooking.id,
         code: insertedBooking.booking_code,
         created_at: insertedBooking.created_at || `${today}T12:00:00Z`,
@@ -2003,153 +2012,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [bookings, pulseRealtime]
   );
 
-  const deleteBookingServiceWithExtorno = useCallback(
-    async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
-      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
-      if (!isEffectiveAdmin) {
-        throw new Error('Permiso denegado: Solo el Administrador puede autorizar la eliminación y extorno de un servicio.');
-      }
-
-      const currentBk = bookings.find((b) => b.id === bookingId);
-      // Si la reserva tiene 1 solo servicio (reserva individual), eliminar ese servicio elimina la reserva por completo
-      if (currentBk && (currentBk.services?.length || 0) <= 1) {
-        await deleteBooking(bookingId);
-        return { success: true, booking_deleted: true };
-      }
-
-      let effectiveServiceItemId = serviceItemId;
-      if (!effectiveServiceItemId || effectiveServiceItemId.length !== 36) {
-        const { data: dbServices } = await supabase
-          .from('booking_services')
-          .select('id')
-          .eq('booking_id', bookingId)
-          .order('created_at', { ascending: true });
-        if (dbServices && dbServices[serviceIndex]) {
-          effectiveServiceItemId = dbServices[serviceIndex].id;
-        }
-      }
-
-      if (!effectiveServiceItemId) {
-        throw new Error('No se pudo identificar el servicio para eliminar.');
-      }
-
-      // Llamada RPC atómica en Supabase
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('eliminar_servicio_con_extorno', {
-        p_service_item_id: effectiveServiceItemId,
-        p_booking_id: bookingId.length === 36 ? bookingId : null,
-      });
-
-      if (rpcError) {
-        console.error('Error al ejecutar eliminar_servicio_con_extorno:', rpcError);
-        throw new Error(rpcError.message || 'Error al ejecutar el extorno en Supabase.');
-      }
-
-      // Si la RPC reporta que la reserva fue eliminada (porque era el último servicio)
-      if ((rpcResult as any)?.booking_deleted) {
-        setBookings((prev) => prev.filter((b) => b.id !== bookingId));
-        pulseRealtime();
-        return rpcResult;
-      }
-
-      // Actualizar estado local inmediatamente
-      setBookings((prev) =>
-        prev.map((b) => {
-          if (b.id === bookingId) {
-            const filteredServices = (b.services || []).filter((s, idx) => {
-              if (effectiveServiceItemId && s.id) {
-                return s.id !== effectiveServiceItemId;
-              }
-              return idx !== serviceIndex;
-            });
-
-            if (filteredServices.length === 0) {
-              return {
-                ...b,
-                services: [],
-                total_price_cents: 0,
-                advance_amount_cents: 0,
-                balance_cents: 0,
-                payment_status: 'sin_pago',
-                status: 'cancelada',
-              };
-            }
-
-            const parsedResult = rpcResult as any;
-            const newTotal = parsedResult?.new_total_price_cents ?? filteredServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
-            
-            // Recálculo financiero estricto:
-            // Si la reserva ya estaba pagada o el adelanto supera el newTotal,
-            // se descuenta de inmediato el valor del servicio eliminado del fondo cobrado
-            let newAdvance = parsedResult?.new_advance_amount_cents ?? b.advance_amount_cents;
-            if (newAdvance > newTotal) {
-              newAdvance = newTotal;
-            }
-            const newBalance = parsedResult?.new_balance_cents ?? Math.max(0, newTotal - newAdvance);
-            const newPaymentStatus = parsedResult?.new_payment_status ?? (newAdvance >= newTotal && newTotal > 0 ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago');
-
-            // Reasignación de adelanto estrictamente en números enteros (Proporcional Truncado + Ajuste de Residuo)
-            const distributedAdvances = distributeAdvanceStrictInteger(
-              filteredServices,
-              newAdvance
-            );
-
-            const reallocatedServices = filteredServices.map((srv, idx) => {
-              return {
-                ...srv,
-                solicitud_eliminacion: false,
-                advance_amount_cents: distributedAdvances[idx] || 0,
-              };
-            });
-
-            // Recalcular categoría dinámica (service_type / BusinessCategory)
-            let newType: BusinessCategory = (parsedResult?.new_service_type as BusinessCategory);
-            if (!newType) {
-              const areas = new Set<string>();
-              filteredServices.forEach((s) => {
-                const catalogMatch = services.find(
-                  (cs) => cs.id === s.service_id || cs.name.toLowerCase() === s.service_name.toLowerCase()
-                );
-                if (catalogMatch?.category) {
-                  areas.add(catalogMatch.category);
-                } else if (s.service_name.toLowerCase().match(/(spa|uña|acrílica|facial|masaje|pedicure|manicure)/)) {
-                  areas.add('spa');
-                } else {
-                  areas.add('barberia');
-                }
-              });
-              if (filteredServices.length >= 2 && areas.size > 1) {
-                newType = 'mixto';
-              } else if (areas.has('spa') && !areas.has('barberia')) {
-                newType = 'spa';
-              } else if (areas.has('barberia') && !areas.has('spa')) {
-                newType = 'barberia';
-              } else if (filteredServices.length === 1) {
-                newType = (Array.from(areas)[0] as BusinessCategory) || 'barberia';
-              } else {
-                newType = (b.type as BusinessCategory) || 'barberia';
-              }
-            }
-
-            return {
-              ...b,
-              type: newType,
-              services: reallocatedServices,
-              total_price_cents: newTotal,
-              advance_amount_cents: newAdvance,
-              balance_cents: newBalance,
-              payment_status: newPaymentStatus as any,
-            };
-          }
-          return b;
-        })
-      );
-
-      pulseRealtime();
-      return rpcResult;
-    },
-    [bookings, currentRole, currentUser, pulseRealtime]
-  );
-
   const deleteBooking = useCallback(async (bookingId: string): Promise<boolean> => {
     // 1. Verificación estricta de rol Administrador
     if (currentRole !== 'admin') {
@@ -2192,6 +2054,287 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw err;
     }
   }, [currentRole, fetchAllFromSupabase, pulseRealtime]);
+
+  const deleteBookingServiceWithExtorno = useCallback(
+    async (bookingId: string, serviceItemId: string, serviceIndex: number) => {
+      const isEffectiveAdmin = currentRole === 'admin' || currentUser?.role === 'admin';
+      if (!isEffectiveAdmin) {
+        throw new Error('Permiso denegado: Solo el Administrador puede autorizar la eliminación y extorno de un servicio.');
+      }
+
+      const currentBk = bookings.find((b) => b.id === bookingId);
+      // Si la reserva tiene 1 solo servicio (reserva individual), eliminar ese servicio elimina la reserva por completo
+      if (currentBk && (currentBk.services?.length || 0) <= 1) {
+        await deleteBooking(bookingId);
+        return { success: true, booking_deleted: true };
+      }
+
+      let effectiveServiceItemId = serviceItemId;
+      if (!effectiveServiceItemId || effectiveServiceItemId.length !== 36) {
+        const { data: dbServices } = await supabase
+          .from('booking_services')
+          .select('id')
+          .eq('booking_id', bookingId)
+          .order('created_at', { ascending: true });
+        if (dbServices && dbServices[serviceIndex]) {
+          effectiveServiceItemId = dbServices[serviceIndex].id;
+        }
+      }
+
+      if (!effectiveServiceItemId) {
+        throw new Error('No se pudo identificar el servicio para eliminar.');
+      }
+
+      // Llamada RPC atómica en Supabase
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('eliminar_servicio_con_extorno', {
+        p_service_item_id: effectiveServiceItemId,
+        p_booking_id: bookingId.length === 36 ? bookingId : null,
+      });
+
+      if (rpcError) {
+        console.error('Error al ejecutar eliminar_servicio_con_extorno:', rpcError);
+        throw new Error(rpcError.message || 'Error al ejecutar la eliminación en Supabase.');
+      }
+
+      // Si la RPC reporta que la reserva fue eliminada (porque era el último servicio)
+      if ((rpcResult as any)?.booking_deleted) {
+        setBookings((prev) => prev.filter((b) => b.id !== bookingId));
+        pulseRealtime();
+        return rpcResult;
+      }
+
+      // Identificar el servicio removido
+      const targetService = currentBk?.services?.find(
+        (s, idx) => s.id === effectiveServiceItemId || idx === serviceIndex
+      );
+
+      const filteredServices = (currentBk?.services || []).filter((s, idx) => {
+        if (effectiveServiceItemId && s.id) {
+          return s.id !== effectiveServiceItemId;
+        }
+        return idx !== serviceIndex;
+      });
+
+      if (filteredServices.length === 0) {
+        setBookings((prev) => prev.filter((b) => b.id !== bookingId));
+        pulseRealtime();
+        return { success: true, booking_deleted: true };
+      }
+
+      // 1. REACOMODO DE HORARIOS (CIERRE DINÁMICO DE HUECOS):
+      // Si se elimina un servicio en cualquier posición (inicio, intermedio o final),
+      // jalamos hacia atrás los servicios posteriores de ese especialista para cerrar el hueco.
+      // La atención debe seguir siendo estrictamente continua.
+      const servicesByEmp: Record<string, BookingServiceItem[]> = {};
+      for (const s of filteredServices) {
+        const empKey = s.employee_id || s.employee_name || 'unassigned';
+        if (!servicesByEmp[empKey]) servicesByEmp[empKey] = [];
+        servicesByEmp[empKey].push(s);
+      }
+
+      const shiftedServicesMap = new Map<string, { start: string; end: string }>();
+      const deletedEmpKey = targetService?.employee_id || targetService?.employee_name || 'unassigned';
+
+      for (const [empKey, empSrvs] of Object.entries(servicesByEmp)) {
+        // Ordenar en secuencia cronológica original
+        empSrvs.sort((a, b) => {
+          const aStart = timeToMinutes(a.hora_inicio || a.start_time || currentBk?.start_time || '10:00');
+          const bStart = timeToMinutes(b.hora_inicio || b.start_time || currentBk?.start_time || '10:00');
+          return aStart - bStart;
+        });
+
+        // Determinar la hora inicial base para este especialista
+        let baseMin: number;
+        if (empKey === deletedEmpKey && targetService) {
+          const deletedStartMin = timeToMinutes(
+            targetService.hora_inicio || targetService.start_time || currentBk?.start_time || '10:00'
+          );
+          const remainingEarliestMin = Math.min(
+            ...empSrvs.map((s) => timeToMinutes(s.hora_inicio || s.start_time || currentBk?.start_time || '10:00'))
+          );
+          baseMin = Math.min(deletedStartMin, remainingEarliestMin);
+        } else {
+          baseMin = Math.min(
+            ...empSrvs.map((s) => timeToMinutes(s.hora_inicio || s.start_time || currentBk?.start_time || '10:00'))
+          );
+        }
+
+        let currentMin = baseMin;
+        for (const s of empSrvs) {
+          const dur = s.duration_minutes || 30;
+          const sStart = minutesToTime(currentMin);
+          const sEnd = minutesToTime(currentMin + dur);
+          const key = s.id || `${s.service_name}-${s.service_id}`;
+          shiftedServicesMap.set(key, { start: sStart, end: sEnd });
+          currentMin += dur;
+        }
+      }
+
+      const shiftedFilteredServices = filteredServices.map((srv) => {
+        const key = srv.id || `${srv.service_name}-${srv.service_id}`;
+        const shifted = shiftedServicesMap.get(key);
+        if (shifted) {
+          return {
+            ...srv,
+            hora_inicio: shifted.start,
+            hora_fin: shifted.end,
+            start_time: shifted.start,
+            end_time: shifted.end,
+          };
+        }
+        return srv;
+      });
+
+      // Nuevos límites globales de la reserva
+      const newBookingStartMin = Math.min(
+        ...shiftedFilteredServices.map((s) =>
+          timeToMinutes(s.hora_inicio || s.start_time || currentBk?.start_time || '10:00')
+        )
+      );
+      const newBookingEndMin = Math.max(
+        ...shiftedFilteredServices.map((s) =>
+          timeToMinutes(s.hora_fin || s.end_time || currentBk?.end_time || '11:00')
+        )
+      );
+      const newBookingStartTime = minutesToTime(newBookingStartMin);
+      const newBookingEndTime = minutesToTime(newBookingEndMin);
+      const newTotalDurationMinutes = Math.max(0, newBookingEndMin - newBookingStartMin);
+
+      // 2. RECÁLCULO FINANCIERO DIRECTO:
+      // Descontar únicamente el precio de ese servicio del Total de la cita.
+      // NO crear estados de saldo a favor ni devoluciones.
+      const parsedResult = rpcResult as any;
+      const newTotal =
+        parsedResult?.new_total_price_cents ??
+        shiftedFilteredServices.reduce((sum, s) => sum + (s.price_cents || 0), 0);
+
+      let newAdvance = parsedResult?.new_advance_amount_cents ?? (currentBk?.advance_amount_cents || 0);
+      if (newAdvance > newTotal) {
+        newAdvance = newTotal;
+      }
+      const newBalance = parsedResult?.new_balance_cents ?? Math.max(0, newTotal - newAdvance);
+      const newPaymentStatus =
+        parsedResult?.new_payment_status ??
+        (newAdvance >= newTotal && newTotal > 0 ? 'total' : newAdvance > 0 ? 'parcial' : 'sin_pago');
+
+      // Reasignación de adelanto estrictamente en números enteros
+      const distributedAdvances = distributeAdvanceStrictInteger(
+        shiftedFilteredServices,
+        newAdvance
+      );
+
+      const reallocatedServices = shiftedFilteredServices.map((srv, idx) => {
+        return {
+          ...srv,
+          solicitud_eliminacion: false,
+          advance_amount_cents: distributedAdvances[idx] || 0,
+        };
+      });
+
+      // 3. RECÁLCULO DE CATEGORÍA DINÁMICA (service_type / BusinessCategory):
+      // Si 2 o más servicios comparten la misma especialista -> 'multiple'
+      const empCounts: Record<string, number> = {};
+      for (const s of reallocatedServices) {
+        const key = s.employee_id || s.employee_name;
+        if (key && key.trim() !== '') {
+          empCounts[key] = (empCounts[key] || 0) + 1;
+        }
+      }
+      const hasCascadeEmployees = Object.values(empCounts).some((count) => count >= 2);
+
+      let newType: BusinessCategory = 'barberia';
+      if (reallocatedServices.length >= 2 && hasCascadeEmployees) {
+        newType = 'multiple';
+      } else {
+        const areas = new Set<string>();
+        reallocatedServices.forEach((s) => {
+          const catalogMatch = services.find(
+            (cs) => cs.id === s.service_id || cs.name.toLowerCase() === s.service_name.toLowerCase()
+          );
+          if (catalogMatch?.category) {
+            areas.add(catalogMatch.category);
+          } else if (s.service_name.toLowerCase().match(/(spa|uña|acrílica|facial|masaje|pedicure|manicure)/)) {
+            areas.add('spa');
+          } else {
+            areas.add('barberia');
+          }
+        });
+
+        if (reallocatedServices.length >= 2 && areas.size > 1) {
+          newType = 'mixto';
+        } else if (areas.has('spa') && !areas.has('barberia')) {
+          newType = 'spa';
+        } else if (areas.has('barberia') && !areas.has('spa')) {
+          newType = 'barberia';
+        } else if (reallocatedServices.length === 1) {
+          newType = (Array.from(areas)[0] as BusinessCategory) || 'barberia';
+        } else {
+          newType = (currentBk?.type as BusinessCategory) || 'barberia';
+        }
+      }
+
+      // 4. PERSISTENCIA EN SUPABASE: Actualizar horarios reacomodados en booking_services y bookings
+      try {
+        for (const srv of reallocatedServices) {
+          if (srv.id) {
+            await supabase
+              .from('booking_services')
+              .update({
+                hora_inicio: srv.hora_inicio,
+                hora_fin: srv.hora_fin,
+                start_time: srv.start_time,
+                end_time: srv.end_time,
+                duration_minutes: srv.duration_minutes,
+                advance_amount_cents: srv.advance_amount_cents,
+                solicitud_eliminacion: false,
+              })
+              .eq('id', srv.id);
+          }
+        }
+
+        await supabase
+          .from('bookings')
+          .update({
+            start_time: newBookingStartTime,
+            end_time: newBookingEndTime,
+            total_duration_minutes: newTotalDurationMinutes,
+            total_price_cents: newTotal,
+            advance_amount_cents: newAdvance,
+            balance_cents: newBalance,
+            payment_status: newPaymentStatus as any,
+            service_type: newType,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', bookingId);
+      } catch (dbErr) {
+        console.warn('Advertencia al sincronizar reacomodo en BD (continuando con actualización local):', dbErr);
+      }
+
+      // 5. Actualizar estado local inmediatamente
+      setBookings((prev) =>
+        prev.map((b) => {
+          if (b.id === bookingId) {
+            return {
+              ...b,
+              start_time: newBookingStartTime,
+              end_time: newBookingEndTime,
+              total_price_cents: newTotal,
+              advance_amount_cents: newAdvance,
+              balance_cents: newBalance,
+              payment_status: newPaymentStatus as any,
+              type: newType,
+              services: reallocatedServices,
+            };
+          }
+          return b;
+        })
+      );
+
+      pulseRealtime();
+      return rpcResult;
+    },
+    [bookings, currentRole, currentUser, pulseRealtime, deleteBooking, services]
+  );
 
   const editBooking = useCallback(async (bookingId: string, updates: Partial<Booking>): Promise<boolean> => {
     try {

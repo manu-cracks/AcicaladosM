@@ -55,7 +55,7 @@ export const getBookingEffectiveCategory = (
     return (b.type as BusinessCategory) || 'barberia';
   }
 
-  // Caso Único: Si tiene exactamente 1 servicio, NUNCA puede ser mixto
+  // Caso Único: Si tiene exactamente 1 servicio, NUNCA puede ser mixto ni múltiple
   if (activeServices.length === 1) {
     const s = activeServices[0];
     const catalogMatch = catalogServices.find(
@@ -72,6 +72,20 @@ export const getBookingEffectiveCategory = (
       return b.type;
     }
     return 'barberia';
+  }
+
+  // Evaluar si es reserva múltiple en cascada / atención consecutiva:
+  // Si b.type === 'multiple' o si 2 o más servicios comparten la misma especialista
+  const specialistCounts: { [emp: string]: number } = {};
+  for (const s of activeServices) {
+    const empKey = s.employee_id || s.employee_name;
+    if (empKey) {
+      specialistCounts[empKey] = (specialistCounts[empKey] || 0) + 1;
+    }
+  }
+  const hasMultipleSameSpecialist = Object.values(specialistCounts).some((c) => c >= 2);
+  if (b.type === 'multiple' || hasMultipleSameSpecialist) {
+    return 'multiple';
   }
 
   // Evaluar áreas para múltiples servicios
@@ -110,6 +124,12 @@ export const getBookingEffectiveCategory = (
 
 const renderCategoryBadge = (cat: BusinessCategory) => {
   switch (cat) {
+    case 'multiple':
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-blue-950/80 to-indigo-950/80 text-blue-300 border border-blue-500/50 shadow-sm">
+          MÚLTIPLE
+        </span>
+      );
     case 'spa':
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-950/60 text-purple-300 border border-purple-800/50 shadow-sm">
@@ -1081,6 +1101,7 @@ export const ReservasManager: React.FC = () => {
               <option value="barberia">Barbería</option>
               <option value="spa">Spa</option>
               <option value="mixto">Mixto</option>
+              <option value="multiple">Múltiple</option>
             </select>
           </div>
 
@@ -2285,10 +2306,10 @@ export const ReservasManager: React.FC = () => {
                     <div className="bg-[#141d14] p-3 rounded-xl border border-emerald-900/40 space-y-1.5">
                       <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
                         <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        <span>Recálculo Parcial y Extorno Interno</span>
+                        <span>Recálculo Directo y Reacomodo de Horario</span>
                       </div>
                       <p className="text-[11px] text-neutral-300 leading-relaxed">
-                        El costo de <span className="font-bold text-red-400">-{formatSoles(srv.price_cents)}</span> se descontará inmediatamente de las etiquetas financieras totales, manteniendo intacto el cobro de los demás servicios.
+                        El costo de <span className="font-bold text-red-400">-{formatSoles(srv.price_cents)}</span> se descontará directamente del Monto Total. Si pertenecía a un bloque consecutivo, los servicios posteriores se reacomodarán automáticamente cerrando el hueco de tiempo.
                       </p>
                     </div>
                   )}
@@ -2314,7 +2335,7 @@ export const ReservasManager: React.FC = () => {
                   <p className="text-[11px] text-neutral-400">
                     {isSingleService
                       ? 'Al confirmar, la reserva se eliminará de forma definitiva de la base de datos.'
-                      : 'Al confirmar, el servicio se eliminará atómicamente, actualizando los saldos y liberando el cobro para Recepción con los montos exactos.'}
+                      : 'Al confirmar, el servicio se eliminará descontando su valor del Total y reacomodando la atención continua.'}
                   </p>
                 </div>
               );

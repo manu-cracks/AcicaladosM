@@ -7,7 +7,7 @@
 
 export type UserRole = 'admin' | 'recepcionista' | 'empleado' | 'cliente' | 'anon' | 'anonimo' | 'VESTUARIO_ADMIN';
 
-export type BusinessCategory = 'barberia' | 'spa' | 'mixto';
+export type BusinessCategory = 'barberia' | 'spa' | 'mixto' | 'multiple';
 
 export interface Service {
   id: string;

@@ -7,6 +7,7 @@ import {
   getEligibleEmployeesForService,
   timeToMinutes,
   minutesToTime,
+  BUSINESS_HOURS,
 } from '../../lib/bookingAvailability';
 import {
   sanitizePhone,
@@ -213,34 +214,12 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     return services.filter((s) => selectedServiceIds.includes(s.id));
   }, [services, selectedServiceIds]);
 
-  // Cálculo de duración máxima simultánea y precio total sumado
-  // Al realizarse los servicios en paralelo, la duración total de estadía del cliente equivale al servicio que más demore.
-  const totalDurationMinutes = useMemo(() => {
-    if (selectedServicesList.length === 0) return 0;
-    return Math.max(...selectedServicesList.map((s) => s.duration_minutes || 30));
-  }, [selectedServicesList]);
-
+  // Precio total sumado
   const totalPriceCents = useMemo(() => {
     return selectedServicesList.reduce((acc, s) => acc + (s.price_cents || 0), 0);
   }, [selectedServicesList]);
 
   const totalPriceSoles = totalPriceCents / 100;
-
-  // Hora de fin calculada de la cita (momento en que concluye el servicio más largo)
-  const calculatedEndTime = useMemo(() => {
-    const startMin = timeToMinutes(startTime);
-    const endMin = startMin + totalDurationMinutes;
-    return minutesToTime(endMin);
-  }, [startTime, totalDurationMinutes]);
-
-  // Tipo de reserva (barberia, spa, mixto)
-  const bookingCategoryType = useMemo((): BusinessCategory => {
-    const hasBarberia = selectedServicesList.some((s) => s.category === 'barberia');
-    const hasSpa = selectedServicesList.some((s) => s.category === 'spa');
-    if (hasBarberia && hasSpa) return 'mixto';
-    if (hasSpa) return 'spa';
-    return 'barberia';
-  }, [selectedServicesList]);
 
 
   // Filtrado de servicios para la lista con ordenamiento determinista
@@ -334,38 +313,19 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   }, [availableEmployeesList, effectiveBookings, date]);
 
   // Programación simultánea (paralela) de cada servicio seleccionado:
-  // Todos inician exactamente a la misma hora base (startTime), y cada uno finaliza según su propia duración
-  const scheduledServices = useMemo(() => {
-    const baseStartMin = timeToMinutes(startTime);
-    return selectedServicesList.map((srv, index) => {
-      const duration = srv.duration_minutes || 30;
-      const endMin = baseStartMin + duration;
-      const srvStartStr = startTime;
-      const srvEndStr = minutesToTime(endMin);
-      return {
-        service: srv,
-        index,
-        startTime: srvStartStr,
-        endTime: srvEndStr,
-        durationMinutes: duration,
-      };
-    });
-  }, [selectedServicesList, startTime]);
-
-  // Asignación automática óptima independiente por cada servicio en paralelo
-  // Procura asignar especialistas distintos para servicios que se ejecutan simultáneamente
+  // 1. Asignación automática óptima por servicio (Modo Auto)
   const autoAssignedByService = useMemo(() => {
     const result: Record<string, Employee | null> = {};
     const assignedIds = new Set<string>();
 
-    for (const item of scheduledServices) {
-      const srv = item.service;
+    for (const srv of selectedServicesList) {
       const eligible = getEligibleEmployeesForService(srv, availableEmployeesList);
       const candidates = eligible.length > 0 ? eligible : availableEmployeesList;
+      const duration = srv.duration_minutes || 30;
 
       // Ordenar priorizando:
-      // 1. Que no esté ya asignado a otro servicio simultáneo en esta cita
-      // 2. Disponibilidad en tiempo real en la franja [item.startTime, item.endTime]
+      // 1. Que no esté ya asignado a otro servicio en esta cita (repartir tareas si hay personal)
+      // 2. Disponibilidad en tiempo real a la hora de inicio base
       // 3. Menor carga laboral del día
       const sorted = [...candidates].sort((a, b) => {
         const aAssigned = assignedIds.has(a.id) ? 1 : 0;
@@ -375,8 +335,8 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
         const aAvail = checkEmployeeAvailability({
           employee: a,
           date,
-          startTime: item.startTime,
-          durationMinutes: item.durationMinutes,
+          startTime,
+          durationMinutes: duration,
           bookings: effectiveBookings,
           employeeBlocks,
         }).isAvailable ? 1 : 0;
@@ -384,8 +344,8 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
         const bAvail = checkEmployeeAvailability({
           employee: b,
           date,
-          startTime: item.startTime,
-          durationMinutes: item.durationMinutes,
+          startTime,
+          durationMinutes: duration,
           bookings: effectiveBookings,
           employeeBlocks,
         }).isAvailable ? 1 : 0;
@@ -405,11 +365,109 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     }
 
     return result;
-  }, [scheduledServices, availableEmployeesList, date, effectiveBookings, employeeBlocks, employeeWorkloads]);
+  }, [
+    selectedServicesList,
+    availableEmployeesList,
+    startTime,
+    date,
+    effectiveBookings,
+    employeeBlocks,
+    employeeWorkloads,
+  ]);
+
+  // 2. Lógica Inteligente de Programación (Consecutiva Automática para misma especialista vs Simultánea para diferentes)
+  const scheduledServices = useMemo(() => {
+    const baseStartMin = timeToMinutes(startTime);
+    // Rastreador del próximo minuto disponible por cada especialista en esta reserva
+    const empNextMin: Record<string, number> = {};
+
+    return selectedServicesList.map((srv, index) => {
+      // Determinar especialista efectivo para este servicio
+      let assignedEmp: Employee | null = null;
+      if (assignmentMode === 'manual') {
+        const manualEmpId = serviceAssignments[srv.id];
+        if (manualEmpId) {
+          assignedEmp = availableEmployeesList.find((e) => e.id === manualEmpId) || null;
+        } else {
+          const eligible = getEligibleEmployeesForService(srv, availableEmployeesList);
+          assignedEmp = (eligible.length > 0 ? eligible[0] : availableEmployeesList[0]) || null;
+        }
+      } else {
+        assignedEmp = autoAssignedByService[srv.id] || null;
+      }
+
+      // Regla de Cascada Inteligente:
+      // - Si se asignan servicios a DIFERENTES trabajadores: todos inician simultáneamente a la hora base.
+      // - Si se asigna a la MISMA especialista para 2 o más servicios: se acomodan en cascada continua (uno tras otro).
+      const empKey = assignedEmp ? assignedEmp.id : `__unassigned__${srv.id}`;
+      const srvStartMin = empNextMin[empKey] ?? baseStartMin;
+      const duration = srv.duration_minutes || 30;
+      const srvEndMin = srvStartMin + duration;
+
+      // Actualizar el puntero horario para este colaborador
+      empNextMin[empKey] = srvEndMin;
+
+      return {
+        service: srv,
+        index,
+        employee: assignedEmp,
+        startTime: minutesToTime(srvStartMin),
+        endTime: minutesToTime(srvEndMin),
+        durationMinutes: duration,
+      };
+    });
+  }, [
+    selectedServicesList,
+    startTime,
+    assignmentMode,
+    serviceAssignments,
+    availableEmployeesList,
+    autoAssignedByService,
+  ]);
+
+  // Hora de fin calculada de la cita (momento en que concluye el último servicio de la cadena)
+  const calculatedEndTime = useMemo(() => {
+    if (scheduledServices.length === 0) return startTime;
+    const maxEndMin = Math.max(...scheduledServices.map((s) => timeToMinutes(s.endTime)));
+    return minutesToTime(maxEndMin);
+  }, [scheduledServices, startTime]);
+
+  // Duración total de estadía del cliente (desde startTime hasta que culmina el último servicio)
+  const totalDurationMinutes = useMemo(() => {
+    if (scheduledServices.length === 0) return 0;
+    const baseStartMin = timeToMinutes(startTime);
+    const maxEndMin = Math.max(...scheduledServices.map((s) => timeToMinutes(s.endTime)));
+    return Math.max(0, maxEndMin - baseStartMin);
+  }, [scheduledServices, startTime]);
+
+  // Tipo de reserva (barberia, spa, mixto, multiple)
+  const bookingCategoryType = useMemo((): BusinessCategory => {
+    // Si hay 2 o más servicios y al menos una especialista tiene 2 o más servicios asignados en cascada:
+    if (scheduledServices.length >= 2) {
+      const empCounts: Record<string, number> = {};
+      for (const item of scheduledServices) {
+        if (item.employee?.id) {
+          empCounts[item.employee.id] = (empCounts[item.employee.id] || 0) + 1;
+          if (empCounts[item.employee.id] >= 2) {
+            return 'multiple';
+          }
+        }
+      }
+    }
+
+    const hasBarberia = selectedServicesList.some((s) => s.category === 'barberia');
+    const hasSpa = selectedServicesList.some((s) => s.category === 'spa');
+    if (hasBarberia && hasSpa) return 'mixto';
+    if (hasSpa) return 'spa';
+    return 'barberia';
+  }, [scheduledServices, selectedServicesList]);
 
   // Colaborador efectivo asignado a cada servicio
   const getEffectiveEmployeeForService = useCallback(
     (serviceId: string): Employee | null => {
+      const scheduledItem = scheduledServices.find((s) => s.service.id === serviceId);
+      if (scheduledItem?.employee) return scheduledItem.employee;
+
       if (assignmentMode === 'auto') {
         return autoAssignedByService[serviceId] || null;
       }
@@ -420,7 +478,7 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
       }
       return autoAssignedByService[serviceId] || null;
     },
-    [assignmentMode, autoAssignedByService, serviceAssignments, availableEmployeesList]
+    [scheduledServices, assignmentMode, autoAssignedByService, serviceAssignments, availableEmployeesList]
   );
 
   // Consulta de disponibilidad de un colaborador para un servicio determinado
@@ -489,16 +547,96 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     });
   }, [scheduledServices, getEffectiveEmployeeForService]);
 
-  // Evaluación de conflictos de disponibilidad en tiempo real para TODOS los servicios y modos (Auto y Manual)
+  // 1. Validación Estricta de Bloques Consecutivos (Control de "Huecos" y Colisiones Futuras)
+  const blockAvailabilityConflicts = useMemo(() => {
+    const conflicts: Array<{
+      employee: Employee;
+      items: typeof scheduledServices;
+      blockStartTime: string;
+      blockEndTime: string;
+      totalDurationMinutes: number;
+      message: string;
+    }> = [];
+
+    // Agrupar servicios programados por colaborador
+    const empGroups: Record<string, { employee: Employee; items: typeof scheduledServices }> = {};
+    for (const item of scheduledServices) {
+      const emp = item.employee || getEffectiveEmployeeForService(item.service.id);
+      if (!emp) continue;
+      if (!empGroups[emp.id]) {
+        empGroups[emp.id] = { employee: emp, items: [] };
+      }
+      empGroups[emp.id].items.push(item);
+    }
+
+    for (const { employee, items } of Object.values(empGroups)) {
+      if (items.length === 0) continue;
+      const startMin = Math.min(...items.map((i) => timeToMinutes(i.startTime)));
+      const endMin = Math.max(...items.map((i) => timeToMinutes(i.endTime)));
+      const totalBlockDuration = endMin - startMin;
+      const blockStartStr = minutesToTime(startMin);
+      const blockEndStr = minutesToTime(endMin);
+
+      // Regla de Bloqueo: Revisar la duración total acumulada contra la agenda existente de la trabajadora
+      const avail = checkEmployeeAvailability({
+        employee,
+        date,
+        startTime: blockStartStr,
+        durationMinutes: totalBlockDuration,
+        bookings: effectiveBookings,
+        employeeBlocks,
+      });
+
+      if (!avail.isAvailable) {
+        const isMultiple = items.length > 1;
+        const hoursDesc = `${(totalBlockDuration / 60).toFixed(1).replace('.0', '')}h (${totalBlockDuration} min)`;
+        const conflictMsg = isMultiple
+          ? `No hay tiempo suficiente en bloque continuo para ${employee.full_name} (${hoursDesc} de ${blockStartStr} a ${blockEndStr}). ${avail.message || 'Agenda ocupada'}. No se permiten reservas que se corten o crucen.`
+          : `Conflicto de horario para ${employee.full_name} en "${items[0].service.name}": ${avail.message || 'Horario ocupado'}.`;
+
+        conflicts.push({
+          employee,
+          items,
+          blockStartTime: blockStartStr,
+          blockEndTime: blockEndStr,
+          totalDurationMinutes: totalBlockDuration,
+          message: conflictMsg,
+        });
+        continue;
+      }
+
+      // Control de horario de cierre del establecimiento
+      if (endMin > BUSINESS_HOURS.closeMinutes) {
+        conflicts.push({
+          employee,
+          items,
+          blockStartTime: blockStartStr,
+          blockEndTime: blockEndStr,
+          totalDurationMinutes: totalBlockDuration,
+          message: `El bloque de atención para ${employee.full_name} culmina a las ${blockEndStr}, posterior al horario de cierre del salón (${BUSINESS_HOURS.close}).`,
+        });
+      }
+    }
+
+    return conflicts;
+  }, [
+    scheduledServices,
+    getEffectiveEmployeeForService,
+    date,
+    effectiveBookings,
+    employeeBlocks,
+  ]);
+
+  // 2. Evaluación de disponibilidad individual por servicio
   const serviceConflicts = useMemo(() => {
     return scheduledServices.map((item) => {
-      const emp = getEffectiveEmployeeForService(item.service.id);
+      const emp = item.employee || getEffectiveEmployeeForService(item.service.id);
       if (!emp) {
         return {
           item,
           employee: null,
           isAvailable: false,
-          message: 'Sin especialista calificado asignado',
+          message: 'Sin especialista asignado',
         };
       }
       const avail = getServiceAvailability(item, emp);
@@ -512,29 +650,47 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   }, [scheduledServices, getEffectiveEmployeeForService, getServiceAvailability]);
 
   const hasAvailabilityConflict = useMemo(() => {
-    return serviceConflicts.some((sc) => !sc.isAvailable);
-  }, [serviceConflicts]);
+    return (
+      blockAvailabilityConflicts.length > 0 ||
+      serviceConflicts.some((sc) => !sc.isAvailable)
+    );
+  }, [blockAvailabilityConflicts, serviceConflicts]);
 
   const activeConflictItems = useMemo(() => {
     return serviceConflicts.filter((sc) => !sc.isAvailable);
   }, [serviceConflicts]);
 
-  // Control de colisión simultánea: Detectar si el mismo especialista fue asignado a 2 o más servicios en paralelo
+  // 3. Control de colisión simultánea real (solapamiento temporal estricto en la misma franja)
+  // Al acomodarse consecutivamente para la misma persona, no se bloquea por "colisión consigo misma".
   const duplicateSpecialistCollisions = useMemo(() => {
-    const usage: Record<string, { employee: Employee; serviceNames: string[] }> = {};
-
+    const collisions: Array<{ employee: Employee; serviceNames: string[] }> = [];
+    const empGroups: Record<string, typeof scheduledServices> = {};
     for (const item of scheduledServices) {
-      const emp = getEffectiveEmployeeForService(item.service.id);
-      if (emp) {
-        if (!usage[emp.id]) {
-          usage[emp.id] = { employee: emp, serviceNames: [item.service.name] };
-        } else {
-          usage[emp.id].serviceNames.push(item.service.name);
+      const emp = item.employee || getEffectiveEmployeeForService(item.service.id);
+      if (!emp) continue;
+      if (!empGroups[emp.id]) empGroups[emp.id] = [];
+      empGroups[emp.id].push(item);
+    }
+
+    for (const items of Object.values(empGroups)) {
+      if (items.length <= 1) continue;
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const startA = timeToMinutes(items[i].startTime);
+          const endA = timeToMinutes(items[i].endTime);
+          const startB = timeToMinutes(items[j].startTime);
+          const endB = timeToMinutes(items[j].endTime);
+          // Solapamiento real en el mismo intervalo de tiempo
+          if (startA < endB && endA > startB) {
+            collisions.push({
+              employee: items[i].employee || getEffectiveEmployeeForService(items[i].service.id)!,
+              serviceNames: [items[i].service.name, items[j].service.name],
+            });
+          }
         }
       }
     }
-
-    return Object.values(usage).filter((u) => u.serviceNames.length > 1);
+    return collisions;
   }, [scheduledServices, getEffectiveEmployeeForService]);
 
   const hasDuplicateCollision = duplicateSpecialistCollisions.length > 0;
@@ -587,8 +743,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
     if (hasDuplicateCollision) {
       const firstCol = duplicateSpecialistCollisions[0];
       setSubmitError(
-        `Conflicto de asignación simultánea: ${firstCol.employee.full_name} fue asignado/a a ${firstCol.serviceNames.length} servicios simultáneos ("${firstCol.serviceNames.join('" y "')}"). Una persona no puede realizar dos atenciones a la vez a las ${startTime}. Asigne especialistas diferentes.`
+        `Conflicto de asignación simultánea: ${firstCol.employee.full_name} fue asignado/a a ${firstCol.serviceNames.length} servicios en el mismo horario ("${firstCol.serviceNames.join('" y "')}"). Asigne horarios o especialistas diferentes.`
       );
+      return;
+    }
+
+    if (blockAvailabilityConflicts.length > 0) {
+      setSubmitError(blockAvailabilityConflicts[0].message);
       return;
     }
 
@@ -1195,14 +1356,33 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-[#C8A45C]" />
-                  <span>Especialistas por Servicio Simultáneo ({scheduledServices.length}):</span>
+                  <span>
+                    {bookingCategoryType === 'multiple'
+                      ? `Detalle de Servicios en Cascada (${scheduledServices.length}):`
+                      : `Especialistas por Servicio (${scheduledServices.length}):`}
+                  </span>
                 </span>
                 <span className="text-[10px] text-neutral-400">
-                  {bookingCategoryType === 'mixto'
+                  {bookingCategoryType === 'multiple'
+                    ? '⚡ Atención consecutiva continua para la misma especialista'
+                    : bookingCategoryType === 'mixto'
                     ? '⚡ Barbería y Spa atendidos por especialistas independientes'
                     : 'Cada servicio tiene su propio especialista asignado'}
                 </span>
               </div>
+
+              {/* Alerta de Conflicto en Bloque Consecutivo Acumulado */}
+              {blockAvailabilityConflicts.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-red-950/60 border border-red-500/80 text-red-200 text-xs flex items-start gap-2.5 shadow-lg animate-fadeIn">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold text-red-300 block">Tiempo Insuficiente en Bloque Consecutivo:</span>
+                    <p className="text-[11px] text-red-200 leading-relaxed">
+                      {blockAvailabilityConflicts[0].message}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {scheduledServices.length === 0 ? (
                 <div className="p-4 rounded-xl border border-dashed border-neutral-800 bg-[#121212] text-center text-xs text-neutral-400">
@@ -1216,10 +1396,13 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
                 const eligibleEmps = getEligibleEmployeesForService(srv, availableEmployeesList);
                 const candidates = eligibleEmps.length > 0 ? eligibleEmps : availableEmployeesList;
                 const isSpa = srv.category === 'spa';
+                const hasBlockConflict = assignedEmp
+                  ? blockAvailabilityConflicts.some((bc) => bc.employee.id === assignedEmp.id)
+                  : false;
                 const isDuplicate = assignedEmp
                   ? duplicateSpecialistCollisions.some((col) => col.employee.id === assignedEmp.id)
                   : false;
-                const isConflict = !availStatus.isAvailable || isDuplicate;
+                const isConflict = !availStatus.isAvailable || isDuplicate || hasBlockConflict;
 
                 return (
                   <div
