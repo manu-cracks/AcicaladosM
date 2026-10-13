@@ -49,7 +49,7 @@ import {
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
 
-export type VestuarioTimeFilter = 'dia' | 'quincena' | 'mes';
+export type VestuarioTimeFilter = 'dia' | 'quincena' | 'mes' | 'fecha';
 
 // Modales del flujo de alquileres
 import { NewDressRentalModal } from './vestuario/NewDressRentalModal';
@@ -222,14 +222,26 @@ export const VestuarioManager: React.FC = () => {
   // MÉTRICAS EN TIEMPO REAL
   // ==========================================
   // ==========================================
-  // FILTRO DE TIEMPO INTERACTIVO & MÉTRICAS (DÍA / QUINCENA / MES)
+  // FILTRO DE TIEMPO INTERACTIVO & MÉTRICAS (DÍA / QUINCENA / MES / FECHA ESPECÍFICA)
   // ==========================================
   const [timeFilter, setTimeFilter] = useState<VestuarioTimeFilter>('dia');
+  const [selectedDate, setSelectedDate] = useState<string>('');
 
   const todayStr = useMemo(() => getTodayDateString(), []);
 
   // Ventana temporal en hora oficial de Perú (America/Lima)
   const timeFilterInfo = useMemo(() => {
+    // Si se ha seleccionado una fecha exacta en el calendario
+    if (selectedDate) {
+      return {
+        filter: 'fecha' as const,
+        startDate: selectedDate,
+        endDate: selectedDate,
+        label: `Fecha: ${formatLimaDate(selectedDate)}`,
+        shortLabel: formatLimaDate(selectedDate),
+      };
+    }
+
     const today = getTodayDateString(); // YYYY-MM-DD
     const [yearStr, monthStr, dayStr] = today.split('-');
     const year = parseInt(yearStr, 10);
@@ -242,7 +254,7 @@ export const VestuarioManager: React.FC = () => {
     ];
     const monthName = monthNames[month - 1] || '';
 
-    if (timeFilter === 'dia') {
+    if (timeFilter === 'dia' || timeFilter === 'fecha') {
       return {
         filter: 'dia' as const,
         startDate: today,
@@ -282,15 +294,18 @@ export const VestuarioManager: React.FC = () => {
       label: `Mes de ${monthName} ${yearStr}`,
       shortLabel: monthName,
     };
-  }, [timeFilter]);
+  }, [timeFilter, selectedDate]);
 
   const rentalKpis = useMemo(() => {
     const { startDate, endDate } = timeFilterInfo;
 
-    // Alquileres cuyo registro o transacción corresponde al período
+    // Alquileres cuyo registro o evento corresponde al período
     const periodRentals = dressRentals.filter((r) => {
       const orderDate = getLimaDateFromTimestamp(r.created_at) || r.event_date;
-      return orderDate >= startDate && orderDate <= endDate;
+      return (
+        (orderDate >= startDate && orderDate <= endDate) ||
+        (r.event_date && r.event_date >= startDate && r.event_date <= endDate)
+      );
     });
 
     // 1. Ingresos / Ganancias Totales: Sumatoria del dinero efectivamente cobrado por alquileres
@@ -333,7 +348,7 @@ export const VestuarioManager: React.FC = () => {
     }).length;
 
     const faltanDevolverTotal = dressRentals.filter((r) => r.status === 'entregado').length;
-    const faltanDevolver = timeFilter === 'dia'
+    const faltanDevolver = (timeFilter === 'dia' || timeFilter === 'fecha')
       ? (faltanDevolverPeriodo || faltanDevolverTotal)
       : (faltanDevolverPeriodo || faltanDevolverTotal);
 
@@ -366,6 +381,14 @@ export const VestuarioManager: React.FC = () => {
     const q = rentalsSearch.trim().toLowerCase();
 
     return dressRentals.filter((r) => {
+      // 0. Filtro por Fecha Específica (Calendario)
+      if (selectedDate) {
+        const orderCreatedDate = getLimaDateFromTimestamp(r.created_at);
+        const eventDate = r.event_date;
+        const matchesDate = eventDate === selectedDate || orderCreatedDate === selectedDate;
+        if (!matchesDate) return false;
+      }
+
       // 1. Texto de búsqueda
       let matchesText = true;
       if (q) {
@@ -398,7 +421,7 @@ export const VestuarioManager: React.FC = () => {
 
       return matchesText && matchesStatus && matchesOrigin;
     });
-  }, [dressRentals, rentalsSearch, statusFilter, originFilter]);
+  }, [dressRentals, selectedDate, rentalsSearch, statusFilter, originFilter]);
 
   // ==========================================
   // GESTIÓN DE ACCIONES DE ALQUILER
@@ -873,14 +896,14 @@ export const VestuarioManager: React.FC = () => {
         <div className="space-y-6">
           {/* CAMPO 1: FILTROS DE TIEMPO & MÉTRICAS PARA MODISTAS (DASHBOARD VESTUARIO) */}
           <div className="space-y-4">
-            {/* Barra de Filtro de Tiempo Interactivo (Día / Quincena / Mes) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#121212] border border-neutral-800/90 rounded-2xl p-3 sm:px-4 sm:py-3 shadow-lg">
+            {/* Barra de Filtro de Tiempo Interactivo (Día / Quincena / Mes + Selector de Calendario) */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#121212] border border-neutral-800/90 rounded-2xl p-3 sm:px-4 sm:py-3 shadow-lg">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C]">
+                <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 border border-[#C8A45C]/30 flex items-center justify-center text-[#C8A45C] shrink-0">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5 flex-wrap">
                     <span>Período Financiero:</span>
                     <span className="text-[#E6C875] font-semibold">{timeFilterInfo.label}</span>
                   </div>
@@ -890,41 +913,89 @@ export const VestuarioManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Selector interactivo Día / Quincena / Mes */}
-              <div className="flex items-center bg-[#181818] border border-neutral-800 p-1 rounded-xl gap-1 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setTimeFilter('dia')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    timeFilter === 'dia'
-                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-                  }`}
-                >
-                  Día
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTimeFilter('quincena')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    timeFilter === 'quincena'
-                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-                  }`}
-                >
-                  Quincena
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTimeFilter('mes')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    timeFilter === 'mes'
-                      ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-                  }`}
-                >
-                  Mes
-                </button>
+              {/* Selector interactivo Día / Quincena / Mes y Fecha Específica */}
+              <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+                {/* Botones de Período Financiero */}
+                <div className="flex items-center bg-[#181818] border border-neutral-800 p-1 rounded-xl gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeFilter('dia');
+                      setSelectedDate('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timeFilter === 'dia' && !selectedDate
+                        ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    Día
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeFilter('quincena');
+                      setSelectedDate('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timeFilter === 'quincena' && !selectedDate
+                        ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    Quincena
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeFilter('mes');
+                      setSelectedDate('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timeFilter === 'mes' && !selectedDate
+                        ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    Mes
+                  </button>
+                </div>
+
+                {/* Selector de Fecha Específica (Calendario) */}
+                <div className="flex items-center bg-[#181818] border border-neutral-800 p-1 rounded-xl gap-1.5">
+                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-neutral-400">
+                    <Calendar className="w-3.5 h-3.5 text-[#C8A45C]" />
+                    <span className="hidden sm:inline font-medium">Fecha:</span>
+                  </div>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedDate(val);
+                      if (val) {
+                        setTimeFilter('fecha');
+                      } else {
+                        setTimeFilter('dia');
+                      }
+                    }}
+                    className="bg-[#222222] border border-neutral-700/80 focus:border-[#C8A45C] text-xs text-white px-2.5 py-1.5 rounded-lg outline-none transition cursor-pointer [color-scheme:dark]"
+                    title="Filtrar reservas por fecha específica"
+                  />
+                  {selectedDate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate('');
+                        setTimeFilter('dia');
+                      }}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer transition"
+                      title="Limpiar fecha seleccionada"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1089,6 +1160,25 @@ export const VestuarioManager: React.FC = () => {
                 <option value="web">🌐 Web</option>
                 <option value="local">🏪 Presencial Local</option>
               </select>
+
+              {/* Indicador de Fecha Específica Activa */}
+              {selectedDate && (
+                <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C8A45C]/15 border border-[#C8A45C]/40 text-[#E6C875] text-xs font-semibold whitespace-nowrap">
+                  <Calendar className="w-3.5 h-3.5 text-[#C8A45C]" />
+                  <span>{formatLimaDate(selectedDate)}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate('');
+                      setTimeFilter('dia');
+                    }}
+                    className="p-0.5 hover:text-white cursor-pointer ml-1"
+                    title="Limpiar filtro de fecha"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1127,7 +1217,9 @@ export const VestuarioManager: React.FC = () => {
               <Calendar className="w-12 h-12 text-neutral-600 mx-auto" />
               <h3 className="text-base font-semibold text-white">No se encontraron órdenes de alquiler</h3>
               <p className="text-xs text-neutral-400 max-w-sm mx-auto">
-                {rentalsSearch || statusFilter !== 'all' || originFilter !== 'all'
+                {selectedDate
+                  ? `No hay reservas correspondientes a la fecha seleccionada (${formatLimaDate(selectedDate)}).`
+                  : rentalsSearch || statusFilter !== 'all' || originFilter !== 'all'
                   ? 'No hay registros que coincidan con los filtros aplicados.'
                   : 'Aún no hay reservas registradas. Utiliza el botón "+ Reservar Vestidos" para iniciar una nueva reserva.'}
               </p>
@@ -1150,6 +1242,8 @@ export const VestuarioManager: React.FC = () => {
                       <th className="py-3.5 px-4">Prenda / Vestido</th>
                       <th className="py-3.5 px-4">Origen</th>
                       <th className="py-3.5 px-4">Modista</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Monto Total</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">Adelanto</th>
                       <th className="py-3.5 px-4">Estado & Finanzas</th>
                       <th className="py-3.5 px-4 text-right">Acción Disponible</th>
                     </tr>
@@ -1257,6 +1351,26 @@ export const VestuarioManager: React.FC = () => {
                               <User className="w-3.5 h-3.5 text-[#C8A45C]" />
                               <span className="font-semibold">{rental.asesor_name || 'Recepción'}</span>
                             </div>
+                          </td>
+
+                          {/* 1. MONTO TOTAL */}
+                          <td className="py-4 px-4 align-top whitespace-nowrap">
+                            <div className="font-mono font-bold text-xs text-white">
+                              {formatSoles(rental?.rental_price_cents ?? 0)}
+                            </div>
+                            <span className="text-[10px] text-neutral-400 block mt-0.5">
+                              Costo vestido
+                            </span>
+                          </td>
+
+                          {/* 2. ADELANTO */}
+                          <td className="py-4 px-4 align-top whitespace-nowrap">
+                            <div className="font-mono font-bold text-xs text-[#E6C875]">
+                              {formatSoles(rental?.advance_cents ?? 0)}
+                            </div>
+                            <span className="text-[10px] text-neutral-400 block mt-0.5">
+                              {rental?.is_immediate_delivery ? 'Pago total' : 'Adelanto / Seña'}
+                            </span>
                           </td>
 
                           {/* Estado & Finanzas */}
