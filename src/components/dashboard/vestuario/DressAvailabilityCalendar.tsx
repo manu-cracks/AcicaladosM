@@ -78,7 +78,9 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
 
     activeRentals.forEach((rental) => {
       const start = new Date(rental.event_date + 'T00:00:00');
-      const end = new Date(rental.return_date + 'T00:00:00');
+      // Toda reserva bloquea exactamente 2 días: día del evento y retorno al día siguiente
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
       
       const curr = new Date(start);
       while (curr <= end) {
@@ -88,11 +90,17 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
 
       const startDay = start.getDate();
       const endDay = end.getDate();
-      const monthName = monthNames[start.getMonth()].toLowerCase();
-      textList.push(`${startDay} al ${endDay} de ${monthName}`);
+      const startMonth = monthNames[start.getMonth()].toLowerCase();
+      const endMonth = monthNames[end.getMonth()].toLowerCase();
+      if (startMonth === endMonth) {
+        textList.push(`${startDay} al ${endDay} de ${startMonth}`);
+      } else {
+        textList.push(`${startDay} de ${startMonth} al ${endDay} de ${endMonth}`);
+      }
     });
 
-    return { blockedDatesSet: set, blockedRangesText: textList };
+    const uniqueTextList = Array.from(new Set(textList));
+    return { blockedDatesSet: set, blockedRangesText: uniqueTextList };
   }, [itemCode, dressRentals]);
 
   // Generación de la grilla de días (Lunes a Domingo)
@@ -129,10 +137,10 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
   const handleSelectDay = (dateStr: string) => {
     if (!dateStr || dateStr < todayStr || blockedDatesSet.has(dateStr)) return;
 
-    // Calcular automáticamente fecha de devolución (+ 2 días)
+    // Calcular automáticamente fecha de devolución (+ 1 día, total 2 días de reserva)
     const eventD = new Date(dateStr + 'T00:00:00');
     const returnD = new Date(eventD);
-    returnD.setDate(returnD.getDate() + 2);
+    returnD.setDate(returnD.getDate() + 1);
     const returnStr = returnD.toISOString().split('T')[0];
 
     onSelectDates(dateStr, returnStr);
@@ -291,7 +299,11 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-3.5 h-3.5 rounded bg-[#C8A45C] inline-block" />
-          <span className="text-[#E6C875] font-semibold">Evento Seleccionado</span>
+          <span className="text-[#E6C875] font-semibold">Evento</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3.5 h-3.5 rounded bg-amber-600/80 inline-block" />
+          <span className="text-amber-300 font-semibold">Retorno (+1 día)</span>
         </div>
       </div>
 
@@ -318,7 +330,7 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
           </div>
           <div className="text-neutral-600">➔</div>
           <div>
-            <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">Fecha de Devolución (+2 días):</span>
+            <span className="text-[10px] text-neutral-400 uppercase tracking-wider block">Fecha de Devolución (+1 día):</span>
             <span className="font-bold text-amber-300">{returnDate || 'No calculada'}</span>
           </div>
         </div>

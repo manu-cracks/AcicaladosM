@@ -15,6 +15,7 @@ import {
   Clock,
   MapPin,
   CheckCircle2,
+  Shirt,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { WardrobeItem, DressRental, formatSoles } from '../../../types';
@@ -161,6 +162,31 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
     // 3. Validación del Campo 3: Fechas
     if (!eventDate || !returnDate) {
       setValidationError('Debes seleccionar la fecha del evento en el calendario de disponibilidad.');
+      return;
+    }
+
+    // Verificar que las fechas no se solapen con reservas activas de esta prenda (2 días)
+    const targetItemCode = (selectedWardrobeItem.code || selectedWardrobeItem.codigo_unico || '').toUpperCase().trim();
+    const hasDateConflict = dressRentals.some((r) => {
+      const isStatusActive = r.status === 'por_validar' || r.status === 'reservado' || r.status === 'entregado';
+      if (!isStatusActive) return false;
+      const rCode = (r.item_code || '').toUpperCase().trim();
+      const isSame = (r.wardrobe_item_id && r.wardrobe_item_id === selectedWardrobeItem.id) || (rCode && rCode === targetItemCode);
+      if (!isSame) return false;
+
+      const rStart = r.event_date;
+      const rEndD = new Date(r.event_date + 'T00:00:00');
+      rEndD.setDate(rEndD.getDate() + 1);
+      const rEnd = rEndD.toISOString().split('T')[0];
+
+      return (
+        (eventDate >= rStart && eventDate <= rEnd) ||
+        (returnDate >= rStart && returnDate <= rEnd)
+      );
+    });
+
+    if (hasDateConflict) {
+      setValidationError('La fecha seleccionada entra en conflicto con una reserva existente de esta prenda.');
       return;
     }
 
@@ -446,11 +472,28 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleSelectPrenda(item)}
-                          className="w-4 h-4 rounded border-neutral-700 text-[#C8A45C] focus:ring-0 cursor-pointer accent-[#C8A45C]"
+                          className="w-4 h-4 rounded border-neutral-700 text-[#C8A45C] focus:ring-0 cursor-pointer accent-[#C8A45C] flex-shrink-0"
                         />
+                        {/* Fotografía de la prenda */}
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.name}
+                            className="w-14 h-16 sm:w-16 sm:h-20 object-cover rounded-md border border-amber-500/30 flex-shrink-0 bg-neutral-900"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src =
+                                'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-14 h-16 sm:w-16 sm:h-20 rounded-md border border-amber-500/30 flex-shrink-0 bg-neutral-900 flex items-center justify-center text-amber-500/50">
+                            <Shirt className="w-6 h-6 text-[#C8A45C]/50" />
+                          </div>
+                        )}
                         <div className="space-y-0.5 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-[#E6C875] bg-black/60 px-2 py-0.5 rounded border border-[#C8A45C]/30">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-[#E6C875] bg-black/60 px-2 py-0.5 rounded border border-[#C8A45C]/30 flex-shrink-0">
                               CÓDIGO: {itemCode}
                             </span>
                             <span className="text-xs font-bold text-white truncate">{item.name}</span>
