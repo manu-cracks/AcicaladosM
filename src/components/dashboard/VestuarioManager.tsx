@@ -49,7 +49,7 @@ import {
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
 
-export type VestuarioTimeFilter = 'dia' | 'quincena' | 'mes' | 'fecha';
+export type VestuarioTimeFilter = 'hoy' | 'quincena' | 'mes' | 'fecha' | 'todas' | 'dia';
 
 // Modales del flujo de alquileres
 import { NewDressRentalModal } from './vestuario/NewDressRentalModal';
@@ -222,14 +222,14 @@ export const VestuarioManager: React.FC = () => {
   // MÉTRICAS EN TIEMPO REAL
   // ==========================================
   // ==========================================
-  // FILTRO DE TIEMPO INTERACTIVO & MÉTRICAS (DÍA / QUINCENA / MES / FECHA ESPECÍFICA)
+  // FILTRO DE TIEMPO INTERACTIVO & MÉTRICAS (HOY / QUINCENA / MES / FECHA ESPECÍFICA)
   // ==========================================
-  const [timeFilter, setTimeFilter] = useState<VestuarioTimeFilter>('dia');
+  const [timeFilter, setTimeFilter] = useState<VestuarioTimeFilter>('hoy');
   const [selectedDate, setSelectedDate] = useState<string>('');
 
   const todayStr = useMemo(() => getTodayDateString(), []);
 
-  // Ventana temporal en hora oficial de Perú (America/Lima)
+  // Ventana temporal en hora oficial de Perú (America/Lima) basada exclusivamente en la fecha de registro (created_at)
   const timeFilterInfo = useMemo(() => {
     // Si se ha seleccionado una fecha exacta en el calendario
     if (selectedDate) {
@@ -254,9 +254,9 @@ export const VestuarioManager: React.FC = () => {
     ];
     const monthName = monthNames[month - 1] || '';
 
-    if (timeFilter === 'dia' || timeFilter === 'fecha') {
+    if (timeFilter === 'hoy' || timeFilter === 'dia' || timeFilter === 'fecha') {
       return {
-        filter: 'dia' as const,
+        filter: 'hoy' as const,
         startDate: today,
         endDate: today,
         label: `Hoy (${formatLimaDate(today)})`,
@@ -282,30 +282,37 @@ export const VestuarioManager: React.FC = () => {
       };
     }
 
-    // timeFilter === 'mes'
-    const lastDayOfMonth = new Date(year, month, 0).getDate();
-    const startDate = `${yearStr}-${monthStr}-01`;
-    const endDate = `${yearStr}-${monthStr}-${String(lastDayOfMonth).padStart(2, '0')}`;
+    if (timeFilter === 'mes') {
+      const lastDayOfMonth = new Date(year, month, 0).getDate();
+      const startDate = `${yearStr}-${monthStr}-01`;
+      const endDate = `${yearStr}-${monthStr}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
+      return {
+        filter: 'mes' as const,
+        startDate,
+        endDate,
+        label: `Mes de ${monthName} ${yearStr}`,
+        shortLabel: monthName,
+      };
+    }
+
+    // timeFilter === 'todas'
     return {
-      filter: 'mes' as const,
-      startDate,
-      endDate,
-      label: `Mes de ${monthName} ${yearStr}`,
-      shortLabel: monthName,
+      filter: 'todas' as const,
+      startDate: '1970-01-01',
+      endDate: '2099-12-31',
+      label: 'Todas las fechas',
+      shortLabel: 'Todas',
     };
   }, [timeFilter, selectedDate]);
 
   const rentalKpis = useMemo(() => {
     const { startDate, endDate } = timeFilterInfo;
 
-    // Alquileres cuyo registro o evento corresponde al período
+    // Alquileres cuyo registro se creó en el período seleccionado (evalúa exclusivamente created_at)
     const periodRentals = dressRentals.filter((r) => {
-      const orderDate = getLimaDateFromTimestamp(r.created_at) || r.event_date;
-      return (
-        (orderDate >= startDate && orderDate <= endDate) ||
-        (r.event_date && r.event_date >= startDate && r.event_date <= endDate)
-      );
+      const orderCreatedDate = getLimaDateFromTimestamp(r.created_at);
+      return orderCreatedDate >= startDate && orderCreatedDate <= endDate;
     });
 
     // 1. Ingresos / Ganancias Totales: Sumatoria del dinero efectivamente cobrado por alquileres
@@ -331,29 +338,24 @@ export const VestuarioManager: React.FC = () => {
       return acc + cobradoBase + retencionCents;
     }, 0);
 
-    // 2. Vestidos Reservados: Cantidad de prendas apartadas (status 'reservado')
+    // 2. Vestidos Reservados: Cantidad de prendas apartadas (status 'reservado') registradas en el período
     const vestidosReservados = periodRentals.filter((r) => r.status === 'reservado').length;
 
     // 3. Faltan Devolver: Contador de vestidos que están en uso y pendientes de retorno al local (status 'entregado')
     const faltanDevolverPeriodo = dressRentals.filter((r) => {
       if (r.status !== 'entregado') return false;
-      const retDate = r.return_date;
       const createdDate = getLimaDateFromTimestamp(r.created_at);
-      const deliveryDate = getLimaDateFromTimestamp(r.delivery_date);
-      return (
-        (retDate && retDate >= startDate && retDate <= endDate) ||
-        (createdDate >= startDate && createdDate <= endDate) ||
-        (deliveryDate && deliveryDate >= startDate && deliveryDate <= endDate)
-      );
+      return createdDate >= startDate && createdDate <= endDate;
     }).length;
 
     const faltanDevolverTotal = dressRentals.filter((r) => r.status === 'entregado').length;
-    const faltanDevolver = (timeFilter === 'dia' || timeFilter === 'fecha')
+    const faltanDevolver = (timeFilter === 'hoy' || timeFilter === 'fecha' || timeFilter === 'dia')
       ? (faltanDevolverPeriodo || faltanDevolverTotal)
       : (faltanDevolverPeriodo || faltanDevolverTotal);
 
     // Conteo y garantías complementarias
-    const porValidar = dressRentals.filter((r) => r.status === 'por_validar').length;
+    const porValidar = periodRentals.filter((r) => r.status === 'por_validar').length;
+    const porValidarTotal = dressRentals.filter((r) => r.status === 'por_validar').length;
     const garantiasEnCustodia = dressRentals
       .filter((r) => r.status === 'entregado')
       .reduce((acc, r) => acc + (r.guarantee_cents || 0), 0);
@@ -364,6 +366,7 @@ export const VestuarioManager: React.FC = () => {
       faltanDevolver,
       faltanDevolverTotal,
       porValidar,
+      porValidarTotal,
       garantiasEnCustodia,
       totalOrders: periodRentals.length,
     };
@@ -379,14 +382,13 @@ export const VestuarioManager: React.FC = () => {
   // ==========================================
   const filteredRentals = useMemo(() => {
     const q = rentalsSearch.trim().toLowerCase();
+    const { startDate, endDate } = timeFilterInfo;
 
     return dressRentals.filter((r) => {
-      // 0. Filtro por Fecha Específica (Calendario)
-      if (selectedDate) {
-        const orderCreatedDate = getLimaDateFromTimestamp(r.created_at);
-        const eventDate = r.event_date;
-        const matchesDate = eventDate === selectedDate || orderCreatedDate === selectedDate;
-        if (!matchesDate) return false;
+      // 0. Filtro por Tiempo (Hoy, Quincena, Mes, Fecha Específica) - Evalúa exclusivamente la fecha de creación (created_at)
+      const orderCreatedDate = getLimaDateFromTimestamp(r.created_at);
+      if (orderCreatedDate < startDate || orderCreatedDate > endDate) {
+        return false;
       }
 
       // 1. Texto de búsqueda
@@ -421,7 +423,7 @@ export const VestuarioManager: React.FC = () => {
 
       return matchesText && matchesStatus && matchesOrigin;
     });
-  }, [dressRentals, selectedDate, rentalsSearch, statusFilter, originFilter]);
+  }, [dressRentals, timeFilterInfo, rentalsSearch, statusFilter, originFilter]);
 
   // ==========================================
   // GESTIÓN DE ACCIONES DE ALQUILER
@@ -913,23 +915,23 @@ export const VestuarioManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Selector interactivo Día / Quincena / Mes y Fecha Específica */}
+              {/* Selector interactivo Hoy / Quincena / Mes y Fecha Específica */}
               <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
                 {/* Botones de Período Financiero */}
                 <div className="flex items-center bg-[#181818] border border-neutral-800 p-1 rounded-xl gap-1">
                   <button
                     type="button"
                     onClick={() => {
-                      setTimeFilter('dia');
+                      setTimeFilter('hoy');
                       setSelectedDate('');
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      timeFilter === 'dia' && !selectedDate
+                      (timeFilter === 'hoy' || timeFilter === 'dia') && !selectedDate
                         ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
                         : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
                     }`}
                   >
-                    Día
+                    Hoy
                   </button>
                   <button
                     type="button"
@@ -959,6 +961,20 @@ export const VestuarioManager: React.FC = () => {
                   >
                     Mes
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeFilter('todas');
+                      setSelectedDate('');
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timeFilter === 'todas' && !selectedDate
+                        ? 'bg-[#C8A45C] text-black shadow-md shadow-[#C8A45C]/20'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                    }`}
+                  >
+                    Todas
+                  </button>
                 </div>
 
                 {/* Selector de Fecha Específica (Calendario) */}
@@ -976,7 +992,7 @@ export const VestuarioManager: React.FC = () => {
                       if (val) {
                         setTimeFilter('fecha');
                       } else {
-                        setTimeFilter('dia');
+                        setTimeFilter('hoy');
                       }
                     }}
                     className="bg-[#222222] border border-neutral-700/80 focus:border-[#C8A45C] text-xs text-white px-2.5 py-1.5 rounded-lg outline-none transition cursor-pointer [color-scheme:dark]"
@@ -987,7 +1003,7 @@ export const VestuarioManager: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setSelectedDate('');
-                        setTimeFilter('dia');
+                        setTimeFilter('hoy');
                       }}
                       className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 cursor-pointer transition"
                       title="Limpiar fecha seleccionada"
@@ -1170,7 +1186,7 @@ export const VestuarioManager: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setSelectedDate('');
-                      setTimeFilter('dia');
+                      setTimeFilter('hoy');
                     }}
                     className="p-0.5 hover:text-white cursor-pointer ml-1"
                     title="Limpiar filtro de fecha"
@@ -1218,10 +1234,12 @@ export const VestuarioManager: React.FC = () => {
               <h3 className="text-base font-semibold text-white">No se encontraron órdenes de alquiler</h3>
               <p className="text-xs text-neutral-400 max-w-sm mx-auto">
                 {selectedDate
-                  ? `No hay reservas correspondientes a la fecha seleccionada (${formatLimaDate(selectedDate)}).`
+                  ? `No hay reservas registradas en la fecha seleccionada (${formatLimaDate(selectedDate)}).`
+                  : timeFilter === 'hoy' || timeFilter === 'dia'
+                  ? `No se registraron reservas el día de hoy (${formatLimaDate(todayStr)}).`
                   : rentalsSearch || statusFilter !== 'all' || originFilter !== 'all'
                   ? 'No hay registros que coincidan con los filtros aplicados.'
-                  : 'Aún no hay reservas registradas. Utiliza el botón "+ Reservar Vestidos" para iniciar una nueva reserva.'}
+                  : `No hay reservas registradas en el período seleccionado (${timeFilterInfo.label}).`}
               </p>
               <button
                 type="button"
