@@ -198,6 +198,7 @@ export const VestuarioManager: React.FC = () => {
   const [formDepositSoles, setFormDepositSoles] = useState<string>('50.00');
   const [formIsActive, setFormIsActive] = useState<boolean>(true);
   const [formImageUrl, setFormImageUrl] = useState<string>('');
+  const [formTalla, setFormTalla] = useState<string>('M');
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageCompressionInfo, setImageCompressionInfo] = useState<string | null>(null);
@@ -547,6 +548,7 @@ export const VestuarioManager: React.FC = () => {
     setFormCategory('Bodas y Matrimonio');
     setFormCode(getNextAvailableCode('A'));
     setFormDescription('');
+    setFormTalla('M');
     setFormPriceSoles('180.00');
     setFormDepositSoles('50.00');
     setFormIsActive(true);
@@ -563,6 +565,7 @@ export const VestuarioManager: React.FC = () => {
     setFormCategory(matchedCategory || 'Bodas y Matrimonio');
     setFormCode((item.code || item.codigo_unico || item.identificador || 'A-100').toUpperCase().trim());
     setFormDescription(item.description || '');
+    setFormTalla(item.talla || item.size || 'M');
     setFormPriceSoles((item.rental_price_cents / 100).toFixed(2));
     setFormDepositSoles(((item.deposit_cents || 0) / 100).toFixed(2));
     setFormIsActive(item.active !== false);
@@ -660,6 +663,8 @@ export const VestuarioManager: React.FC = () => {
           active: formIsActive,
           image_url: finalImageUrl,
           description: formDescription.trim(),
+          size: formTalla.trim() || 'M',
+          talla: formTalla.trim() || 'M',
         });
 
         if (success) {
@@ -680,6 +685,8 @@ export const VestuarioManager: React.FC = () => {
           active: formIsActive,
           image_url: finalImageUrl,
           description: formDescription.trim(),
+          size: formTalla.trim() || 'M',
+          talla: formTalla.trim() || 'M',
         });
 
         if (success) {
@@ -1779,6 +1786,11 @@ export const VestuarioManager: React.FC = () => {
                         <span>
                           Categoría: <strong className="text-neutral-200">{item.category}</strong>
                         </span>
+                        {(item.talla || item.size) && (
+                          <span className="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-[10px] text-neutral-300">
+                            Talla: <strong className="text-[#C8A45C] font-bold uppercase">{item.talla || item.size}</strong>
+                          </span>
+                        )}
                         {item.deposit_cents ? (
                           <span>
                             Garantía: <span className="text-neutral-300 font-mono">{formatSoles(item.deposit_cents)}</span>
@@ -2140,22 +2152,50 @@ export const VestuarioManager: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300 block">
-                  Categoría del Evento <span className="text-[#C8A45C]">*</span>
-                </label>
-                <select
-                  required
-                  value={formCategory}
-                  onChange={(e) => setFormCategory(e.target.value as WardrobeCategory)}
-                  className="w-full bg-[#181818] border border-neutral-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-[#C8A45C]"
-                >
-                  {EVENT_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300 block">
+                    Categoría del Evento <span className="text-[#C8A45C]">*</span>
+                  </label>
+                  <select
+                    required
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value as WardrobeCategory)}
+                    className="w-full bg-[#181818] border border-neutral-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-[#C8A45C]"
+                  >
+                    {EVENT_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
+                    <span>Talla</span>
+                    <span className="text-[10px] text-[#C8A45C] font-normal">Sugerida o manual</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="tallas-sugeridas"
+                    name="talla"
+                    placeholder="Ej. M, 32, Estándar"
+                    value={formTalla}
+                    onChange={(e) => setFormTalla(e.target.value)}
+                    className="w-full bg-[#181818] border border-neutral-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#C8A45C]"
+                  />
+                  <datalist id="tallas-sugeridas">
+                    <option value="XS" />
+                    <option value="S" />
+                    <option value="M" />
+                    <option value="L" />
+                    <option value="XL" />
+                    <option value="XXL" />
+                    <option value="Estándar" />
+                    <option value="Ajustable" />
+                  </datalist>
+                </div>
               </div>
 
               <div className="space-y-1.5">

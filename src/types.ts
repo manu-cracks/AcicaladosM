@@ -79,6 +79,7 @@ export interface WardrobeItem {
   image_url: string;
   description?: string;
   size?: string;
+  talla?: string;
   color?: string;
   identificador?: string;
   codigo_unico?: string;

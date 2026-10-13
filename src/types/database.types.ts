@@ -1555,6 +1555,7 @@ export type Database = {
           name: string
           price_cents: number
           size: string | null
+          talla: string | null
           sort_order: number
           updated_at: string
           codigo_prenda: string | null
@@ -1583,6 +1584,7 @@ export type Database = {
           name: string
           price_cents?: number
           size?: string | null
+          talla?: string | null
           sort_order?: number
           updated_at?: string
           codigo_prenda?: string | null
@@ -1611,6 +1613,7 @@ export type Database = {
           name?: string
           price_cents?: number
           size?: string | null
+          talla?: string | null
           sort_order?: number
           updated_at?: string
           codigo_prenda?: string | null

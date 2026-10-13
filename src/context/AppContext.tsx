@@ -530,7 +530,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               deposit_cents: w.deposit_cents || 0,
               status: (w.availability_status || 'disponible') as WardrobeStatus,
               active: w.is_active !== undefined ? w.is_active : true,
-              size: w.size || 'M',
+              size: w.talla || w.size || 'M',
+              talla: w.talla || w.size || 'M',
               color: w.color || 'Variado',
               image_url: w.images && w.images.length > 0 ? w.images[0] : (w.imagen_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'),
               description: w.description || '',
@@ -4283,6 +4284,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         availability_status: itemData.status || 'disponible',
         is_active: itemData.active !== undefined ? itemData.active : true,
         images: itemData.image_url ? [itemData.image_url] : [],
+        size: itemData.talla || itemData.size || 'M',
+        talla: itemData.talla || itemData.size || 'M',
       };
 
       const { data, error } = await supabase
@@ -4364,6 +4367,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           availability_status: item.status,
           is_active: item.active !== undefined ? item.active : true,
           images: item.image_url ? [item.image_url] : [],
+          size: item.talla || item.size || 'M',
+          talla: item.talla || item.size || 'M',
           updated_at: new Date().toISOString(),
         }).eq('id', item.id);
 

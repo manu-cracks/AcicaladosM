@@ -331,6 +331,11 @@ export const PublicDressBookingModal: React.FC<PublicDressBookingModalProps> = (
                     <span className="px-2 py-0.5 rounded bg-[#C8A45C]/20 border border-[#C8A45C]/40 text-[#E6C875] text-[10px] font-bold">
                       CÓDIGO {codeDisplay}
                     </span>
+                    {(item.talla || item.size) && (
+                      <span className="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-700 text-[#C8A45C] text-[10px] font-bold uppercase">
+                        Talla: {item.talla || item.size}
+                      </span>
+                    )}
                     <span className="text-xs text-neutral-400">{item.category}</span>
                   </div>
                   <h4 className="font-bold text-sm text-white">{item.name}</h4>

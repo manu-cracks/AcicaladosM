@@ -62,8 +62,9 @@ export const PublicWardrobe: React.FC = () => {
 
   const handleInquireWhatsApp = (item: WardrobeItem) => {
     const code = (item.code || item.codigo_unico || 'A-100').toUpperCase().trim();
+    const itemTalla = item.talla || item.size;
     const text = encodeURIComponent(
-      `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
+      `¡Hola Acicalados! Quisiera consultar la disponibilidad de alquiler de la prenda:\n\n*Código:* ${code}\n*Prenda:* ${item.name}\n*Categoría:* ${item.category}${itemTalla ? `\n*Talla:* ${itemTalla.toUpperCase()}` : ''}\n*Tarifa Alquiler:* ${formatSoles(item.rental_price_cents)}\n*Garantía Reembolsable:* ${formatSoles(item.deposit_cents)}\n\n¿Para qué fechas tienen agenda de prueba disponible?`
     );
     window.open(`https://wa.me/51991044301?text=${text}`, '_blank');
   };
@@ -86,7 +87,7 @@ export const PublicWardrobe: React.FC = () => {
               description: item.description,
               category: item.category,
               code: `Código: ${codeDisplay}`,
-              price: `Alquiler: S/ ${priceFormatted}`,
+              price: `Alquiler: S/ ${priceFormatted}${(item.talla || item.size) ? ` • Talla: ${(item.talla || item.size).toUpperCase()}` : ''}`,
               metadata: item.deposit_cents ? `Garantía Reembolsable: ${formatSoles(item.deposit_cents)}` : undefined,
             })
           }
@@ -122,8 +123,13 @@ export const PublicWardrobe: React.FC = () => {
             </div>
           </div>
 
-          {/* Badge de Categoría del Evento */}
-          <div className="absolute top-3 right-3">
+          {/* Badge de Categoría del Evento y Talla */}
+          <div className="absolute top-3 right-3 flex items-center gap-1.5">
+            {(item.talla || item.size) && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#1A1A1A]/90 text-[#E6C875] border border-[#C8A45C]/50 backdrop-blur-md shadow uppercase tracking-wide">
+                Talla: {item.talla || item.size}
+              </span>
+            )}
             <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-black/75 text-neutral-200 border border-neutral-700/80 backdrop-blur-md shadow">
               {item.category}
             </span>
@@ -166,6 +172,14 @@ export const PublicWardrobe: React.FC = () => {
                   {formatSoles(item.rental_price_cents)}
                 </span>
               </div>
+              {(item.talla || item.size) && (
+                <div className="text-center">
+                  <span className="text-[10px] text-neutral-500 block">Talla:</span>
+                  <span className="text-xs font-bold text-[#E6C875] uppercase px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800">
+                    {item.talla || item.size}
+                  </span>
+                </div>
+              )}
               <div className="text-right">
                 <span className="text-[10px] text-neutral-500 block">Garantía Reembolsable:</span>
                 <span className="text-xs font-semibold text-neutral-300">
