@@ -94,6 +94,8 @@ export interface DressRental {
   ticket_code: string;
   origin: DressRentalOrigin;
   wardrobe_item_id?: string;
+  is_pack?: boolean;
+  pack_item_ids?: string[];
   item_code: string;
   item_name: string;
   item_size?: string;

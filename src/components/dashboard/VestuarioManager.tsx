@@ -53,6 +53,7 @@ export type VestuarioTimeFilter = 'hoy' | 'quincena' | 'mes' | 'fecha' | 'todas'
 
 // Modales del flujo de alquileres
 import { NewDressRentalModal } from './vestuario/NewDressRentalModal';
+import { NewDressPackRentalModal } from './vestuario/NewDressPackRentalModal';
 import { ValidateVoucherModal } from './vestuario/ValidateVoucherModal';
 import { ProcessDeliveryModal } from './vestuario/ProcessDeliveryModal';
 import { ProcessReturnModal } from './vestuario/ProcessReturnModal';
@@ -159,6 +160,7 @@ export const VestuarioManager: React.FC = () => {
 
   // Modales de Alquiler
   const [isNewRentalModalOpen, setIsNewRentalModalOpen] = useState(false);
+  const [isNewPackRentalModalOpen, setIsNewPackRentalModalOpen] = useState(false);
   const [voucherModalRental, setVoucherModalRental] = useState<DressRental | null>(null);
   const [deliveryModalRental, setDeliveryModalRental] = useState<DressRental | null>(null);
   const [returnModalRental, setReturnModalRental] = useState<DressRental | null>(null);
@@ -839,7 +841,7 @@ export const VestuarioManager: React.FC = () => {
           </p>
         </div>
 
-        {/* Botón Principal: Reservar Vestidos (Requisito 1 de la lógica de negocio) */}
+        {/* Botón Principal: Reservar Vestidos y Reservar Pack */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
@@ -848,6 +850,15 @@ export const VestuarioManager: React.FC = () => {
           >
             <Calendar className="w-4 h-4 stroke-[2.5]" />
             <span>+ Reservar Vestidos</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsNewPackRentalModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-[#1E1B15] via-[#282216] to-[#1E1B15] text-[#F3E5AB] border-2 border-[#C8A45C] hover:border-[#FFE7A8] hover:bg-[#2F2718] font-bold text-xs sm:text-sm shadow-xl shadow-[#C8A45C]/20 hover:shadow-[#C8A45C]/35 active:scale-95 transition-all cursor-pointer group"
+          >
+            <Package className="w-4 h-4 stroke-[2.5] text-[#C8A45C] group-hover:scale-110 group-hover:text-[#FFE7A8] transition-all" />
+            <span>+ Reservar Pack</span>
           </button>
 
           {activeTab === 'catalog' && (
@@ -1340,7 +1351,13 @@ export const VestuarioManager: React.FC = () => {
 
                           {/* Prenda y Fechas */}
                           <td className="py-4 px-4 align-top">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {rental.is_pack && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[9px] uppercase tracking-wider">
+                                  <Package className="w-2.5 h-2.5 text-amber-400" />
+                                  <span>PACK</span>
+                                </span>
+                              )}
                               <span className="px-2 py-0.5 rounded bg-[#C8A45C]/20 border border-[#C8A45C]/40 text-[#E6C875] font-bold text-[10px]">
                                 {rental.item_code}
                               </span>
@@ -1851,6 +1868,17 @@ export const VestuarioManager: React.FC = () => {
           setIsNewRentalModalOpen(false);
           showToast('success', `¡Reserva [${createdRental.ticket_code}] registrada exitosamente!`);
           // Requisito 3: Apertura automática del ticket tras guardar
+          setTicketModalRental(createdRental);
+        }}
+      />
+
+      {/* 1.1 Modal Nueva Reserva de Packs (Multi-Prenda) */}
+      <NewDressPackRentalModal
+        isOpen={isNewPackRentalModalOpen}
+        onClose={() => setIsNewPackRentalModalOpen(false)}
+        onSuccess={(createdRental) => {
+          setIsNewPackRentalModalOpen(false);
+          showToast('success', `¡Reserva de Pack [${createdRental.ticket_code}] registrada exitosamente!`);
           setTicketModalRental(createdRental);
         }}
       />

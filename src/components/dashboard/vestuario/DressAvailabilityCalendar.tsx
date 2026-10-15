@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { DressRental } from '../../../types';
+import { DressRental, WardrobeItem } from '../../../types';
 
 interface DressAvailabilityCalendarProps {
-  itemCode: string;
+  itemCode?: string;
   wardrobeItemId?: string;
   itemName?: string;
+  items?: WardrobeItem[];
   selectedDate: string; // YYYY-MM-DD
   returnDate: string; // YYYY-MM-DD
   onSelectDates: (eventDate: string, returnDate: string) => void;
@@ -13,9 +14,10 @@ interface DressAvailabilityCalendarProps {
 }
 
 export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps> = ({
-  itemCode,
+  itemCode = '',
   wardrobeItemId,
   itemName = 'Prenda seleccionada',
+  items,
   selectedDate,
   returnDate,
   onSelectDates,
@@ -53,55 +55,76 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
     setCurrentMonthDate(new Date(year, month + 1, 1));
   };
 
-  // Calcular las fechas ocupadas/bloqueadas para esta prenda específica
-  const { blockedDatesSet, blockedRangesText } = useMemo(() => {
+  // Calcular las fechas ocupadas/bloqueadas (Soporta Prenda Única o Pack de Múltiples Prendas)
+  const { blockedDatesSet, blockedRangesText, blockedByItemMap } = useMemo(() => {
     const set = new Set<string>();
     const textList: string[] = [];
+    const dateItemMap = new Map<string, string[]>();
 
-    if (!itemCode && !wardrobeItemId) return { blockedDatesSet: set, blockedRangesText: textList };
+    // Lista de prendas a evaluar
+    const itemsToEvaluate: { id?: string; code: string }[] = [];
+    if (items && items.length > 0) {
+      items.forEach((it) => {
+        const c = (it.code || it.codigo_unico || '').toUpperCase().trim();
+        if (c || it.id) itemsToEvaluate.push({ id: it.id, code: c });
+      });
+    } else if (itemCode || wardrobeItemId) {
+      itemsToEvaluate.push({ id: wardrobeItemId, code: (itemCode || '').toUpperCase().trim() });
+    }
 
-    const targetCode = (itemCode || '').toUpperCase().trim();
+    if (itemsToEvaluate.length === 0) {
+      return { blockedDatesSet: set, blockedRangesText: textList, blockedByItemMap: dateItemMap };
+    }
 
-    const activeRentals = dressRentals.filter((r) => {
-      const isStatusActive = r.status === 'por_validar' || r.status === 'reservado' || r.status === 'entregado';
-      if (!isStatusActive) return false;
+    itemsToEvaluate.forEach((target) => {
+      const activeRentals = dressRentals.filter((r) => {
+        const isStatusActive = r.status === 'por_validar' || r.status === 'reservado' || r.status === 'entregado';
+        if (!isStatusActive) return false;
 
-      // 1. Coincidencia por UUID de prenda
-      if (wardrobeItemId && r.wardrobe_item_id && r.wardrobe_item_id === wardrobeItemId) {
-        return true;
-      }
+        const matchesId =
+          (target.id && r.wardrobe_item_id && r.wardrobe_item_id === target.id) ||
+          (target.id && r.pack_item_ids && r.pack_item_ids.includes(target.id));
 
-      // 2. Coincidencia estricta por código único (ej. "A-101")
-      const rCode = (r.item_code || '').toUpperCase().trim();
-      return rCode === targetCode;
-    });
+        const rCode = (r.item_code || '').toUpperCase().trim();
+        const matchesCode = Boolean(target.code) && (rCode === target.code || rCode.includes(target.code));
 
-    activeRentals.forEach((rental) => {
-      const start = new Date(rental.event_date + 'T00:00:00');
-      // Toda reserva bloquea exactamente 2 días: día del evento y retorno al día siguiente
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      
-      const curr = new Date(start);
-      while (curr <= end) {
-        set.add(curr.toISOString().split('T')[0]);
-        curr.setDate(curr.getDate() + 1);
-      }
+        return matchesId || matchesCode;
+      });
 
-      const startDay = start.getDate();
-      const endDay = end.getDate();
-      const startMonth = monthNames[start.getMonth()].toLowerCase();
-      const endMonth = monthNames[end.getMonth()].toLowerCase();
-      if (startMonth === endMonth) {
-        textList.push(`${startDay} al ${endDay} de ${startMonth}`);
-      } else {
-        textList.push(`${startDay} de ${startMonth} al ${endDay} de ${endMonth}`);
-      }
+      activeRentals.forEach((rental) => {
+        const start = new Date(rental.event_date + 'T00:00:00');
+        // Toda reserva bloquea exactamente 2 días: día del evento y retorno al día siguiente
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+
+        const curr = new Date(start);
+        while (curr <= end) {
+          const dStr = curr.toISOString().split('T')[0];
+          set.add(dStr);
+          const existing = dateItemMap.get(dStr) || [];
+          if (target.code && !existing.includes(target.code)) {
+            existing.push(target.code);
+          }
+          dateItemMap.set(dStr, existing);
+          curr.setDate(curr.getDate() + 1);
+        }
+
+        const startDay = start.getDate();
+        const endDay = end.getDate();
+        const startMonth = monthNames[start.getMonth()].toLowerCase();
+        const endMonth = monthNames[end.getMonth()].toLowerCase();
+        const prefix = items && items.length > 0 ? `[${target.code}] ` : '';
+        if (startMonth === endMonth) {
+          textList.push(`${prefix}${startDay} al ${endDay} de ${startMonth}`);
+        } else {
+          textList.push(`${prefix}${startDay} de ${startMonth} al ${endDay} de ${endMonth}`);
+        }
+      });
     });
 
     const uniqueTextList = Array.from(new Set(textList));
-    return { blockedDatesSet: set, blockedRangesText: uniqueTextList };
-  }, [itemCode, dressRentals]);
+    return { blockedDatesSet: set, blockedRangesText: uniqueTextList, blockedByItemMap: dateItemMap };
+  }, [itemCode, wardrobeItemId, items, dressRentals]);
 
   // Generación de la grilla de días (Lunes a Domingo)
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -173,7 +196,18 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
               Calendario de Disponibilidad
             </h4>
             <p className="text-[11px] text-[#C8A45C]">
-              Prenda seleccionada: <span className="font-bold">{itemCode || 'Ninguna'}</span> - {itemName}
+              {items && items.length > 0 ? (
+                <>
+                  Pack ({items.length} prendas):{' '}
+                  <span className="font-bold">
+                    {items.map((i) => i.code || i.codigo_unico).join(', ')}
+                  </span>
+                </>
+              ) : (
+                <>
+                  Prenda seleccionada: <span className="font-bold">{itemCode || 'Ninguna'}</span> - {itemName}
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -240,11 +274,17 @@ export const DressAvailabilityCalendar: React.FC<DressAvailabilityCalendarProps>
           }
 
           if (cell.isBlocked) {
+            const blockedItems = blockedByItemMap.get(cell.dateStr);
+            const blockedTooltip =
+              blockedItems && blockedItems.length > 0
+                ? `Bloqueado: La(s) prenda(s) [${blockedItems.join(', ')}] ya está(n) reservada(s) en esta fecha`
+                : `Bloqueado: La prenda ${itemCode} ya está reservada en esta fecha`;
+
             return (
               <div
                 key={cell.dateStr}
                 className="h-10 sm:h-11 rounded-xl bg-rose-950/60 border border-rose-800/80 text-rose-300 font-bold text-xs flex flex-col items-center justify-center select-none shadow-sm cursor-not-allowed group relative"
-                title={`Bloqueado: La prenda ${itemCode} ya está reservada en esta fecha`}
+                title={blockedTooltip}
               >
                 <span className="text-[10px] text-rose-400">XX</span>
                 <span className="text-[11px]">{cell.dayNum}</span>

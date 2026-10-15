@@ -552,6 +552,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ticket_code: r.ticket_code,
             origin: (r.origin || 'local') as DressRentalOrigin,
             wardrobe_item_id: r.wardrobe_item_id,
+            is_pack: r.is_pack === true,
+            pack_item_ids: r.pack_item_ids || null,
             item_code: r.item_code,
             item_name: r.item_name,
             item_size: r.item_size || 'M',
@@ -4452,10 +4454,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         const ticketCode = `${prefix}-${randomNum}`;
 
-        const insertPayload = {
+        const insertPayload: any = {
           ticket_code: ticketCode,
           origin: data.origin,
           wardrobe_item_id: data.wardrobe_item_id || null,
+          is_pack: Boolean(data.is_pack),
+          pack_item_ids: data.pack_item_ids || null,
           item_code: data.item_code,
           item_name: data.item_name,
           item_size: data.item_size || 'M',
@@ -4505,6 +4509,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ticket_code: raw.ticket_code,
           origin: raw.origin as DressRentalOrigin,
           wardrobe_item_id: raw.wardrobe_item_id,
+          is_pack: raw.is_pack === true,
+          pack_item_ids: raw.pack_item_ids || null,
           item_code: raw.item_code,
           item_name: raw.item_name,
           item_size: raw.item_size || 'M',
@@ -4541,12 +4547,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setDressRentals((prev) => [newRental, ...prev]);
 
-        // FASE 2: Pre-bloqueo lógico temporal para evitar que el vestido sea alquilado por alguien más
+        // FASE 2: Pre-bloqueo lógico temporal para evitar que el vestido o pack sea alquilado por alguien más
+        const itemsToLock: string[] = [];
         if (data.wardrobe_item_id) {
+          itemsToLock.push(data.wardrobe_item_id);
+        }
+        if (data.is_pack && data.pack_item_ids && data.pack_item_ids.length > 0) {
+          itemsToLock.push(...data.pack_item_ids);
+        }
+
+        if (itemsToLock.length > 0) {
+          const lockSet = new Set(itemsToLock);
           setWardrobe((prev) =>
             prev.map((item) =>
-              item.id === data.wardrobe_item_id
-                ? { ...item, status: 'reservado' }
+              lockSet.has(item.id)
+                ? { ...item, status: 'reservado', availability_status: 'reservado' }
                 : item
             )
           );
@@ -4558,9 +4573,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 status: 'reservado',
                 updated_at: new Date().toISOString(),
               })
-              .eq('id', data.wardrobe_item_id);
+              .in('id', Array.from(lockSet));
           } catch (lockErr) {
-            console.warn('Error en pre-bloqueo de prenda:', lockErr);
+            console.warn('Error en pre-bloqueo de prendas en Supabase:', lockErr);
           }
         }
 

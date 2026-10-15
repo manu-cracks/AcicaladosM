@@ -508,6 +508,8 @@ export type Database = {
           voucher_declared_amount_cents: number | null
           voucher_url: string | null
           wardrobe_item_id: string | null
+          is_pack: boolean | null
+          pack_item_ids: string[] | null
         }
         Insert: {
           actual_return_date?: string | null
@@ -546,6 +548,8 @@ export type Database = {
           voucher_declared_amount_cents?: number | null
           voucher_url?: string | null
           wardrobe_item_id?: string | null
+          is_pack?: boolean | null
+          pack_item_ids?: string[] | null
         }
         Update: {
           actual_return_date?: string | null
@@ -584,6 +588,8 @@ export type Database = {
           voucher_declared_amount_cents?: number | null
           voucher_url?: string | null
           wardrobe_item_id?: string | null
+          is_pack?: boolean | null
+          pack_item_ids?: string[] | null
         }
         Relationships: [
           {
