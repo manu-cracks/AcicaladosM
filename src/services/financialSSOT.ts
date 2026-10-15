@@ -66,6 +66,7 @@ export interface FinancialMetrics {
   confirmedBookings: Booking[];        // Exclusivo para Calendario y citas con cobro confirmado
   filteredVentas: VentaMostrador[];
   filteredExpenses: Expense[];
+  filteredDressRentals?: DressRental[];
 }
 
 /**
@@ -387,9 +388,72 @@ export function calculateFinancialMetrics(params: {
 
   // 4. Módulo de Vestuario (AISLAMIENTO FINANCIERO ESTRICTO)
   // Las finanzas de Vestuario cuentan con su propio ecosistema independiente
-  // y bajo ninguna circunstancia se mezclan con los ingresos generales del salón
-  const vestuarioCents = 0;
-  const vestuarioCount = 0;
+  // y bajo ninguna circunstancia se mezclan con los ingresos generales del salón ni con la Ganancia Neta.
+  // Reglas de Negocio SSOT:
+  // - Cobros base: recaudación efectiva por alquileres registrados en la fecha consultada (excluye anulados).
+  // - Regla estricta para la Garantía: Los fondos de "Garantías en Custodia" NO deben considerarse ingresos de forma predeterminada.
+  // - El monto de una garantía solo debe sumarse única y exclusivamente cuando el proceso de la orden
+  //   cambie su estado a "finalizado" (o culminado) Y se confirme que dicha garantía se retiene a favor del local
+  //   (no devuelta al cliente por daños/retrasos).
+  let vestuarioCents = 0;
+  let vestuarioCount = 0;
+  const filteredDressRentals: DressRental[] = [];
+
+  if (!employeeId) {
+    dressRentals.forEach((r) => {
+      if (r.status === 'anulado') return;
+
+      // a) Cobros Base por alquiler en la fecha consultada
+      const baseDate = getLimaDateFromTimestamp(r.created_at || r.fecha_emision_ticket || '');
+      const isBaseInRange = isExact && exactDate
+        ? baseDate === exactDate
+        : Boolean(startDate && endDate && baseDate >= startDate && baseDate <= endDate);
+
+      let cobradoBase = 0;
+      if (isBaseInRange) {
+        if (r.status === 'entregado' || r.status === 'finalizado') {
+          cobradoBase = r.rental_price_cents || 0;
+        } else {
+          // Para 'reservado' o 'por_validar'
+          cobradoBase = (r.advance_cents && r.advance_cents > 0)
+            ? r.advance_cents
+            : (r.is_immediate_delivery ? (r.rental_price_cents || 0) : 0);
+        }
+      }
+
+      // b) Garantías Retenidas (Regla estricta de exclusión de custodia):
+      // Las garantías en custodia (ej. guarantee_cents mientras está reservado/entregado) NO se consideran ingresos.
+      // ÚNICA Y EXCLUSIVAMENTE cuando el proceso cambie a 'finalizado' y se confirme retención (penalidad por daños/mora).
+      let retencionCobrada = 0;
+      if (r.status === 'finalizado') {
+        const retencionCents = (r.penalty_cents != null && r.penalty_cents > 0)
+          ? r.penalty_cents
+          : (r.garantia_retenida != null && r.garantia_retenida > 0)
+            ? Math.round(r.garantia_retenida * 100)
+            : 0;
+
+        if (retencionCents > 0) {
+          const finalizedDate = getLimaDateFromTimestamp(
+            r.actual_return_date || r.updated_at || r.created_at || ''
+          );
+          const isFinalizedInRange = isExact && exactDate
+            ? finalizedDate === exactDate
+            : Boolean(startDate && endDate && finalizedDate >= startDate && finalizedDate <= endDate);
+
+          if (isFinalizedInRange) {
+            retencionCobrada = retencionCents;
+          }
+        }
+      }
+
+      const totalItemCents = cobradoBase + retencionCobrada;
+      if (totalItemCents > 0 || isBaseInRange) {
+        vestuarioCents += totalItemCents;
+        vestuarioCount += 1;
+        filteredDressRentals.push(r);
+      }
+    });
+  }
 
   // 5. Total Ingresos Cobrados de Salón (Servicios Spa/Barbería + Ventas Mostrador)
   // AISLAMIENTO ESTRICTO: Vestuario NO se suma ni cruza con finanzas del salón
@@ -444,6 +508,7 @@ export function calculateFinancialMetrics(params: {
     confirmedBookings,
     filteredVentas,
     filteredExpenses,
+    filteredDressRentals,
   };
 }
 

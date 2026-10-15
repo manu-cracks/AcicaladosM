@@ -168,6 +168,8 @@ export const ReportesView: React.FC = () => {
     barberiaCount,
     spaCount,
     ventasMostradorCents: ventasCents,
+    vestuarioCents,
+    vestuarioCount,
     totalEgresosCents: egresosCents,
     totalIngresosCents,
     balanceNetoCents: gananciaNetaCents,
@@ -373,6 +375,9 @@ ${specialistsLines}
 Ventas de Mostrador:
 - Productos: ${formatSolesText(ventasCents)}
 
+Ingresos por Vestuario:
+- Alquileres y Retenciones: ${formatSolesText(vestuarioCents)}
+
 Total Atenciones: ${totalAtenciones}
 Total Ingresos del Día: ${formatSolesText(totalIngresosCents)}
 Total Egresos: ${formatSolesText(egresosCents)}
@@ -381,6 +386,7 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
     formattedDateLima,
     specialistProduction,
     ventasCents,
+    vestuarioCents,
     totalAtenciones,
     totalIngresosCents,
     egresosCents,
@@ -942,7 +948,7 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
           )}
         </div>
       ) : (
-        /* Caso A: Sin selección / "Todos": Muestra todas las 7 tarjetas tal y como están actualmente */
+        /* Caso A: Sin selección / "Todos": Muestra todas las 8 tarjetas del panel analítico */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 transition-all duration-300">
           {/* Métrica 1: Total Ingresos Cobrados */}
           <div className="bg-gradient-to-br from-[#1A1A1A] to-[#121212] border border-[#C8A45C]/45 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl relative overflow-hidden group">
@@ -1017,7 +1023,25 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
             </span>
           </div>
 
-          {/* Métrica 5: Egresos Operativos */}
+          {/* Métrica 5: Ingresos por Vestuario */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+                Ingresos por Vestuario
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-rose-950/40 text-rose-400 border border-rose-800/40 flex items-center justify-center">
+                <Shirt className="w-4 h-4" />
+              </div>
+            </div>
+            <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-rose-300 block">
+              {formatSoles(vestuarioCents)}
+            </span>
+            <span className="text-[11px] text-neutral-500 block">
+              {vestuarioCount} alquiler(es) y retención(es)
+            </span>
+          </div>
+
+          {/* Métrica 6: Egresos Operativos */}
           <div className="bg-[#141414] border border-neutral-800 hover:border-red-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
@@ -1035,7 +1059,7 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
             </span>
           </div>
 
-          {/* Métrica 6: Ganancia Neta */}
+          {/* Métrica 7: Ganancia Neta */}
           <div className="bg-[#141414] border border-neutral-800 hover:border-emerald-900/40 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
@@ -1057,8 +1081,8 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
             </span>
           </div>
 
-          {/* Métrica 7: Total de Atenciones */}
-          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition sm:col-span-2 lg:col-span-2">
+          {/* Métrica 8: Total de Atenciones */}
+          <div className="bg-[#141414] border border-neutral-800 hover:border-[#C8A45C]/30 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xl transition">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
                 Total de Atenciones del Día
@@ -1067,16 +1091,16 @@ Ganancia Neta: ${formatSolesText(gananciaNetaCents)}`;
                 <CalendarCheck className="w-4 h-4" />
               </div>
             </div>
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-baseline gap-2">
               <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-white block">
                 {totalAtenciones}
               </span>
-              <span className="text-xs text-neutral-400">
-                servicio(s) en {dayBookings.length} cita(s) del día
+              <span className="text-[11px] text-neutral-400">
+                en {dayBookings.length} cita(s) del día
               </span>
             </div>
             <span className="text-[11px] text-neutral-500 block">
-              Atenciones confirmadas y concluidas durante la jornada
+              Atenciones confirmadas durante la jornada
             </span>
           </div>
         </div>
