@@ -20,6 +20,7 @@ import { useApp } from '../../../context/AppContext';
 import { WardrobeItem, DressRental, formatSoles } from '../../../types';
 import { DressAvailabilityCalendar } from './DressAvailabilityCalendar';
 import { sanitizeDni, sanitizePhone } from '../../../lib/validators';
+import { supabase } from '../../../lib/supabase/client';
 
 interface NewDressPackRentalModalProps {
   isOpen: boolean;
@@ -71,6 +72,58 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('todos');
   const [customPriceSoles, setCustomPriceSoles] = useState<string>('');
   const [isPriceCustomized, setIsPriceCustomized] = useState<boolean>(false);
+  const [customGuaranteeSoles, setCustomGuaranteeSoles] = useState<string>('');
+  const [isGuaranteeCustomized, setIsGuaranteeCustomized] = useState<boolean>(false);
+  const [supabaseActiveCatalog, setSupabaseActiveCatalog] = useState<WardrobeItem[] | null>(null);
+
+  // Requisito 4: Consulta a Supabase que alimenta este catálogo filtrando prendas activas (no códigos fantasma ni inactivos)
+  useEffect(() => {
+    if (!isOpen) return;
+    let isCancelled = false;
+
+    const fetchActiveWardrobe = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('wardrobe_items')
+          .select('*')
+          .eq('is_active', true)
+          .order('code');
+
+        if (!error && data && !isCancelled) {
+          const mapped: WardrobeItem[] = data.map((w: any) => {
+            const uniqueSku = (w.code || w.codigo_unico || w.codigo_prenda || 'A-100').toUpperCase().trim();
+            const letter = uniqueSku.split('-')[0].toUpperCase() || 'A';
+            return {
+              id: w.id,
+              code: uniqueSku,
+              identificador: uniqueSku,
+              codigo_unico: uniqueSku,
+              letter_code: letter,
+              name: w.name || w.titulo || 'Prenda de Gala',
+              category: w.category || w.categoria_evento || 'Bodas y Matrimonio',
+              rental_price_cents: w.price_cents || (w.precio_alquiler ? Math.round(w.precio_alquiler * 100) : 0),
+              deposit_cents: w.deposit_cents || (w.garantia_reembolsable ? Math.round(w.garantia_reembolsable * 100) : 5000),
+              status: (w.availability_status || 'disponible') as any,
+              active: true,
+              size: w.talla || w.size || 'M',
+              talla: w.talla || w.size || 'M',
+              color: w.color || 'Variado',
+              image_url: w.images && w.images.length > 0 ? w.images[0] : (w.imagen_url || 'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'),
+              description: w.description || w.descripcion || '',
+            };
+          });
+          setSupabaseActiveCatalog(mapped);
+        }
+      } catch (err) {
+        console.error('Error fetching active wardrobe items from Supabase:', err);
+      }
+    };
+
+    fetchActiveWardrobe();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOpen]);
 
   // Paso 3: Horario y Fechas
   const [eventDate, setEventDate] = useState<string>('');
@@ -80,7 +133,10 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [isImmediateDelivery, setIsImmediateDelivery] = useState(false);
   const [advanceSoles, setAdvanceSoles] = useState<string>('100');
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('');
+<<<<<<< HEAD
   const [immediateGuaranteeSoles, setImmediateGuaranteeSoles] = useState<string>('50');
+=======
+>>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
   // Retroalimentación
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,15 +145,28 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   // Categorías disponibles en catálogo
   const availableCategories = useMemo(() => {
     const cats = new Set<string>();
-    wardrobe.forEach((w) => {
+    const base = supabaseActiveCatalog || wardrobe;
+    base.forEach((w) => {
       if (w.category) cats.add(w.category);
     });
     return Array.from(cats);
-  }, [wardrobe]);
+  }, [supabaseActiveCatalog, wardrobe]);
 
   // Prendas filtradas para el buscador de prendas
   const filteredCatalogItems = useMemo(() => {
-    let items = wardrobe.filter((w) => w.status !== 'inactivo' && w.status !== 'eliminado');
+    const baseCatalog = supabaseActiveCatalog || wardrobe;
+
+    // Filtrar estrictamente solo prendas activas (no códigos fantasma, eliminados o inactivos)
+    let items = baseCatalog.filter((w) => {
+      const isStatusInactive =
+        w.status === 'inactivo' ||
+        w.status === 'eliminado' ||
+        (w.status as string) === 'baja';
+      const isActiveFlag = w.active !== false;
+      const isEstadoFlag = (w as any).estado !== false && (w as any).estado !== 'inactivo';
+
+      return !isStatusInactive && isActiveFlag && isEstadoFlag;
+    });
 
     if (selectedCategoryFilter !== 'todos') {
       items = items.filter((w) => (w.category || '').toLowerCase() === selectedCategoryFilter.toLowerCase());
@@ -108,13 +177,41 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
     }
 
     const q = searchQuery.toUpperCase().trim();
-    return items.filter(
-      (w) =>
-        (w.code || w.codigo_unico || '').toUpperCase().includes(q) ||
+
+    // Requisito 4: Si el término buscado incluye un guion (ej. T-, A- o Y-),
+    // el filtro debe aplicarse exclusiva y estrictamente sobre el campo del código, ignorando el título
+    if (q.includes('-')) {
+      return items.filter((w) => {
+        const itemCode = (
+          w.code ||
+          w.codigo_unico ||
+          (w as any).codigo ||
+          (w as any).codigo_prenda ||
+          w.identificador ||
+          ''
+        ).toUpperCase().trim();
+        return itemCode.includes(q);
+      });
+    }
+
+    // Búsqueda regular por código, nombre o categoría
+    return items.filter((w) => {
+      const itemCode = (
+        w.code ||
+        w.codigo_unico ||
+        (w as any).codigo ||
+        (w as any).codigo_prenda ||
+        w.identificador ||
+        ''
+      ).toUpperCase().trim();
+
+      return (
+        itemCode.includes(q) ||
         (w.name || '').toUpperCase().includes(q) ||
         (w.category || '').toUpperCase().includes(q)
-    );
-  }, [wardrobe, searchQuery, selectedCategoryFilter]);
+      );
+    });
+  }, [supabaseActiveCatalog, wardrobe, searchQuery, selectedCategoryFilter]);
 
   // Sumatorios Automáticos de Prendas en el Pack
   const autoCalculatedTotalRentalCents = useMemo(() => {
@@ -129,12 +226,22 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
       setCustomPriceSoles(autoRentalSoles);
       setPaidTotalSoles(autoRentalSoles);
     }
+<<<<<<< HEAD
+=======
+    if (!isGuaranteeCustomized) {
+      setCustomGuaranteeSoles(autoGuaranteeSoles);
+    }
+>>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
     // Sugerir un adelanto del 50% aprox
     const totalNum = parseFloat(isPriceCustomized ? customPriceSoles : autoRentalSoles) || 0;
     const suggestedAdvance = Math.round(totalNum * 0.5);
     setAdvanceSoles(suggestedAdvance > 0 ? String(suggestedAdvance) : '50');
+<<<<<<< HEAD
   }, [selectedItems, autoCalculatedTotalRentalCents, isPriceCustomized]);
+=======
+  }, [selectedItems, autoCalculatedTotalRentalCents, autoCalculatedTotalGuaranteeCents, isPriceCustomized, isGuaranteeCustomized]);
+>>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
   // Funciones para agregar y quitar prendas del carrito
   const handleAddItemToPack = (item: WardrobeItem) => {
@@ -566,7 +673,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
               <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider block">
                 Resultados del Catálogo ({filteredCatalogItems.length} disponibles):
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 max-h-48 overflow-y-auto p-1 bg-[#101010] rounded-xl border border-neutral-800">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-1 bg-[#101010] rounded-xl border border-neutral-800">
                 {filteredCatalogItems.length === 0 ? (
                   <div className="col-span-full py-6 text-center text-xs text-neutral-500">
                     No se encontraron prendas con el término especificado.
@@ -579,33 +686,40 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                     return (
                       <div
                         key={item.id}
-                        className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-2 ${
+                        className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
                           isAlreadySelected
                             ? 'bg-neutral-900/90 border-[#C8A45C]/60 opacity-80'
                             : 'bg-[#161616] border-neutral-800 hover:border-neutral-700'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          {item.images && item.images.length > 0 ? (
-                            <img
-                              src={item.images[0]}
-                              alt={item.name}
-                              className="w-10 h-10 object-cover rounded-lg border border-neutral-800 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-neutral-800 border border-neutral-700 flex items-center justify-center text-[#C8A45C] shrink-0">
-                              <Shirt className="w-5 h-5 opacity-50" />
-                            </div>
-                          )}
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {/* Fotografía Real de la Prenda */}
+                          <img
+                            src={
+                              item.image_url ||
+                              ((item as any).images && (item as any).images[0]) ||
+                              'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'
+                            }
+                            alt={item.name}
+                            className="w-16 h-20 sm:w-20 sm:h-24 object-cover rounded-md border border-gray-700 flex-shrink-0 bg-neutral-900"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src =
+                                'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80';
+                            }}
+                          />
                           <div className="min-w-0 flex-1">
                             <span className="text-[10px] font-mono font-bold text-[#E6C875] block truncate">
                               {code}
                             </span>
-                            <span className="text-xs font-semibold text-white block truncate" title={item.name}>
+                            <span className="text-xs font-semibold text-white block truncate line-clamp-2" title={item.name}>
                               {item.name}
                             </span>
-                            <span className="text-[10px] text-neutral-400 block truncate">
-                              Talla: {item.size || 'M'} · {formatSoles(item.rental_price_cents)}
+                            <span className="text-[10px] text-neutral-400 block truncate mt-0.5">
+                              Talla: <strong className="text-neutral-200">{item.size || 'M'}</strong>
+                            </span>
+                            <span className="text-[11px] font-bold text-[#E6C875] font-mono block mt-0.5">
+                              {formatSoles(item.rental_price_cents)}
                             </span>
                           </div>
                         </div>
@@ -674,27 +788,31 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                         key={item.id}
                         className="p-3 rounded-2xl bg-gradient-to-br from-[#1C1812] to-[#121212] border border-[#C8A45C]/50 relative space-y-2 shadow-md group"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
-                            {item.images && item.images.length > 0 ? (
-                              <img
-                                src={item.images[0]}
-                                alt={item.name}
-                                className="w-12 h-12 object-cover rounded-xl border border-[#C8A45C]/30 shrink-0"
-                              />
-                            ) : (
-                              <div className="w-12 h-12 rounded-xl bg-neutral-800 border border-neutral-700 flex items-center justify-center text-[#C8A45C] shrink-0">
-                                <Shirt className="w-6 h-6 text-[#C8A45C]" />
-                              </div>
-                            )}
-                            <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-2.5 min-w-0">
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                            {/* Fotografía Real de la Prenda */}
+                            <img
+                              src={
+                                item.image_url ||
+                                ((item as any).images && (item as any).images[0]) ||
+                                'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80'
+                              }
+                              alt={item.name}
+                              className="w-16 h-20 sm:w-20 sm:h-24 object-cover rounded-md border border-gray-700 flex-shrink-0 bg-neutral-900"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src =
+                                  'https://images.unsplash.com/photo-1594938298603-c8148c4dae35?auto=format&fit=crop&w=600&q=80';
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40 inline-block font-mono">
                                 #{idx + 1} · {code}
                               </span>
-                              <h4 className="text-xs font-bold text-white truncate mt-0.5" title={item.name}>
+                              <h4 className="text-xs font-bold text-white truncate line-clamp-2 mt-0.5" title={item.name}>
                                 {item.name}
                               </h4>
-                              <span className="text-[10px] text-neutral-400 block">
+                              <span className="text-[10px] text-neutral-400 block truncate mt-0.5">
                                 Talla: <strong className="text-white">{item.size || 'M'}</strong> · Color: {item.color || 'Variado'}
                               </span>
                             </div>
@@ -703,7 +821,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                           <button
                             type="button"
                             onClick={() => handleRemoveItemFromPack(item.id)}
-                            className="p-1 rounded-lg bg-neutral-900 hover:bg-red-950 text-neutral-400 hover:text-red-400 border border-neutral-800 hover:border-red-800/80 transition cursor-pointer"
+                            className="p-1.5 rounded-lg bg-neutral-900 hover:bg-red-950 text-neutral-400 hover:text-red-400 border border-neutral-800 hover:border-red-800/80 transition cursor-pointer flex-shrink-0"
                             title="Quitar prenda del pack"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -754,7 +872,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                 {/* Tarifa Final Acordada de Alquiler */}
                 <div className="p-3.5 rounded-xl bg-[#C8A45C]/10 border border-[#C8A45C]/60 space-y-1">
                   <label className="text-[10px] font-bold text-[#E6C875] uppercase tracking-wider block">
-                    Precio Final Alquiler Pack (S/)
+                    PRECIO FINAL ALQUILER PACK (S/)
                   </label>
                   <input
                     type="number"
@@ -771,6 +889,28 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                     {isPriceCustomized ? 'Tarifa personalizada' : 'Automático'}
                   </span>
                 </div>
+<<<<<<< HEAD
+=======
+
+                {/* Garantía a Recibir */}
+                <div className="p-3 rounded-xl bg-black/40 border border-neutral-800 space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-300 uppercase tracking-wider block">
+                    GARANTÍA A RECIBIR (S/)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={customGuaranteeSoles}
+                    onChange={(e) => {
+                      setCustomGuaranteeSoles(e.target.value);
+                      setIsGuaranteeCustomized(true);
+                    }}
+                    className="w-full bg-[#111] border border-neutral-700 rounded-lg px-2 py-1 text-center font-bold text-amber-300 font-mono text-base focus:outline-none"
+                  />
+                  <span className="text-[9px] text-neutral-400 block">Reembolsable contra retorno</span>
+                </div>
+>>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
               </div>
             </div>
           </div>
