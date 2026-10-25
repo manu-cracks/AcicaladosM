@@ -215,7 +215,8 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
       }
       finalAdvanceCents = Math.round(advanceSolesNum * 100);
       finalPendingCents = Math.round(pendingBalanceSoles * 100);
-      finalGuaranteeCents = selectedWardrobeItem.deposit_cents || 5000;
+      // Para la etapa de reserva, la garantía queda en 0 y se habilita al momento de entrega
+      finalGuaranteeCents = 0;
     }
 
     setIsSubmitting(true);

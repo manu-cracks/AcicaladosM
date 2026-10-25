@@ -321,11 +321,6 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
       msg += `*Adelanto Recibido:* ${formatSolesSafe(displayAdelantoCents)}\n`;
       msg += `*Saldo Pendiente:* ${formatSolesSafe(displaySaldoPendienteCents)}\n`;
-      if (isWebMode) {
-        msg += `\n_⚠️ IMPORTANTE: Al recoger la prenda se deberá abonar el saldo pendiente y una garantía reembolsable que será fijada en el local._\n`;
-      } else {
-        msg += `\n_⚠️ IMPORTANTE: El día del recojo se abonará una garantía de ${formatSolesSafe(guaranteeCents)}, reembolsable al devolver la prenda intacta._\n`;
-      }
     }
 
     msg += `\n¡Gracias por su preferencia! ✨\nSpa Acicalados Barber Shop`;
@@ -714,63 +709,48 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
 
               {/* ============================================================ */}
               {/* BLOQUE DINÁMICO DE AVISO DE GARANTÍA SEGÚN REGLAS DE NEGOCIO  */}
+              {/* Oculto completamente en estado 'Reservado'                   */}
               {/* ============================================================ */}
-              <div className="mt-2 p-1.5 border border-dashed border-neutral-400 bg-neutral-50 text-[10px] leading-snug space-y-1">
-                <div className="font-bold text-center text-[10px] uppercase tracking-wider text-black">
-                  *** AVISO DE GARANTÍA ***
-                </div>
+              {!isReservado && (
+                <div className="mt-2 p-1.5 border border-dashed border-neutral-400 bg-neutral-50 text-[10px] leading-snug space-y-1">
+                  <div className="font-bold text-center text-[10px] uppercase tracking-wider text-black">
+                    *** AVISO DE GARANTÍA ***
+                  </div>
 
-                {isAnulado ? (
-                  <div className="text-center font-bold text-red-600 space-y-0.5">
-                    <p className="tracking-wide">*** ORDEN ANULADA ***</p>
-                    <p className="font-normal text-neutral-700">
-                      Esta orden ha sido anulada. Todos los saldos y garantías quedan sin efecto.
-                    </p>
-                    {rental.rejection_reason && (
-                      <p className="text-[9px] text-neutral-600 italic">
-                        Motivo: {rental.rejection_reason}
+                  {isAnulado ? (
+                    <div className="text-center font-bold text-red-600 space-y-0.5">
+                      <p className="tracking-wide">*** ORDEN ANULADA ***</p>
+                      <p className="font-normal text-neutral-700">
+                        Esta orden ha sido anulada. Todos los saldos y garantías quedan sin efecto.
                       </p>
-                    )}
-                  </div>
-                ) : isWebMode && isReservado ? (
-                  <div className="text-neutral-900">
-                    ⚠️ IMPORTANTE: Al recoger la prenda se deberá abonar el saldo pendiente y
-                    una garantía reembolsable que será fijada en el local.
-                  </div>
-                ) : !isWebMode && isReservado ? (
-                  <div className="space-y-1 text-neutral-900">
-                    <div>
-                      ⚠️ IMPORTANTE: El día del recojo del vestido se deberá abonar una
-                      garantía de {formatSolesSafe(guaranteeCents)}, la cual será
-                      reembolsada al devolver la prenda.
+                      {rental.rejection_reason && (
+                        <p className="text-[9px] text-neutral-600 italic">
+                          Motivo: {rental.rejection_reason}
+                        </p>
+                      )}
                     </div>
-                    <div className="text-neutral-700">
-                      El día del recojo del vestido se deberá abonar una garantía de{' '}
-                      {formatSolesSafe(guaranteeCents)}, la cual será reembolsada al
-                      devolver la prenda en óptimas condiciones.
+                  ) : !isWebMode && isEntregado ? (
+                    <div className="text-neutral-900 font-medium">
+                      ⚠️ GARANTÍA EN CUSTODIA: El monto está protegido por la tienda y se
+                      reembolsará contra entrega de la prenda intacta.
                     </div>
-                  </div>
-                ) : !isWebMode && isEntregado ? (
-                  <div className="text-neutral-900 font-medium">
-                    ⚠️ GARANTÍA EN CUSTODIA: El monto está protegido por la tienda y se
-                    reembolsará contra entrega de la prenda intacta.
-                  </div>
-                ) : !isWebMode && isFinalizado ? (
-                  <div className="space-y-0.5 text-center text-neutral-900 font-semibold">
-                    <div className="text-emerald-700 font-bold uppercase tracking-wider">
-                      GARANTÍA DEVUELTA AL CLIENTE
+                  ) : !isWebMode && isFinalizado ? (
+                    <div className="space-y-0.5 text-center text-neutral-900 font-semibold">
+                      <div className="text-emerald-700 font-bold uppercase tracking-wider">
+                        GARANTÍA DEVUELTA AL CLIENTE
+                      </div>
+                      <div className="text-[9px] text-neutral-700 font-normal">
+                        Prenda retornada satisfactoriamente. Liquidación de garantía efectuada
+                        en tienda.
+                      </div>
                     </div>
-                    <div className="text-[9px] text-neutral-700 font-normal">
-                      Prenda retornada satisfactoriamente. Liquidación de garantía efectuada
-                      en tienda.
+                  ) : (
+                    <div className="text-neutral-800">
+                      Consulte en el mostrador para la liquidación de la garantía de esta prenda.
                     </div>
-                  </div>
-                ) : (
-                  <div className="text-neutral-800">
-                    Consulte en el mostrador para la liquidación de la garantía de esta prenda.
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Separador - */}
@@ -784,7 +764,9 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                 TÉRMINOS Y CONDICIONES GENERALES:
               </div>
               <div>
-                1. Manchas severas, roturas o quemaduras serán descontadas del monto de la garantía.
+                {isReservado
+                  ? '1. Las prendas deben entregarse y devolverse en óptimas condiciones.'
+                  : '1. Manchas severas, roturas o quemaduras serán descontadas del monto de la garantía.'}
               </div>
               <div>
                 2. La demora en la devolución incurrirá en una mora diaria.

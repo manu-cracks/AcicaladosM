@@ -80,7 +80,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [isImmediateDelivery, setIsImmediateDelivery] = useState(false);
   const [advanceSoles, setAdvanceSoles] = useState<string>('100');
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('');
-  const [customGuaranteeSoles, setCustomGuaranteeSoles] = useState<string>('');
+  const [immediateGuaranteeSoles, setImmediateGuaranteeSoles] = useState<string>('50');
 
   // Retroalimentación
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -121,26 +121,20 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
     return selectedItems.reduce((acc, item) => acc + (item.rental_price_cents || 0), 0);
   }, [selectedItems]);
 
-  const autoCalculatedTotalGuaranteeCents = useMemo(() => {
-    return selectedItems.reduce((acc, item) => acc + (item.deposit_cents || 5000), 0);
-  }, [selectedItems]);
-
-  // Actualizar precio de alquiler y garantía al modificar prendas si no está personalizado
+  // Actualizar precio de alquiler al modificar prendas si no está personalizado
   useEffect(() => {
     const autoRentalSoles = (autoCalculatedTotalRentalCents / 100).toFixed(0);
-    const autoGuaranteeSoles = (autoCalculatedTotalGuaranteeCents / 100).toFixed(0);
 
     if (!isPriceCustomized) {
       setCustomPriceSoles(autoRentalSoles);
       setPaidTotalSoles(autoRentalSoles);
     }
-    setCustomGuaranteeSoles(autoGuaranteeSoles);
 
     // Sugerir un adelanto del 50% aprox
     const totalNum = parseFloat(isPriceCustomized ? customPriceSoles : autoRentalSoles) || 0;
     const suggestedAdvance = Math.round(totalNum * 0.5);
     setAdvanceSoles(suggestedAdvance > 0 ? String(suggestedAdvance) : '50');
-  }, [selectedItems, autoCalculatedTotalRentalCents, autoCalculatedTotalGuaranteeCents, isPriceCustomized]);
+  }, [selectedItems, autoCalculatedTotalRentalCents, isPriceCustomized]);
 
   // Funciones para agregar y quitar prendas del carrito
   const handleAddItemToPack = (item: WardrobeItem) => {
@@ -256,15 +250,12 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
     let finalGuaranteeCents = 0;
     const finalPriceCents = Math.round(effectiveTotalPriceSolesNum * 100);
 
-    const parsedGuarantee = parseFloat(customGuaranteeSoles);
-    finalGuaranteeCents = isNaN(parsedGuarantee) || parsedGuarantee < 0
-      ? autoCalculatedTotalGuaranteeCents
-      : Math.round(parsedGuarantee * 100);
-
     if (isImmediateDelivery) {
       const paidNum = parseFloat(paidTotalSoles);
+      const guarNum = parseFloat(immediateGuaranteeSoles);
       finalAdvanceCents = Math.round((isNaN(paidNum) ? effectiveTotalPriceSolesNum : paidNum) * 100);
       finalPendingCents = 0;
+      finalGuaranteeCents = isNaN(guarNum) || guarNum < 0 ? 0 : Math.round(guarNum * 100);
     } else {
       if (isNaN(advanceSolesNum) || advanceSolesNum < 0) {
         setValidationError('Por favor ingresa un monto de adelanto válido (puede ser 0).');
@@ -272,6 +263,8 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
       }
       finalAdvanceCents = Math.round(advanceSolesNum * 100);
       finalPendingCents = Math.round(pendingBalanceSoles * 100);
+      // Para la etapa de reserva inicial, la garantía queda en 0 y se habilita al recoger la prenda
+      finalGuaranteeCents = 0;
     }
 
     setIsSubmitting(true);
@@ -287,7 +280,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
         size: it.size || 'M',
         color: it.color || 'Variado',
         price_cents: it.rental_price_cents,
-        deposit_cents: it.deposit_cents || 5000,
+        deposit_cents: it.deposit_cents || 0,
       }));
 
       const created = await addDressRental({
@@ -675,7 +668,6 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {selectedItems.map((item, idx) => {
                     const code = (item.code || item.codigo_unico || 'S/C').toUpperCase();
-                    const depositVal = item.deposit_cents || 5000;
 
                     return (
                       <div
@@ -722,8 +714,8 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                           <span className="text-neutral-400">
                             Alquiler: <strong className="text-emerald-400">{formatSoles(item.rental_price_cents)}</strong>
                           </span>
-                          <span className="text-neutral-400">
-                            Garantía: <strong className="text-amber-400">{formatSoles(depositVal)}</strong>
+                          <span className="text-[10px] text-neutral-500 font-sans">
+                            Prenda incluida
                           </span>
                         </div>
                       </div>
@@ -745,29 +737,22 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
                 {/* Costo Total del Alquiler */}
-                <div className="p-3 rounded-xl bg-black/40 border border-neutral-800 space-y-1">
+                <div className="p-3.5 rounded-xl bg-black/40 border border-neutral-800 space-y-1">
                   <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block">
                     Costo Total Alquiler (Sumado)
                   </span>
-                  <span className="text-lg font-serif-luxury font-bold text-white block">
+                  <span className="text-xl font-serif-luxury font-bold text-white block">
                     {formatSoles(autoCalculatedTotalRentalCents)}
                   </span>
-                </div>
-
-                {/* Garantía Total (Sumada) */}
-                <div className="p-3 rounded-xl bg-black/40 border border-amber-800/40 space-y-1">
-                  <span className="text-[10px] font-semibold text-amber-300 uppercase tracking-wider block">
-                    Garantía Total (Sumada)
-                  </span>
-                  <span className="text-lg font-serif-luxury font-bold text-amber-300 block">
-                    {formatSoles(autoCalculatedTotalGuaranteeCents)}
+                  <span className="text-[9px] text-neutral-500 block">
+                    Suma base de las prendas seleccionadas
                   </span>
                 </div>
 
                 {/* Tarifa Final Acordada de Alquiler */}
-                <div className="p-3 rounded-xl bg-[#C8A45C]/10 border border-[#C8A45C]/60 space-y-1">
+                <div className="p-3.5 rounded-xl bg-[#C8A45C]/10 border border-[#C8A45C]/60 space-y-1">
                   <label className="text-[10px] font-bold text-[#E6C875] uppercase tracking-wider block">
                     Precio Final Alquiler Pack (S/)
                   </label>
@@ -785,22 +770,6 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                   <span className="text-[9px] text-neutral-400 block">
                     {isPriceCustomized ? 'Tarifa personalizada' : 'Automático'}
                   </span>
-                </div>
-
-                {/* Garantía a Recibir */}
-                <div className="p-3 rounded-xl bg-black/40 border border-neutral-800 space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 uppercase tracking-wider block">
-                    Garantía a Recibir (S/)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={customGuaranteeSoles}
-                    onChange={(e) => setCustomGuaranteeSoles(e.target.value)}
-                    className="w-full bg-[#111] border border-neutral-700 rounded-lg px-2 py-1 text-center font-bold text-amber-300 font-mono text-base focus:outline-none"
-                  />
-                  <span className="text-[9px] text-neutral-400 block">Reembolsable contra retorno</span>
                 </div>
               </div>
             </div>
@@ -914,44 +883,38 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
 
             {/* Detalle Financiero según modalidad */}
             {!isImmediateDelivery ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
-                <div>
-                  <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Monto de Adelanto Recibido Hoy (S/)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={advanceSoles}
-                    onChange={(e) => setAdvanceSoles(e.target.value)}
-                    className="w-full bg-[#111] border border-[#C8A45C]/60 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
-                  />
-                  <span className="text-[10px] text-neutral-500 block mt-0.5">Para apartar el pack</span>
+              <div className="space-y-3 animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
+                  <div>
+                    <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                      Monto de Adelanto Recibido Hoy (S/)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={advanceSoles}
+                      onChange={(e) => setAdvanceSoles(e.target.value)}
+                      className="w-full bg-[#111] border border-[#C8A45C]/60 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                    />
+                    <span className="text-[10px] text-neutral-500 block mt-0.5">Para apartar el pack</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                      Saldo Pendiente al Retirar
+                    </span>
+                    <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-amber-400 font-mono">
+                      S/ {pendingBalanceSoles.toFixed(2)}
+                    </div>
+                    <span className="text-[10px] text-neutral-500 block mt-0.5">Total Alquiler - Adelanto</span>
+                  </div>
                 </div>
 
-                <div>
-                  <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Saldo Pendiente al Retirar
-                  </span>
-                  <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-blue-300 font-mono">
-                    S/ {pendingBalanceSoles.toFixed(2)}
-                  </div>
-                  <span className="text-[10px] text-neutral-500 block mt-0.5">Total Alquiler - Adelanto</span>
-                </div>
-
-                <div>
-                  <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Garantía Total en Custodia (Al Entregar)
-                  </span>
-                  <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 font-mono">
-                    S/ {(parseFloat(customGuaranteeSoles) || 0).toFixed(2)}
-                  </div>
-                  <span className="text-[10px] text-neutral-500 block mt-0.5">Reembolsable en la devolución</span>
-                </div>
+                <div className="text-amber-500 bg-amber-500/10 p-2 rounded-md">⚠️ Nota: El pago de Garantía se habilitará en el sistema el día que el cliente recoja el vestido.</div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
                 <div>
                   <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
                     Total Alquiler Cobrado 100% Hoy (S/)
@@ -968,12 +931,18 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                 </div>
 
                 <div>
-                  <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Garantía Total Recibida Hoy en Custodia
-                  </span>
-                  <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 font-mono">
-                    S/ {(parseFloat(customGuaranteeSoles) || 0).toFixed(2)}
-                  </div>
+                  <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                    Garantía Total Recibida Hoy en Custodia (S/)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={immediateGuaranteeSoles}
+                    onChange={(e) => setImmediateGuaranteeSoles(e.target.value)}
+                    placeholder="50"
+                    className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 focus:outline-none"
+                  />
                   <span className="text-[10px] text-neutral-500 block mt-0.5">En custodia hasta retorno de prendas</span>
                 </div>
               </div>
@@ -1017,7 +986,9 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                   ? 'Conflicto de fecha detectado'
                   : !eventDate
                   ? 'Selecciona fecha en el calendario'
-                  : `Confirmar Reserva del Pack (${selectedItems.length} prendas)`}
+                  : isImmediateDelivery
+                  ? `Confirmar Entrega Inmediata (${selectedItems.length} prendas)`
+                  : `Guardar como Reservado (${selectedItems.length} prendas)`}
               </span>
             </button>
           </div>
