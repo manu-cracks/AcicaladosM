@@ -67,6 +67,7 @@ function formatPickupDate(dateStr?: string | null): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('es-PE', {
+    timeZone: 'America/Lima',
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -78,6 +79,7 @@ function formatShortPickupDate(dateStr?: string | null): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('es-PE', {
+    timeZone: 'America/Lima',
     day: 'numeric',
     month: 'short',
   });

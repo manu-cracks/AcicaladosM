@@ -28,15 +28,24 @@ export interface DressRentalTicketModalProps {
   defaultModista?: string;
 }
 
-/** Formateo estricto para fechas tipo YYYY-MM-DD a DD/MM/YYYY */
+/** Formateo estricto para fechas en zona horaria oficial America/Lima (DD/MM/YYYY) */
 function formatDateSlash(dateStr?: string | null): string {
   if (!dateStr) return '';
-  const clean = String(dateStr).split('T')[0];
-  const parts = clean.split('-');
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  // Si la cadena ya es una fecha pura YYYY-MM-DD sin hora, preservar día exacto
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
   }
-  return clean;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    // Extraer en la zona horaria oficial America/Lima (UTC-5) para evitar desfase de día
+    const limaDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    const [y, m, day] = limaDateStr.split('-');
+    return `${day}/${m}/${y}`;
+  } catch {
+    return String(dateStr);
+  }
 }
 
 /** Extracción del primer nombre con split(' ')[0] en mayúsculas */
@@ -307,8 +316,8 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*ORDEN ANULADA*: Esta orden ha sido cancelada.\n`;
     } else if (isEntregado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
-      msg += `*F. Reserva (${formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):* Adelanto ${formatSolesSafe(displayAdelantoCents)}\n`;
-      msg += `*F. Recojo (${formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):* Saldo Pagado ${formatSolesSafe(saldoPagadoCents)}\n`;
+      msg += `*F. Reserva (${formatDateSlash(rental.created_at)}):* Adelanto ${formatSolesSafe(displayAdelantoCents)}\n`;
+      msg += `*F. Recojo (${formatDateSlash(rental.fecha_entrega || rental.delivery_date)}):* Saldo Pagado ${formatSolesSafe(saldoPagadoCents)}\n`;
       msg += `*Saldo Pendiente:* S/ 0.00 (Cancelado)\n`;
       msg += `*Garantía en Custodia:* ${formatSolesSafe(guaranteeCents)}\n`;
       msg += `_(Garantía protegida por la tienda, reembolsable contra entrega de prenda intacta)_\n`;
@@ -664,13 +673,13 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                 {isEntregado ? (
                   <div className="pt-0.5 space-y-0.5 border-t border-dotted border-neutral-300 mt-1">
                     <div className="flex justify-between items-baseline text-[10px]">
-                      <span>F. RESERVA ({formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):</span>
+                      <span>F. RESERVA ({formatDateSlash(rental.created_at)}):</span>
                       <span className="font-mono font-semibold">
                         ADELANTO {formatSolesSafe(displayAdelantoCents)}
                       </span>
                     </div>
                     <div className="flex justify-between items-baseline text-[10px] font-bold text-black">
-                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):</span>
+                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date)}):</span>
                       <span className="font-mono">
                         SALDO {formatSolesSafe(saldoPagadoCents)}
                       </span>
@@ -679,13 +688,13 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                 ) : isFinalizado ? (
                   <div className="pt-0.5 space-y-0.5 border-t border-dotted border-neutral-300 mt-1">
                     <div className="flex justify-between items-baseline text-[10px]">
-                      <span>F. RESERVA ({formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):</span>
+                      <span>F. RESERVA ({formatDateSlash(rental.created_at)}):</span>
                       <span className="font-mono font-semibold">
                         ADELANTO {formatSolesSafe(displayAdelantoCents)}
                       </span>
                     </div>
                     <div className="flex justify-between items-baseline text-[10px]">
-                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):</span>
+                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date)}):</span>
                       <span className="font-mono font-semibold">
                         SALDO {formatSolesSafe(saldoPagadoCents)}
                       </span>
