@@ -403,23 +403,41 @@ export function calculateFinancialMetrics(params: {
     dressRentals.forEach((r) => {
       if (r.status === 'anulado') return;
 
-      // a) Cobros Base por alquiler en la fecha consultada
-      const baseDate = getLimaDateFromTimestamp(r.created_at || r.fecha_emision_ticket || '');
-      const isBaseInRange = isExact && exactDate
-        ? baseDate === exactDate
-        : Boolean(startDate && endDate && baseDate >= startDate && baseDate <= endDate);
+      // a) Separación temporal de ingresos: Adelanto (día de reserva) vs. Saldo (día de entrega/recojo)
+      // 1. Ingreso de Adelanto: Se computa en la fecha en que se creó la reserva
+      const creationDate = getLimaDateFromTimestamp(r.created_at || r.fecha_emision_ticket || '');
+      const isCreationInRange = isExact && exactDate
+        ? creationDate === exactDate
+        : Boolean(startDate && endDate && creationDate >= startDate && creationDate <= endDate);
 
-      let cobradoBase = 0;
-      if (isBaseInRange) {
-        if (r.status === 'entregado' || r.status === 'finalizado') {
-          cobradoBase = r.rental_price_cents || 0;
+      let adelantoCobrado = 0;
+      if (isCreationInRange) {
+        if (r.is_immediate_delivery) {
+          adelantoCobrado = r.rental_price_cents || 0;
         } else {
-          // Para 'reservado' o 'por_validar'
-          cobradoBase = (r.advance_cents && r.advance_cents > 0)
-            ? r.advance_cents
-            : (r.is_immediate_delivery ? (r.rental_price_cents || 0) : 0);
+          adelantoCobrado = r.advance_cents || 0;
         }
       }
+
+      // 2. Ingreso de Saldo restante: Se computa en la fecha de entrega / recojo (fecha_entrega)
+      let saldoCobrado = 0;
+      const isDeliveredOrFinalized = r.status === 'entregado' || r.status === 'finalizado';
+      const pickupTimestamp = r.fecha_entrega || r.delivery_date;
+
+      if (isDeliveredOrFinalized && pickupTimestamp && !r.is_immediate_delivery) {
+        const pickupDate = getLimaDateFromTimestamp(pickupTimestamp);
+        const isPickupInRange = isExact && exactDate
+          ? pickupDate === exactDate
+          : Boolean(startDate && endDate && pickupDate >= startDate && pickupDate <= endDate);
+
+        if (isPickupInRange) {
+          const totalAlquiler = r.rental_price_cents || 0;
+          const adelantoInicial = r.advance_cents || 0;
+          saldoCobrado = Math.max(0, totalAlquiler - adelantoInicial);
+        }
+      }
+
+      const cobradoBase = adelantoCobrado + saldoCobrado;
 
       // b) Garantías Retenidas (Regla estricta de exclusión de custodia):
       // Las garantías en custodia (ej. guarantee_cents mientras está reservado/entregado) NO se consideran ingresos.
@@ -447,7 +465,7 @@ export function calculateFinancialMetrics(params: {
       }
 
       const totalItemCents = cobradoBase + retencionCobrada;
-      if (totalItemCents > 0 || isBaseInRange) {
+      if (totalItemCents > 0 || isCreationInRange) {
         vestuarioCents += totalItemCents;
         vestuarioCount += 1;
         filteredDressRentals.push(r);

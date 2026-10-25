@@ -62,6 +62,27 @@ import { DressRentalTicketModal } from './vestuario/DressRentalTicketModal';
 // ==========================================
 // LAS 5 CATEGORÍAS OFICIALES EXACTAS
 // ==========================================
+function formatPickupDate(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('es-PE', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatShortPickupDate(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('es-PE', {
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
 export const EVENT_CATEGORIES: WardrobeCategory[] = [
   'Bodas y Matrimonio',
   'Quinceañeras',
@@ -1273,15 +1294,16 @@ export const VestuarioManager: React.FC = () => {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-[#181818] border-b border-neutral-800 text-neutral-400 uppercase tracking-wider text-[10px] font-bold">
-                      <th className="py-3.5 px-4">#Orden</th>
-                      <th className="py-3.5 px-4">Cliente y Evento</th>
-                      <th className="py-3.5 px-4">Prenda / Vestido</th>
-                      <th className="py-3.5 px-4">Origen</th>
-                      <th className="py-3.5 px-4">Modista</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap">Monto Total</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap">Adelanto</th>
-                      <th className="py-3.5 px-4">Estado & Finanzas</th>
-                      <th className="py-3.5 px-4 text-right">Acción Disponible</th>
+                      <th className="py-3.5 px-3 sm:px-4">#Orden</th>
+                      <th className="py-3.5 px-3 sm:px-4">Cliente y Evento</th>
+                      <th className="py-3.5 px-3 sm:px-4">Prenda / Vestido</th>
+                      <th className="py-3.5 px-3 sm:px-4">Origen</th>
+                      <th className="py-3.5 px-3 sm:px-4">Modista</th>
+                      <th className="py-3.5 px-3 sm:px-4 whitespace-nowrap">Monto Total</th>
+                      <th className="py-3.5 px-3 sm:px-4 whitespace-nowrap">Adelanto</th>
+                      <th className="py-3.5 px-3 sm:px-4 whitespace-nowrap">Recojo & Saldo</th>
+                      <th className="py-3.5 px-3 sm:px-4">Estado & Finanzas</th>
+                      <th className="py-3.5 px-3 sm:px-4 text-right">Acción Disponible</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-800/60">
@@ -1406,13 +1428,46 @@ export const VestuarioManager: React.FC = () => {
                           </td>
 
                           {/* 2. ADELANTO */}
-                          <td className="py-4 px-4 align-top whitespace-nowrap">
+                          <td className="py-4 px-3 sm:px-4 align-top whitespace-nowrap">
                             <div className="font-mono font-bold text-xs text-[#E6C875]">
                               {formatSoles(rental?.advance_cents ?? 0)}
                             </div>
                             <span className="text-[10px] text-neutral-400 block mt-0.5">
                               {rental?.is_immediate_delivery ? 'Pago total' : 'Adelanto / Seña'}
                             </span>
+                          </td>
+
+                          {/* 3. RECOJO & SALDO */}
+                          <td className="py-4 px-3 sm:px-4 align-top whitespace-nowrap">
+                            {isReservado || isPendingValidate ? (
+                              <span className="text-[11px] text-neutral-500 italic block mt-0.5">
+                                Pendiente de recojo
+                              </span>
+                            ) : isEntregado || isFinalizado ? (
+                              <div className="space-y-0.5">
+                                <div className="text-[11px] text-neutral-300 font-medium">
+                                  Recogido:{' '}
+                                  <span className="text-white font-semibold">
+                                    {formatPickupDate(rental.fecha_entrega || rental.delivery_date) ||
+                                      formatPickupDate(rental.updated_at || rental.created_at)}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-emerald-400 font-mono font-bold">
+                                  Saldo pagado:{' '}
+                                  <span>
+                                    {formatSoles(
+                                      rental.is_immediate_delivery
+                                        ? 0
+                                        : Math.max(0, (rental.rental_price_cents || 0) - (rental.advance_cents || 0))
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-neutral-600 italic block mt-0.5">
+                                —
+                              </span>
+                            )}
                           </td>
 
                           {/* Estado & Finanzas */}
@@ -1456,7 +1511,15 @@ export const VestuarioManager: React.FC = () => {
                                   <span>Saldo: <strong className="text-blue-300">{formatSoles(rental.pending_cents)}</strong></span>
                                 )}
                                 {isEntregado && (
-                                  <span>Garantía: <strong className="text-emerald-300">{formatSoles(rental.guarantee_cents)}</strong></span>
+                                  <div>
+                                    <span>Garantía: <strong className="text-emerald-300">{formatSoles(rental.guarantee_cents)}</strong></span>
+                                    <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-800/40 w-fit">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                                      <span>
+                                        {formatShortPickupDate(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}
+                                      </span>
+                                    </div>
+                                  </div>
                                 )}
                                 {isFinalizado && (
                                   <span className="text-neutral-500">Devolución cerrada</span>

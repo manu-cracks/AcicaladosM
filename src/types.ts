@@ -118,6 +118,7 @@ export interface DressRental {
   penalty_reason?: string | null;
   is_immediate_delivery: boolean;
   delivery_date?: string | null;
+  fecha_entrega?: string | null;
   actual_return_date?: string | null;
   voucher_url?: string | null;
   voucher_declared_amount_cents?: number | null;

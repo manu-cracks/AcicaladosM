@@ -220,7 +220,8 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
 
   // Cálculos dinámicos según estado (Fase 2)
   const displayTotalAlquilerCents = isAnulado ? 0 : totalAlquilerCents;
-  const displayAdelantoCents = isAnulado ? 0 : isEntregado || isFinalizado ? totalAlquilerCents : adelantoCents;
+  const displayAdelantoCents = isAnulado ? 0 : adelantoCents;
+  const saldoPagadoCents = Math.max(0, totalAlquilerCents - adelantoCents);
   const displaySaldoPendienteCents = isAnulado || isEntregado || isFinalizado ? 0 : pendingCents;
 
   // Correlativo y códigos
@@ -306,6 +307,8 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*ORDEN ANULADA*: Esta orden ha sido cancelada.\n`;
     } else if (isEntregado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
+      msg += `*F. Reserva (${formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):* Adelanto ${formatSolesSafe(displayAdelantoCents)}\n`;
+      msg += `*F. Recojo (${formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):* Saldo Pagado ${formatSolesSafe(saldoPagadoCents)}\n`;
       msg += `*Saldo Pendiente:* S/ 0.00 (Cancelado)\n`;
       msg += `*Garantía en Custodia:* ${formatSolesSafe(guaranteeCents)}\n`;
       msg += `_(Garantía protegida por la tienda, reembolsable contra entrega de prenda intacta)_\n`;
@@ -608,6 +611,12 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                   <span>F. Evento: {formatDateSlash(rental.event_date)}</span>
                   <span>F. Devolución: {formatDateSlash(rental.return_date)}</span>
                 </div>
+                {(isEntregado || isFinalizado) && (rental.fecha_entrega || rental.delivery_date) && (
+                  <div className="text-[10px] text-neutral-900 font-bold flex justify-between pt-0.5">
+                    <span>F. Recojo / Entrega:</span>
+                    <span>{formatDateSlash(rental.fecha_entrega || rental.delivery_date)}</span>
+                  </div>
+                )}
                 {isFinalizado && rental.actual_return_date && (
                   <div className="text-[10px] text-neutral-800">
                     F. Real Devolución:{' '}
@@ -651,12 +660,45 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                     {formatSolesSafe(displayTotalAlquilerCents)}
                   </span>
                 </div>
-                <div className="flex justify-between items-baseline font-semibold">
-                  <span>ADELANTO RECIBIDO:</span>
-                  <span className="font-mono">
-                    {formatSolesSafe(displayAdelantoCents)}
-                  </span>
-                </div>
+
+                {isEntregado ? (
+                  <div className="pt-0.5 space-y-0.5 border-t border-dotted border-neutral-300 mt-1">
+                    <div className="flex justify-between items-baseline text-[10px]">
+                      <span>F. RESERVA ({formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):</span>
+                      <span className="font-mono font-semibold">
+                        ADELANTO {formatSolesSafe(displayAdelantoCents)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline text-[10px] font-bold text-black">
+                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):</span>
+                      <span className="font-mono">
+                        SALDO {formatSolesSafe(saldoPagadoCents)}
+                      </span>
+                    </div>
+                  </div>
+                ) : isFinalizado ? (
+                  <div className="pt-0.5 space-y-0.5 border-t border-dotted border-neutral-300 mt-1">
+                    <div className="flex justify-between items-baseline text-[10px]">
+                      <span>F. RESERVA ({formatDateSlash(rental.created_at || rental.fecha_emision_ticket)}):</span>
+                      <span className="font-mono font-semibold">
+                        ADELANTO {formatSolesSafe(displayAdelantoCents)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline text-[10px]">
+                      <span>F. RECOJO ({formatDateSlash(rental.fecha_entrega || rental.delivery_date || rental.updated_at)}):</span>
+                      <span className="font-mono font-semibold">
+                        SALDO {formatSolesSafe(saldoPagadoCents)}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-baseline font-semibold">
+                    <span>ADELANTO RECIBIDO:</span>
+                    <span className="font-mono">
+                      {formatSolesSafe(displayAdelantoCents)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="text-center font-mono my-0.5 tracking-tight select-none overflow-hidden whitespace-nowrap text-neutral-900 font-semibold">
@@ -664,9 +706,9 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
               </div>
 
               <div className="flex justify-between items-baseline font-bold text-xs">
-                <span>SALDO PENDIENTE A COBRAR:</span>
+                <span>{isEntregado || isFinalizado ? 'SALDO PENDIENTE:' : 'SALDO PENDIENTE A COBRAR:'}</span>
                 <span className="font-mono">
-                  {formatSolesSafe(displaySaldoPendienteCents)}
+                  {isEntregado || isFinalizado ? 'S/ 0.00 (CANCELADO)' : formatSolesSafe(displaySaldoPendienteCents)}
                 </span>
               </div>
 

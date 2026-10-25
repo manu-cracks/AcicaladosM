@@ -481,6 +481,7 @@ export type Database = {
           client_phone: string
           created_at: string
           delivery_date: string | null
+          fecha_entrega: string | null
           destination: string
           event_date: string
           event_name: string
@@ -521,6 +522,7 @@ export type Database = {
           client_phone: string
           created_at?: string
           delivery_date?: string | null
+          fecha_entrega?: string | null
           destination: string
           event_date: string
           event_name: string
@@ -561,6 +563,7 @@ export type Database = {
           client_phone?: string
           created_at?: string
           delivery_date?: string | null
+          fecha_entrega?: string | null
           destination?: string
           event_date?: string
           event_name?: string

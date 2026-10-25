@@ -576,6 +576,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             penalty_reason: r.penalty_reason,
             is_immediate_delivery: r.is_immediate_delivery === true,
             delivery_date: r.delivery_date,
+            fecha_entrega: r.fecha_entrega || r.delivery_date || null,
             actual_return_date: r.actual_return_date,
             voucher_url: r.voucher_url,
             voucher_declared_amount_cents: r.voucher_declared_amount_cents,
@@ -4482,6 +4483,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           penalty_reason: data.penalty_reason || null,
           is_immediate_delivery: data.is_immediate_delivery,
           delivery_date: data.delivery_date || (data.is_immediate_delivery ? new Date().toISOString() : null),
+          fecha_entrega: data.fecha_entrega || data.delivery_date || (data.is_immediate_delivery ? new Date().toISOString() : null),
           actual_return_date: data.actual_return_date || null,
           voucher_url: data.voucher_url || null,
           voucher_declared_amount_cents: data.voucher_declared_amount_cents || null,
@@ -4533,6 +4535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           penalty_reason: raw.penalty_reason,
           is_immediate_delivery: raw.is_immediate_delivery,
           delivery_date: raw.delivery_date,
+          fecha_entrega: raw.fecha_entrega || raw.delivery_date || null,
           actual_return_date: raw.actual_return_date,
           voucher_url: raw.voucher_url,
           voucher_declared_amount_cents: raw.voucher_declared_amount_cents,
@@ -4699,12 +4702,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       guaranteeCollectedCents: number
     ): Promise<boolean> => {
       try {
+        const nowIso = new Date().toISOString();
         const updatePayload = {
           status: 'entregado' as DressRentalStatus,
           pending_cents: 0,
           guarantee_cents: guaranteeCollectedCents,
-          delivery_date: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          delivery_date: nowIso,
+          fecha_entrega: nowIso,
+          updated_at: nowIso,
         };
 
         setDressRentals((prev) =>
@@ -4713,7 +4718,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ? {
                   ...r,
                   ...updatePayload,
-                  advance_cents: r.advance_cents + balanceCollectedCents,
+                  // Preservar el advance_cents original para reflejar el adelanto de la fecha de reserva
                 }
               : r
           )
