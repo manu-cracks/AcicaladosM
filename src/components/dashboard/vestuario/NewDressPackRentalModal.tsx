@@ -72,8 +72,6 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('todos');
   const [customPriceSoles, setCustomPriceSoles] = useState<string>('');
   const [isPriceCustomized, setIsPriceCustomized] = useState<boolean>(false);
-  const [customGuaranteeSoles, setCustomGuaranteeSoles] = useState<string>('');
-  const [isGuaranteeCustomized, setIsGuaranteeCustomized] = useState<boolean>(false);
   const [supabaseActiveCatalog, setSupabaseActiveCatalog] = useState<WardrobeItem[] | null>(null);
 
   // Requisito 4: Consulta a Supabase que alimenta este catálogo filtrando prendas activas (no códigos fantasma ni inactivos)
@@ -133,10 +131,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [isImmediateDelivery, setIsImmediateDelivery] = useState(false);
   const [advanceSoles, setAdvanceSoles] = useState<string>('100');
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('');
-<<<<<<< HEAD
   const [immediateGuaranteeSoles, setImmediateGuaranteeSoles] = useState<string>('50');
-=======
->>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
   // Retroalimentación
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -226,22 +221,12 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
       setCustomPriceSoles(autoRentalSoles);
       setPaidTotalSoles(autoRentalSoles);
     }
-<<<<<<< HEAD
-=======
-    if (!isGuaranteeCustomized) {
-      setCustomGuaranteeSoles(autoGuaranteeSoles);
-    }
->>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
     // Sugerir un adelanto del 50% aprox
     const totalNum = parseFloat(isPriceCustomized ? customPriceSoles : autoRentalSoles) || 0;
     const suggestedAdvance = Math.round(totalNum * 0.5);
     setAdvanceSoles(suggestedAdvance > 0 ? String(suggestedAdvance) : '50');
-<<<<<<< HEAD
   }, [selectedItems, autoCalculatedTotalRentalCents, isPriceCustomized]);
-=======
-  }, [selectedItems, autoCalculatedTotalRentalCents, autoCalculatedTotalGuaranteeCents, isPriceCustomized, isGuaranteeCustomized]);
->>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
 
   // Funciones para agregar y quitar prendas del carrito
   const handleAddItemToPack = (item: WardrobeItem) => {
@@ -889,28 +874,6 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                     {isPriceCustomized ? 'Tarifa personalizada' : 'Automático'}
                   </span>
                 </div>
-<<<<<<< HEAD
-=======
-
-                {/* Garantía a Recibir */}
-                <div className="p-3 rounded-xl bg-black/40 border border-neutral-800 space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 uppercase tracking-wider block">
-                    GARANTÍA A RECIBIR (S/)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={customGuaranteeSoles}
-                    onChange={(e) => {
-                      setCustomGuaranteeSoles(e.target.value);
-                      setIsGuaranteeCustomized(true);
-                    }}
-                    className="w-full bg-[#111] border border-neutral-700 rounded-lg px-2 py-1 text-center font-bold text-amber-300 font-mono text-base focus:outline-none"
-                  />
-                  <span className="text-[9px] text-neutral-400 block">Reembolsable contra retorno</span>
-                </div>
->>>>>>> b0007060b107e6d208a469db1efd46aaeebf84ae
               </div>
             </div>
           </div>
