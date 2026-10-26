@@ -15,12 +15,14 @@ import {
   Plus,
   Boxes,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
 import { WardrobeItem, DressRental, formatSoles } from '../../../types';
 import { DressAvailabilityCalendar } from './DressAvailabilityCalendar';
 import { sanitizeDni, sanitizePhone } from '../../../lib/validators';
 import { supabase } from '../../../lib/supabase/client';
+import { consultarDniApi } from '../../../lib/consultaDni';
 
 interface NewDressPackRentalModalProps {
   isOpen: boolean;
@@ -65,6 +67,49 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [eventName, setEventName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [destination, setDestination] = useState('');
+
+  // Consulta de DNI RENIEC / APIS PERU
+  const [isSearchingDni, setIsSearchingDni] = useState(false);
+  const [dniFeedback, setDniFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
+
+  const handleConsultarDni = async () => {
+    const cleanDni = sanitizeDni(clientDni);
+    if (cleanDni.length !== 8) {
+      setDniFeedback({
+        type: 'warning',
+        message: 'El DNI debe contener exactamente 8 dígitos.',
+      });
+      return;
+    }
+
+    setIsSearchingDni(true);
+    setDniFeedback(null);
+
+    try {
+      const res = await consultarDniApi(cleanDni);
+      if (res.success && res.nombres) {
+        setClientFirstName(res.nombres);
+        setClientLastName(res.apellidos || '');
+        setDniFeedback({
+          type: 'success',
+          message: `✓ Datos encontrados: ${res.nombres} ${res.apellidos || ''}`.trim(),
+        });
+      } else {
+        setDniFeedback({
+          type: 'warning',
+          message: res.message || 'DNI no encontrado. Puedes ingresar los nombres manualmente.',
+        });
+      }
+    } catch (err: any) {
+      console.error('Error al consultar DNI:', err);
+      setDniFeedback({
+        type: 'warning',
+        message: 'No se pudo conectar con el servicio. Ingresa los nombres manualmente.',
+      });
+    } finally {
+      setIsSearchingDni(false);
+    }
+  };
 
   // Paso 2: Arreglo de Prendas Seleccionadas (Mini Carrito de Pack)
   const [selectedItems, setSelectedItems] = useState<WardrobeItem[]>([]);
@@ -498,18 +543,58 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
               <div>
-                <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                  DNI (8 dígitos) <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  maxLength={8}
-                  value={clientDni}
-                  onChange={(e) => setClientDni(sanitizeDni(e.target.value))}
-                  placeholder="Ej. 72345678"
-                  className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#C8A45C] transition font-mono"
-                  required
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-neutral-300">
+                    DNI (8 dígitos) <span className="text-red-400">*</span>
+                  </label>
+                  <span className="text-[10px] text-neutral-500">{clientDni.length}/8</span>
+                </div>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    maxLength={8}
+                    value={clientDni}
+                    onChange={(e) => {
+                      setClientDni(sanitizeDni(e.target.value));
+                      if (dniFeedback) setDniFeedback(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleConsultarDni();
+                      }
+                    }}
+                    placeholder="Ej. 72345678"
+                    className="w-full bg-[#111] border border-neutral-700 rounded-xl pl-3 pr-10 py-2 text-xs text-white focus:outline-none focus:border-[#C8A45C] transition font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={handleConsultarDni}
+                    disabled={isSearchingDni || clientDni.trim().length !== 8}
+                    title="Consultar DNI en RENIEC / APIS PERU"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-[#C8A45C]/20 hover:bg-[#C8A45C] text-[#E6C875] hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center cursor-pointer"
+                  >
+                    {isSearchingDni ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+                {dniFeedback && (
+                  <p
+                    className={`text-[10px] font-medium leading-tight mt-1 ${
+                      dniFeedback.type === 'success'
+                        ? 'text-emerald-400'
+                        : dniFeedback.type === 'warning'
+                        ? 'text-amber-400'
+                        : 'text-rose-400'
+                    }`}
+                  >
+                    {dniFeedback.message}
+                  </p>
+                )}
               </div>
 
               <div>

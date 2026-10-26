@@ -71,11 +71,110 @@ function supabaseAuthCallbackPlugin(env: Record<string, string>) {
   };
 }
 
+/**
+ * Middleware para procesar la consulta segura de DNI mediante APIS PERU
+ * en el servidor de desarrollo de Vite sin exponer el token al cliente.
+ */
+function apisPeruDniPlugin(env: Record<string, string>) {
+  const token = env.APIS_PERU_TOKEN || process.env.APIS_PERU_TOKEN || '';
+
+  return {
+    name: 'apis-peru-dni-handler',
+    configureServer(server: any) {
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        if (req.url && req.url.startsWith('/api/consulta-dni')) {
+          try {
+            const url = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
+            const dni = url.searchParams.get('dni')?.trim() || '';
+
+            res.setHeader('Content-Type', 'application/json');
+
+            if (!/^\d{8}$/.test(dni)) {
+              res.statusCode = 400;
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: 'El DNI debe contener exactamente 8 dígitos numéricos.',
+                })
+              );
+              return;
+            }
+
+            if (!token) {
+              console.warn('[Vite DNI Handler] APIS_PERU_TOKEN no configurado en .env.local.');
+              res.statusCode = 500;
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: 'Token de consulta no configurado en el servidor.',
+                })
+              );
+              return;
+            }
+
+            const response = await fetch(`https://dniruc.apisperu.com/api/v1/dni/${dni}`, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/json',
+              },
+            });
+
+            if (!response.ok) {
+              res.statusCode = response.status >= 500 ? 502 : 404;
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: 'DNI no encontrado o error en el servicio de consulta.',
+                })
+              );
+              return;
+            }
+
+            const data: any = await response.json();
+
+            if (!data || data.success === false || !data.nombres) {
+              res.statusCode = 404;
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  message: data?.message || 'DNI no encontrado',
+                })
+              );
+              return;
+            }
+
+            const apellidos = `${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
+
+            res.statusCode = 200;
+            res.end(
+              JSON.stringify({
+                success: true,
+                dni: data.dni || dni,
+                nombres: (data.nombres || '').trim(),
+                apellidos: apellidos,
+              })
+            );
+            return;
+          } catch (err: any) {
+            console.error('Error en Vite Handler /api/consulta-dni:', err);
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false, message: 'Error interno al consultar el DNI' }));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    plugins: [react(), tailwindcss(), supabaseAuthCallbackPlugin(env)],
+    plugins: [react(), tailwindcss(), supabaseAuthCallbackPlugin(env), apisPeruDniPlugin(env)],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
