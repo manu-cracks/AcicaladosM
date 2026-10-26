@@ -328,6 +328,22 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-neutral-300 flex items-center justify-between">
+                  <span>DNI (8 dígitos) <span className="text-rose-500">*</span></span>
+                  <span className="text-[10px] text-neutral-500">{clientDni.length}/8</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={8}
+                  required
+                  value={clientDni}
+                  onChange={(e) => setClientDni(sanitizeDni(e.target.value))}
+                  placeholder="70123456"
+                  className="w-full px-3 py-2 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none font-mono transition"
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-neutral-300">
                   Nombre del Cliente <span className="text-rose-500">*</span>
                 </label>
@@ -352,22 +368,6 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                   onChange={(e) => setClientLastName(e.target.value)}
                   placeholder="Ej. Fernández Quispe"
                   className="w-full px-3 py-2 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none transition"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-neutral-300 flex items-center justify-between">
-                  <span>DNI (8 dígitos) <span className="text-rose-500">*</span></span>
-                  <span className="text-[10px] text-neutral-500">{clientDni.length}/8</span>
-                </label>
-                <input
-                  type="text"
-                  maxLength={8}
-                  required
-                  value={clientDni}
-                  onChange={(e) => setClientDni(sanitizeDni(e.target.value))}
-                  placeholder="70123456"
-                  className="w-full px-3 py-2 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs text-white placeholder-neutral-500 outline-none font-mono transition"
                 />
               </div>
 

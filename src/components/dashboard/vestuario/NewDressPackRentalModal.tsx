@@ -499,6 +499,21 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
               <div>
                 <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                  DNI (8 dígitos) <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={8}
+                  value={clientDni}
+                  onChange={(e) => setClientDni(sanitizeDni(e.target.value))}
+                  placeholder="Ej. 72345678"
+                  className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#C8A45C] transition font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
                   Nombre(s) <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -521,21 +536,6 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                   onChange={(e) => setClientLastName(e.target.value)}
                   placeholder="Ej. Mendoza Ríos"
                   className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#C8A45C] transition"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                  DNI (8 dígitos) <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  maxLength={8}
-                  value={clientDni}
-                  onChange={(e) => setClientDni(sanitizeDni(e.target.value))}
-                  placeholder="Ej. 72345678"
-                  className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#C8A45C] transition font-mono"
                   required
                 />
               </div>
