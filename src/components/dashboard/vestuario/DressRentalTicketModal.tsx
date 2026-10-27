@@ -11,7 +11,7 @@ import {
   Store,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
-import { DressRental, formatSoles } from '../../../types';
+import { DressRental, formatSoles, DressRentalPaymentDetails } from '../../../types';
 import { supabase } from '../../../lib/supabase/client';
 import { LOGO_TICKET_BASE64 } from '../../../assets/logoTicketBase64';
 import {
@@ -252,6 +252,32 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
   const displayEventName = rental.event_name || 'Matrimonio Civil';
   const displayDestination = (rental.destination || 'PICHARI').toUpperCase();
 
+  // Desempaquetado del JSONB detalles_pago
+  const detallesPago: DressRentalPaymentDetails | null = useMemo(() => {
+    if (!rental?.detalles_pago) return null;
+    if (typeof rental.detalles_pago === 'string') {
+      try {
+        return JSON.parse(rental.detalles_pago);
+      } catch {
+        return null;
+      }
+    }
+    return rental.detalles_pago as DressRentalPaymentDetails;
+  }, [rental?.detalles_pago]);
+
+  const paymentMethodDisplay = useMemo(() => {
+    if (!detallesPago || !detallesPago.metodo) return null;
+    if (detallesPago.metodo === 'Mixto') {
+      const efec = detallesPago.monto_efectivo ?? 0;
+      const yape = detallesPago.monto_yape ?? 0;
+      return `MIXTO (Efec: S/ ${efec} | Yape: S/ ${yape})`;
+    }
+    if (detallesPago.metodo === 'Yape') {
+      return 'YAPE';
+    }
+    return 'EFECTIVO';
+  }, [detallesPago]);
+
   // Etiqueta visual de estado
   const displayStatusBadge = useMemo(() => {
     switch (rental.status) {
@@ -316,6 +342,7 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*ORDEN ANULADA*: Esta orden ha sido cancelada.\n`;
     } else if (isEntregado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
+      if (paymentMethodDisplay) msg += `*Método de Pago:* ${paymentMethodDisplay}\n`;
       msg += `*F. Reserva (${formatDateSlash(rental.created_at)}):* Adelanto ${formatSolesSafe(displayAdelantoCents)}\n`;
       msg += `*F. Recojo (${formatDateSlash(rental.fecha_entrega || rental.delivery_date)}):* Saldo Pagado ${formatSolesSafe(saldoPagadoCents)}\n`;
       msg += `*Saldo Pendiente:* S/ 0.00 (Cancelado)\n`;
@@ -323,6 +350,7 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `_(Garantía protegida por la tienda, reembolsable contra entrega de prenda intacta)_\n`;
     } else if (isFinalizado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
+      if (paymentMethodDisplay) msg += `*Método de Pago:* ${paymentMethodDisplay}\n`;
       msg += `*Garantía Devuelta:* ${formatSolesSafe(guaranteeReturnedCents)}\n`;
       if (penaltyCents > 0) {
         msg += `*Retención por Daños/Mora:* ${formatSolesSafe(penaltyCents)}\n`;
@@ -331,6 +359,7 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*Devolución de prenda:* Completada con éxito.\n`;
     } else {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
+      if (paymentMethodDisplay) msg += `*Método de Pago:* ${paymentMethodDisplay}\n`;
       msg += `*Adelanto Recibido:* ${formatSolesSafe(displayAdelantoCents)}\n`;
       msg += `*Saldo Pendiente:* ${formatSolesSafe(displaySaldoPendienteCents)}\n`;
     }
@@ -706,6 +735,13 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                     <span className="font-mono">
                       {formatSolesSafe(displayAdelantoCents)}
                     </span>
+                  </div>
+                )}
+
+                {paymentMethodDisplay && (
+                  <div className="flex justify-between items-baseline text-[10px] text-neutral-900 pt-0.5 border-t border-dotted border-neutral-300 mt-1">
+                    <span className="font-semibold">MÉTODO DE PAGO:</span>
+                    <span className="font-mono font-bold text-right">{paymentMethodDisplay}</span>
                   </div>
                 )}
               </div>

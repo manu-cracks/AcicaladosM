@@ -46,6 +46,7 @@ import {
   DressRentalStatus,
   DressRentalOrigin,
   formatLimaDate,
+  DressRentalPaymentDetails,
 } from '../../types';
 import { getTodayDateString, getLimaDateFromTimestamp } from '../../data/initialData';
 import { supabase } from '../../lib/supabase/client';
@@ -1440,6 +1441,52 @@ export const VestuarioManager: React.FC = () => {
                             <span className="text-[10px] text-neutral-400 block mt-0.5">
                               {rental?.is_immediate_delivery ? 'Pago total' : 'Adelanto / Seña'}
                             </span>
+                            {(() => {
+                              const dp: DressRentalPaymentDetails | null =
+                                typeof rental?.detalles_pago === 'string'
+                                  ? (() => {
+                                      try {
+                                        return JSON.parse(rental.detalles_pago);
+                                      } catch {
+                                        return null;
+                                      }
+                                    })()
+                                  : rental?.detalles_pago || null;
+
+                              if (!dp || !dp.metodo) return null;
+
+                              if (dp.metodo === 'Mixto') {
+                                return (
+                                  <div className="mt-1">
+                                    <span className="text-xs text-amber-500 bg-amber-500/10 px-2 rounded">
+                                      Mixto (Efec: S/ {dp.monto_efectivo ?? 0} | Yape: S/ {dp.monto_yape ?? 0})
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              if (dp.metodo === 'Efectivo') {
+                                return (
+                                  <div className="mt-1">
+                                    <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 rounded">
+                                      Efectivo
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              if (dp.metodo === 'Yape') {
+                                return (
+                                  <div className="mt-1">
+                                    <span className="text-xs text-purple-400 bg-purple-500/10 px-2 rounded">
+                                      Yape
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              return null;
+                            })()}
                           </td>
 
                           {/* 3. RECOJO & SALDO */}

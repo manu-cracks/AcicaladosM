@@ -17,9 +17,10 @@ import {
   CheckCircle2,
   Shirt,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
-import { WardrobeItem, DressRental, formatSoles } from '../../../types';
+import { WardrobeItem, DressRental, formatSoles, DressRentalPaymentMethod, DressRentalPaymentDetails } from '../../../types';
 import { DressAvailabilityCalendar } from './DressAvailabilityCalendar';
 import { sanitizeDni, sanitizePhone } from '../../../lib/validators';
 import { consultarDniApi } from '../../../lib/consultaDni';
@@ -133,6 +134,11 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('120');
   const [guaranteeSoles, setGuaranteeSoles] = useState<string>('50');
 
+  // Método de Pago y Desglose JSONB
+  const [paymentMethod, setPaymentMethod] = useState<DressRentalPaymentMethod>('Efectivo');
+  const [cashAmountSoles, setCashAmountSoles] = useState<string>('0');
+  const [yapeAmountSoles, setYapeAmountSoles] = useState<string>('0');
+
   // Estados de retroalimentación
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -160,10 +166,46 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
     setValidationError(null);
   };
 
-  // Cálculo del saldo pendiente
+  // Cálculo del saldo pendiente y montos requeridos
   const totalPriceSolesNum = parseFloat(customPriceSoles) || 0;
   const advanceSolesNum = parseFloat(advanceSoles) || 0;
   const pendingBalanceSoles = Math.max(0, totalPriceSolesNum - advanceSolesNum);
+  const targetRequiredSoles = isImmediateDelivery ? totalPriceSolesNum : advanceSolesNum;
+
+  // Manejador al seleccionar método de pago
+  const handleSelectPaymentMethod = (method: DressRentalPaymentMethod) => {
+    setPaymentMethod(method);
+    if (method === 'Mixto') {
+      const currentCash = parseInt(cashAmountSoles, 10);
+      const currentYape = parseInt(yapeAmountSoles, 10);
+      if (
+        isNaN(currentCash) ||
+        isNaN(currentYape) ||
+        (currentCash === 0 && currentYape === 0) ||
+        currentCash + currentYape !== targetRequiredSoles
+      ) {
+        const half = Math.floor(targetRequiredSoles / 2);
+        setCashAmountSoles(String(half));
+        setYapeAmountSoles(String(targetRequiredSoles - half));
+      }
+    }
+  };
+
+  // Validaciones dinámicas de Mixto
+  const isCashEmpty = cashAmountSoles.trim() === '';
+  const isYapeEmpty = yapeAmountSoles.trim() === '';
+  const parsedCash = parseInt(cashAmountSoles, 10);
+  const parsedYape = parseInt(yapeAmountSoles, 10);
+  const mixedSum = (isNaN(parsedCash) ? 0 : parsedCash) + (isNaN(parsedYape) ? 0 : parsedYape);
+  const isMixedInvalid =
+    paymentMethod === 'Mixto' &&
+    (isCashEmpty ||
+      isYapeEmpty ||
+      isNaN(parsedCash) ||
+      isNaN(parsedYape) ||
+      parsedCash < 0 ||
+      parsedYape < 0 ||
+      mixedSum !== targetRequiredSoles);
 
   // Validación y Envío del Formulario
   const handleSubmitOrder = async (e: React.FormEvent) => {
@@ -264,6 +306,31 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
       finalGuaranteeCents = 0;
     }
 
+    if (isMixedInvalid) {
+      setValidationError('La suma de los montos en Efectivo y Yape debe coincidir exactamente con el total requerido.');
+      return;
+    }
+
+    const detallesPago: DressRentalPaymentDetails =
+      paymentMethod === 'Mixto'
+        ? {
+            metodo: 'Mixto',
+            monto_efectivo: parsedCash,
+            monto_yape: parsedYape,
+            total_pagado: targetRequiredSoles,
+          }
+        : paymentMethod === 'Yape'
+        ? {
+            metodo: 'Yape',
+            monto_yape: targetRequiredSoles,
+            total_pagado: targetRequiredSoles,
+          }
+        : {
+            metodo: 'Efectivo',
+            monto_efectivo: targetRequiredSoles,
+            total_pagado: targetRequiredSoles,
+          };
+
     setIsSubmitting(true);
     try {
       const created = await addDressRental({
@@ -288,6 +355,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
         guarantee_cents: finalGuaranteeCents,
         is_immediate_delivery: isImmediateDelivery,
         delivery_date: isImmediateDelivery ? new Date().toISOString() : null,
+        detalles_pago: detallesPago,
         asesor_name: (
           currentUser?.name ||
           (currentUser?.first_name ? `${currentUser.first_name} ${currentUser.last_name || ''}`.trim() : '') ||
@@ -676,7 +744,16 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                 <input
                   type="checkbox"
                   checked={isImmediateDelivery}
-                  onChange={(e) => setIsImmediateDelivery(e.target.checked)}
+                  onChange={(e) => {
+                    const newVal = e.target.checked;
+                    setIsImmediateDelivery(newVal);
+                    if (paymentMethod === 'Mixto') {
+                      const newTarget = newVal ? totalPriceSolesNum : advanceSolesNum;
+                      const half = Math.floor(newTarget / 2);
+                      setCashAmountSoles(String(half));
+                      setYapeAmountSoles(String(newTarget - half));
+                    }
+                  }}
                   className="sr-only peer"
                 />
                 <div className="w-10 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#C8A45C] relative" />
@@ -688,51 +765,187 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
               </label>
             </div>
 
+            {/* SELECTOR DE MÉTODO DE PAGO (Efectivo, Yape, Mixto) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-neutral-300 block">
+                * Método de Pago:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Efectivo')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Efectivo'
+                      ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-md shadow-emerald-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>💵 Efectivo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Yape')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Yape'
+                      ? 'bg-purple-950/40 border-purple-500 text-purple-300 shadow-md shadow-purple-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>📱 Yape</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Mixto')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Mixto'
+                      ? 'bg-amber-950/40 border-amber-500 text-amber-300 shadow-md shadow-amber-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>💳 Mixto</span>
+                </button>
+              </div>
+            </div>
+
             {/* Escenario 4.1: Reserva Normal */}
             {!isImmediateDelivery ? (
               <div className="space-y-3 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-neutral-300">
-                      * ADELANTO (Manual, sin decimales):
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
-                        S/
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        required
-                        value={advanceSoles}
-                        onChange={(e) => setAdvanceSoles(e.target.value)}
-                        placeholder="50"
-                        className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-white outline-none transition"
-                      />
+                {/* Si es Efectivo o Yape: input general de adelanto */}
+                {paymentMethod !== 'Mixto' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-300">
+                        * ADELANTO ({paymentMethod.toUpperCase()}, sin decimales):
+                      </label>
+                      <div className="relative">
+                        <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${
+                          paymentMethod === 'Yape' ? 'text-purple-400' : 'text-emerald-400'
+                        }`}>
+                          S/
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          required
+                          value={advanceSoles}
+                          onChange={(e) => setAdvanceSoles(e.target.value)}
+                          placeholder="50"
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-white outline-none transition"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-neutral-300">
-                      * SALDO PENDIENTE (Automático):
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400">
-                        S/
-                      </span>
-                      <input
-                        type="text"
-                        readOnly
-                        value={pendingBalanceSoles.toFixed(0)}
-                        className="w-full pl-9 pr-3.5 py-2.5 bg-[#151515] border border-neutral-800 rounded-xl text-xs font-bold text-amber-400 outline-none cursor-not-allowed"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-neutral-500">
-                        🔒 Automático
-                      </span>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-300">
+                        * SALDO PENDIENTE (Automático):
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400">
+                          S/
+                        </span>
+                        <input
+                          type="text"
+                          readOnly
+                          value={pendingBalanceSoles.toFixed(0)}
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#151515] border border-neutral-800 rounded-xl text-xs font-bold text-amber-400 outline-none cursor-not-allowed"
+                        />
+                        <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-neutral-500">
+                          🔒 Automático
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* Si es Mixto: Oculta input general y muestra dos inputs paralelos (Efectivo y Yape) */
+                  <div className="space-y-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-xs pb-1 border-b border-neutral-800">
+                      <span className="text-neutral-400 font-semibold">Total de Adelanto Requerido:</span>
+                      <div className="flex items-center gap-1.5 bg-[#141414] px-2.5 py-1 rounded-lg border border-[#C8A45C]/40">
+                        <span className="text-xs font-bold text-[#E6C875]">S/</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          value={advanceSoles}
+                          onChange={(e) => {
+                            setAdvanceSoles(e.target.value);
+                            const newReq = parseFloat(e.target.value) || 0;
+                            const half = Math.floor(newReq / 2);
+                            setCashAmountSoles(String(half));
+                            setYapeAmountSoles(String(newReq - half));
+                          }}
+                          className="w-16 bg-transparent text-xs font-bold text-white text-right outline-none font-mono"
+                          placeholder="50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN EFECTIVO (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={cashAmountSoles}
+                            onChange={(e) => setCashAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN YAPE (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-purple-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={yapeAmountSoles}
+                            onChange={(e) => setYapeAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-purple-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validación en tiempo real de la suma */}
+                    {isMixedInvalid ? (
+                      <div className="text-[11px] text-amber-400 bg-amber-950/30 border border-amber-500/40 p-2.5 rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>
+                          {isCashEmpty || isYapeEmpty
+                            ? 'Debes ingresar ambos montos enteros (Efectivo y Yape).'
+                            : `La suma de Efectivo (S/ ${parsedCash || 0}) + Yape (S/ ${parsedYape || 0}) es S/ ${mixedSum}. Debe coincidir exactamente con el total requerido de S/ ${targetRequiredSoles}.`}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-300 bg-emerald-950/30 border border-emerald-500/40 p-2 rounded-xl flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                        <span>
+                          ✓ Suma exacta validada: S/ {targetRequiredSoles} (Efectivo: S/ ${parsedCash} | Yape: S/ ${parsedYape})
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-neutral-800 text-neutral-400">
+                      <span>Saldo pendiente al retirar:</span>
+                      <strong className="text-amber-400 font-mono">S/ {pendingBalanceSoles.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-[#121212] border border-amber-900/40 rounded-xl p-3 text-[11px] text-amber-300/90 flex items-start gap-2">
                   <span className="text-amber-400">⚠️</span>
@@ -744,49 +957,140 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
             ) : (
               /* Escenario 4.2: Entrega Inmediata */
               <div className="space-y-3 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-neutral-300">
-                      * TOTAL DEL ALQUILER PAGADO:
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">
-                        S/
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        required
-                        value={paidTotalSoles}
-                        onChange={(e) => setPaidTotalSoles(e.target.value)}
-                        placeholder="120"
-                        className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-emerald-400 outline-none transition"
-                      />
+                {paymentMethod !== 'Mixto' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-300">
+                        * TOTAL ALQUILER PAGADO ({paymentMethod.toUpperCase()}):
+                      </label>
+                      <div className="relative">
+                        <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold ${
+                          paymentMethod === 'Yape' ? 'text-purple-400' : 'text-emerald-400'
+                        }`}>
+                          S/
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          required
+                          value={paidTotalSoles}
+                          onChange={(e) => setPaidTotalSoles(e.target.value)}
+                          placeholder="120"
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-emerald-400 outline-none transition"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-neutral-300">
-                      * GARANTÍA RECIBIDA (Manual, sin decimales):
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
-                        S/
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        required
-                        value={guaranteeSoles}
-                        onChange={(e) => setGuaranteeSoles(e.target.value)}
-                        placeholder="50"
-                        className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
-                      />
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-neutral-300">
+                        * GARANTÍA RECIBIDA (Manual, sin decimales):
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
+                          S/
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          required
+                          value={guaranteeSoles}
+                          onChange={(e) => setGuaranteeSoles(e.target.value)}
+                          placeholder="50"
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  /* Entrega Inmediata Mixto */
+                  <div className="space-y-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-xs pb-1 border-b border-neutral-800">
+                      <span className="text-neutral-400 font-semibold">Total Alquiler Requerido (100%):</span>
+                      <span className="font-mono font-bold text-emerald-400 text-sm">S/ {totalPriceSolesNum}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN EFECTIVO (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={cashAmountSoles}
+                            onChange={(e) => setCashAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN YAPE (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-purple-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={yapeAmountSoles}
+                            onChange={(e) => setYapeAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-purple-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validación en tiempo real */}
+                    {isMixedInvalid ? (
+                      <div className="text-[11px] text-amber-400 bg-amber-950/30 border border-amber-500/40 p-2.5 rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>
+                          {isCashEmpty || isYapeEmpty
+                            ? 'Debes ingresar ambos montos enteros (Efectivo y Yape).'
+                            : `La suma de Efectivo (S/ ${parsedCash || 0}) + Yape (S/ ${parsedYape || 0}) es S/ ${mixedSum}. Debe coincidir exactamente con el total requerido de S/ ${targetRequiredSoles}.`}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-300 bg-emerald-950/30 border border-emerald-500/40 p-2 rounded-xl flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                        <span>
+                          ✓ Suma exacta validada: S/ {targetRequiredSoles} (Efectivo: S/ ${parsedCash} | Yape: S/ ${parsedYape})
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Garantía en entrega inmediata */}
+                    <div className="pt-2 border-t border-neutral-800">
+                      <label className="text-xs font-semibold text-neutral-300 block mb-1">
+                        * GARANTÍA RECIBIDA EN CUSTODIA (S/):
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">S/</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          required
+                          value={guaranteeSoles}
+                          onChange={(e) => setGuaranteeSoles(e.target.value)}
+                          placeholder="50"
+                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-emerald-950/25 border border-emerald-800/40 rounded-xl p-3 text-[11px] text-emerald-300 flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -811,8 +1115,8 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
 
             <button
               type="submit"
-              disabled={isSubmitting}
-              className={`px-6 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50 ${
+              disabled={isSubmitting || isMixedInvalid}
+              className={`px-6 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                 isImmediateDelivery
                   ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-950/40'
                   : 'bg-gradient-to-r from-[#C8A45C] to-[#E6C875] text-black shadow-[#C8A45C]/20'
@@ -820,6 +1124,8 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
             >
               {isSubmitting ? (
                 <span>Guardando Orden...</span>
+              ) : isMixedInvalid ? (
+                <span>Suma Mixta No Cuadra</span>
               ) : isImmediateDelivery ? (
                 <>
                   <Check className="w-4 h-4 stroke-[3]" />

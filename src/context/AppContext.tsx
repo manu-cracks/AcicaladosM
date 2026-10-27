@@ -4491,6 +4491,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           voucher_declared_amount_cents: data.voucher_declared_amount_cents || null,
           rejection_reason: data.rejection_reason || null,
           notes: data.notes || null,
+          detalles_pago: data.detalles_pago || null,
           asesor_name: (data.asesor_name && data.asesor_name.trim()) || currentUser?.name || 'Recepción',
         };
 
@@ -4543,6 +4544,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           voucher_declared_amount_cents: raw.voucher_declared_amount_cents,
           rejection_reason: raw.rejection_reason,
           notes: raw.notes,
+          detalles_pago: raw.detalles_pago || data.detalles_pago || null,
           numero_ticket: raw.numero_ticket,
           fecha_emision_ticket: raw.fecha_emision_ticket,
           asesor_name: raw.asesor_name || insertPayload.asesor_name,

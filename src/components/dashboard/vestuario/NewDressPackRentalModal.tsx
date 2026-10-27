@@ -18,7 +18,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useApp } from '../../../context/AppContext';
-import { WardrobeItem, DressRental, formatSoles } from '../../../types';
+import { WardrobeItem, DressRental, formatSoles, DressRentalPaymentMethod, DressRentalPaymentDetails } from '../../../types';
 import { DressAvailabilityCalendar } from './DressAvailabilityCalendar';
 import { sanitizeDni, sanitizePhone } from '../../../lib/validators';
 import { supabase } from '../../../lib/supabase/client';
@@ -178,6 +178,11 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('');
   const [immediateGuaranteeSoles, setImmediateGuaranteeSoles] = useState<string>('50');
 
+  // Método de Pago y Desglose JSONB
+  const [paymentMethod, setPaymentMethod] = useState<DressRentalPaymentMethod>('Efectivo');
+  const [cashAmountSoles, setCashAmountSoles] = useState<string>('0');
+  const [yapeAmountSoles, setYapeAmountSoles] = useState<string>('0');
+
   // Retroalimentación
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -322,10 +327,46 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
     });
   }, [selectedItems, eventDate, returnDate, dressRentals]);
 
-  // Cálculos de saldo pendiente
+  // Cálculos de saldo pendiente y métodos de pago
   const effectiveTotalPriceSolesNum = parseFloat(customPriceSoles) || 0;
   const advanceSolesNum = parseFloat(advanceSoles) || 0;
   const pendingBalanceSoles = Math.max(0, effectiveTotalPriceSolesNum - advanceSolesNum);
+  const targetRequiredSoles = isImmediateDelivery ? effectiveTotalPriceSolesNum : advanceSolesNum;
+
+  // Manejador al seleccionar método de pago
+  const handleSelectPaymentMethod = (method: DressRentalPaymentMethod) => {
+    setPaymentMethod(method);
+    if (method === 'Mixto') {
+      const currentCash = parseInt(cashAmountSoles, 10);
+      const currentYape = parseInt(yapeAmountSoles, 10);
+      if (
+        isNaN(currentCash) ||
+        isNaN(currentYape) ||
+        (currentCash === 0 && currentYape === 0) ||
+        currentCash + currentYape !== targetRequiredSoles
+      ) {
+        const half = Math.floor(targetRequiredSoles / 2);
+        setCashAmountSoles(String(half));
+        setYapeAmountSoles(String(targetRequiredSoles - half));
+      }
+    }
+  };
+
+  // Validaciones dinámicas de Mixto
+  const isCashEmpty = cashAmountSoles.trim() === '';
+  const isYapeEmpty = yapeAmountSoles.trim() === '';
+  const parsedCash = parseInt(cashAmountSoles, 10);
+  const parsedYape = parseInt(yapeAmountSoles, 10);
+  const mixedSum = (isNaN(parsedCash) ? 0 : parsedCash) + (isNaN(parsedYape) ? 0 : parsedYape);
+  const isMixedInvalid =
+    paymentMethod === 'Mixto' &&
+    (isCashEmpty ||
+      isYapeEmpty ||
+      isNaN(parsedCash) ||
+      isNaN(parsedYape) ||
+      parsedCash < 0 ||
+      parsedYape < 0 ||
+      mixedSum !== targetRequiredSoles);
 
   // Validación y Envío de la Orden de Pack
   const handleSubmitOrder = async (e: React.FormEvent) => {
@@ -404,6 +445,31 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
       finalGuaranteeCents = 0;
     }
 
+    if (isMixedInvalid) {
+      setValidationError('La suma de los montos en Efectivo y Yape debe coincidir exactamente con el total requerido.');
+      return;
+    }
+
+    const detallesPago: DressRentalPaymentDetails =
+      paymentMethod === 'Mixto'
+        ? {
+            metodo: 'Mixto',
+            monto_efectivo: parsedCash,
+            monto_yape: parsedYape,
+            total_pagado: targetRequiredSoles,
+          }
+        : paymentMethod === 'Yape'
+        ? {
+            metodo: 'Yape',
+            monto_yape: targetRequiredSoles,
+            total_pagado: targetRequiredSoles,
+          }
+        : {
+            metodo: 'Efectivo',
+            monto_efectivo: targetRequiredSoles,
+            total_pagado: targetRequiredSoles,
+          };
+
     setIsSubmitting(true);
     try {
       const itemCodesList = selectedItems.map((it) => (it.code || it.codigo_unico || '').toUpperCase().trim());
@@ -442,6 +508,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
         advance_cents: finalAdvanceCents,
         pending_cents: finalPendingCents,
         guarantee_cents: finalGuaranteeCents,
+        detalles_pago: detallesPago,
         is_immediate_delivery: isImmediateDelivery,
         delivery_date: isImmediateDelivery ? new Date().toISOString() : null,
         notes: JSON.stringify({
@@ -1069,70 +1136,306 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
               </button>
             </div>
 
+            {/* Selector de Método de Pago: Efectivo, Yape, Mixto */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-neutral-300 block">
+                * Método de Pago:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Efectivo')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Efectivo'
+                      ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-md shadow-emerald-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>💵 Efectivo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Yape')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Yape'
+                      ? 'bg-purple-950/40 border-purple-500 text-purple-300 shadow-md shadow-purple-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>📱 Yape</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPaymentMethod('Mixto')}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    paymentMethod === 'Mixto'
+                      ? 'bg-amber-950/40 border-amber-500 text-amber-300 shadow-md shadow-amber-950/40'
+                      : 'bg-[#141414] border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-white'
+                  }`}
+                >
+                  <span>💳 Mixto</span>
+                </button>
+              </div>
+            </div>
+
             {/* Detalle Financiero según modalidad */}
             {!isImmediateDelivery ? (
               <div className="space-y-3 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
-                  <div>
-                    <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                      Monto de Adelanto Recibido Hoy (S/)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={advanceSoles}
-                      onChange={(e) => setAdvanceSoles(e.target.value)}
-                      className="w-full bg-[#111] border border-[#C8A45C]/60 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
-                    />
-                    <span className="text-[10px] text-neutral-500 block mt-0.5">Para apartar el pack</span>
-                  </div>
-
-                  <div>
-                    <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                      Saldo Pendiente al Retirar
-                    </span>
-                    <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-amber-400 font-mono">
-                      S/ {pendingBalanceSoles.toFixed(2)}
+                {paymentMethod !== 'Mixto' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
+                    <div>
+                      <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                        * Adelanto Recibido ({paymentMethod.toUpperCase()}, sin decimales):
+                      </label>
+                      <div className="relative">
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold ${
+                          paymentMethod === 'Yape' ? 'text-purple-400' : 'text-emerald-400'
+                        }`}>
+                          S/
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={advanceSoles}
+                          onChange={(e) => setAdvanceSoles(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 bg-[#111] border border-[#C8A45C]/60 rounded-xl text-xs font-bold text-white focus:outline-none"
+                        />
+                      </div>
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">Para apartar el pack</span>
                     </div>
-                    <span className="text-[10px] text-neutral-500 block mt-0.5">Total Alquiler - Adelanto</span>
+
+                    <div>
+                      <span className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                        Saldo Pendiente al Retirar
+                      </span>
+                      <div className="w-full bg-[#111] border border-neutral-800 rounded-xl px-3 py-2 text-xs font-bold text-amber-400 font-mono">
+                        S/ {pendingBalanceSoles.toFixed(2)}
+                      </div>
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">Total Pack - Adelanto</span>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* Si es Mixto: Oculta input general y muestra dos inputs paralelos (Efectivo y Yape) */
+                  <div className="space-y-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-xs pb-1 border-b border-neutral-800">
+                      <span className="text-neutral-400 font-semibold">Total de Adelanto Requerido:</span>
+                      <div className="flex items-center gap-1.5 bg-[#141414] px-2.5 py-1 rounded-lg border border-[#C8A45C]/40">
+                        <span className="text-xs font-bold text-[#E6C875]">S/</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          value={advanceSoles}
+                          onChange={(e) => {
+                            setAdvanceSoles(e.target.value);
+                            const newReq = parseFloat(e.target.value) || 0;
+                            const half = Math.floor(newReq / 2);
+                            setCashAmountSoles(String(half));
+                            setYapeAmountSoles(String(newReq - half));
+                          }}
+                          className="w-16 bg-transparent text-xs font-bold text-white text-right outline-none font-mono"
+                          placeholder="100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN EFECTIVO (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={cashAmountSoles}
+                            onChange={(e) => setCashAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN YAPE (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-purple-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={yapeAmountSoles}
+                            onChange={(e) => setYapeAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-purple-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validación en tiempo real de la suma */}
+                    {isMixedInvalid ? (
+                      <div className="text-[11px] text-amber-400 bg-amber-950/30 border border-amber-500/40 p-2.5 rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>
+                          {isCashEmpty || isYapeEmpty
+                            ? 'Debes ingresar ambos montos enteros (Efectivo y Yape).'
+                            : `La suma de Efectivo (S/ ${parsedCash || 0}) + Yape (S/ ${parsedYape || 0}) es S/ ${mixedSum}. Debe coincidir exactamente con el total requerido de S/ ${targetRequiredSoles}.`}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-300 bg-emerald-950/30 border border-emerald-500/40 p-2 rounded-xl flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                        <span>
+                          ✓ Suma exacta validada: S/ {targetRequiredSoles} (Efectivo: S/ ${parsedCash} | Yape: S/ ${parsedYape})
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-neutral-800 text-neutral-400">
+                      <span>Saldo pendiente al retirar:</span>
+                      <strong className="text-amber-400 font-mono">S/ {pendingBalanceSoles.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                )}
 
                 <div className="text-amber-500 bg-amber-500/10 p-2 rounded-md">⚠️ Nota: El pago de Garantía se habilitará en el sistema el día que el cliente recoja el vestido.</div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
-                <div>
-                  <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Total Alquiler Cobrado 100% Hoy (S/)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={paidTotalSoles}
-                    onChange={(e) => setPaidTotalSoles(e.target.value)}
-                    className="w-full bg-[#111] border border-[#C8A45C]/60 rounded-xl px-3 py-2 text-xs font-bold text-emerald-400 focus:outline-none"
-                  />
-                  <span className="text-[10px] text-neutral-500 block mt-0.5">Alquiler completo pagado</span>
-                </div>
+              /* Escenario Entrega Inmediata */
+              <div className="space-y-3 animate-in fade-in duration-200">
+                {paymentMethod !== 'Mixto' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800">
+                    <div>
+                      <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                        * Total Alquiler Pagado 100% ({paymentMethod.toUpperCase()}):
+                      </label>
+                      <div className="relative">
+                        <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold ${
+                          paymentMethod === 'Yape' ? 'text-purple-400' : 'text-emerald-400'
+                        }`}>
+                          S/
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={paidTotalSoles}
+                          onChange={(e) => setPaidTotalSoles(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 bg-[#111] border border-[#C8A45C]/60 rounded-xl text-xs font-bold text-emerald-400 focus:outline-none"
+                        />
+                      </div>
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">Alquiler completo pagado</span>
+                    </div>
 
-                <div>
-                  <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                    Garantía Total Recibida Hoy en Custodia (S/)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={immediateGuaranteeSoles}
-                    onChange={(e) => setImmediateGuaranteeSoles(e.target.value)}
-                    placeholder="50"
-                    className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 focus:outline-none"
-                  />
-                  <span className="text-[10px] text-neutral-500 block mt-0.5">En custodia hasta retorno de prendas</span>
-                </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                        * Garantía Total Recibida en Custodia (S/)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={immediateGuaranteeSoles}
+                        onChange={(e) => setImmediateGuaranteeSoles(e.target.value)}
+                        placeholder="50"
+                        className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 focus:outline-none"
+                      />
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">En custodia hasta retorno de prendas</span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Entrega Inmediata Mixto */
+                  <div className="space-y-3 p-3.5 rounded-xl bg-black/40 border border-neutral-800 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-xs pb-1 border-b border-neutral-800">
+                      <span className="text-neutral-400 font-semibold">Total Alquiler Requerido (100%):</span>
+                      <span className="font-mono font-bold text-emerald-400 text-sm">S/ {effectiveTotalPriceSolesNum}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN EFECTIVO (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={cashAmountSoles}
+                            onChange={(e) => setCashAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-emerald-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-300">
+                          * MONTO EN YAPE (S/):
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-purple-400">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            required
+                            value={yapeAmountSoles}
+                            onChange={(e) => setYapeAmountSoles(e.target.value)}
+                            placeholder="0"
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-purple-500 rounded-xl text-xs font-bold text-white outline-none transition"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validación en tiempo real */}
+                    {isMixedInvalid ? (
+                      <div className="text-[11px] text-amber-400 bg-amber-950/30 border border-amber-500/40 p-2.5 rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>
+                          {isCashEmpty || isYapeEmpty
+                            ? 'Debes ingresar ambos montos enteros (Efectivo y Yape).'
+                            : `La suma de Efectivo (S/ ${parsedCash || 0}) + Yape (S/ ${parsedYape || 0}) es S/ ${mixedSum}. Debe coincidir exactamente con el total requerido de S/ ${targetRequiredSoles}.`}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-emerald-300 bg-emerald-950/30 border border-emerald-500/40 p-2 rounded-xl flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                        <span>
+                          ✓ Suma exacta validada: S/ {targetRequiredSoles} (Efectivo: S/ ${parsedCash} | Yape: S/ ${parsedYape})
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Garantía en entrega inmediata */}
+                    <div className="pt-2 border-t border-neutral-800">
+                      <label className="text-xs font-semibold text-neutral-300 block mb-1">
+                        * GARANTÍA RECIBIDA EN CUSTODIA (S/):
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={immediateGuaranteeSoles}
+                        onChange={(e) => setImmediateGuaranteeSoles(e.target.value)}
+                        placeholder="50"
+                        className="w-full bg-[#111] border border-neutral-700 rounded-xl px-3 py-2 text-xs font-bold text-amber-300 focus:outline-none"
+                      />
+                      <span className="text-[10px] text-neutral-500 block mt-0.5">En custodia hasta retorno de prendas</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1148,7 +1451,7 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
               Cancelar
             </button>
 
-            {/* BOTÓN PRINCIPAL DE CONFIRMACIÓN: DESHABILITADO SI < 2 PRENDAS O HAY CONFLICTO */}
+            {/* BOTÓN PRINCIPAL DE CONFIRMACIÓN: DESHABILITADO SI < 2 PRENDAS O HAY CONFLICTO O MIXTO INVÁLIDO */}
             <button
               type="submit"
               disabled={
@@ -1156,10 +1459,11 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                 conflictingItems.length > 0 ||
                 isSubmitting ||
                 !eventDate ||
-                !returnDate
+                !returnDate ||
+                isMixedInvalid
               }
               className={`w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xl cursor-pointer ${
-                selectedItems.length < 2 || conflictingItems.length > 0 || !eventDate || !returnDate
+                selectedItems.length < 2 || conflictingItems.length > 0 || !eventDate || !returnDate || isMixedInvalid
                   ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed opacity-60'
                   : 'bg-gradient-to-r from-[#C8A45C] via-[#E2C37D] to-[#C8A45C] text-black shadow-[#C8A45C]/25 hover:brightness-110 active:scale-95'
               }`}
@@ -1174,6 +1478,8 @@ export const NewDressPackRentalModal: React.FC<NewDressPackRentalModalProps> = (
                   ? 'Conflicto de fecha detectado'
                   : !eventDate
                   ? 'Selecciona fecha en el calendario'
+                  : isMixedInvalid
+                  ? 'Ajusta la suma de pago mixto'
                   : isImmediateDelivery
                   ? `Confirmar Entrega Inmediata (${selectedItems.length} prendas)`
                   : `Guardar como Reservado (${selectedItems.length} prendas)`}

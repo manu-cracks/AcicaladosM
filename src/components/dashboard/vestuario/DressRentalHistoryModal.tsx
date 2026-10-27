@@ -345,6 +345,41 @@ export const DressRentalHistoryModal: React.FC<DressRentalHistoryModalProps> = (
                   <span>Adelanto pagado: <strong className="text-white">{formatSoles(adelantoInicial)}</strong></span>
                   <span>Saldo pendiente: <strong className="text-amber-400">{formatSoles(rental.pending_cents || 0)}</strong></span>
                 </div>
+                {(() => {
+                  const dp: any =
+                    typeof rental.detalles_pago === 'string'
+                      ? (() => {
+                          try {
+                            return JSON.parse(rental.detalles_pago);
+                          } catch {
+                            return null;
+                          }
+                        })()
+                      : rental.detalles_pago;
+                  if (!dp || !dp.metodo) return null;
+                  if (dp.metodo === 'Mixto') {
+                    return (
+                      <div className="pt-1 px-1">
+                        <span className="text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded inline-block">
+                          Método de Pago: Mixto (Efec: S/ {dp.monto_efectivo ?? 0} | Yape: S/ {dp.monto_yape ?? 0})
+                        </span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="pt-1 px-1">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded inline-block ${
+                          dp.metodo === 'Yape'
+                            ? 'text-purple-400 bg-purple-500/10'
+                            : 'text-emerald-400 bg-emerald-500/10'
+                        }`}
+                      >
+                        Método de Pago: {dp.metodo}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

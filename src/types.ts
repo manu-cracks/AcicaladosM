@@ -132,15 +132,19 @@ export interface DressRental {
   solicita_eliminacion?: boolean | null;
   motivo_eliminacion?: string | null;
   fecha_devolucion?: string | null;
-  detalles_pago?: {
-    efectivo?: number;
-    yape?: number;
-    transferencia?: number;
-    metodos?: string[];
-    [key: string]: any;
-  } | null;
+  detalles_pago?: DressRentalPaymentDetails | null;
   created_at: string;
   updated_at: string;
+}
+
+export type DressRentalPaymentMethod = 'Efectivo' | 'Yape' | 'Mixto';
+
+export interface DressRentalPaymentDetails {
+  metodo: DressRentalPaymentMethod;
+  monto_efectivo?: number;
+  monto_yape?: number;
+  total_pagado: number;
+  [key: string]: any;
 }
 
 export type EmployeeType = 'barbero' | 'spa' | 'recepcionista' | 'vestuario' | 'modista';
