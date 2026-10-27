@@ -131,6 +131,14 @@ export interface DressRental {
   garantia_retenida?: number | null;
   solicita_eliminacion?: boolean | null;
   motivo_eliminacion?: string | null;
+  fecha_devolucion?: string | null;
+  detalles_pago?: {
+    efectivo?: number;
+    yape?: number;
+    transferencia?: number;
+    metodos?: string[];
+    [key: string]: any;
+  } | null;
   created_at: string;
   updated_at: string;
 }

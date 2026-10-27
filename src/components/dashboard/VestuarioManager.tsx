@@ -35,6 +35,7 @@ import {
   ShieldCheck,
   CreditCard,
   AlertTriangle,
+  History,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -58,6 +59,7 @@ import { ValidateVoucherModal } from './vestuario/ValidateVoucherModal';
 import { ProcessDeliveryModal } from './vestuario/ProcessDeliveryModal';
 import { ProcessReturnModal } from './vestuario/ProcessReturnModal';
 import { DressRentalTicketModal } from './vestuario/DressRentalTicketModal';
+import { DressRentalHistoryModal } from './vestuario/DressRentalHistoryModal';
 
 // ==========================================
 // LAS 5 CATEGORÍAS OFICIALES EXACTAS
@@ -188,6 +190,7 @@ export const VestuarioManager: React.FC = () => {
   const [deliveryModalRental, setDeliveryModalRental] = useState<DressRental | null>(null);
   const [returnModalRental, setReturnModalRental] = useState<DressRental | null>(null);
   const [ticketModalRental, setTicketModalRental] = useState<DressRental | null>(null);
+  const [historyModalRental, setHistoryModalRental] = useState<DressRental | null>(null);
 
   // Modal para Anular Orden (con motivo obligatorio para Recepcionista)
   const [annulRentalTarget, setAnnulRentalTarget] = useState<DressRental | null>(null);
@@ -1593,6 +1596,17 @@ export const VestuarioManager: React.FC = () => {
                                 <FileText className="w-3.5 h-3.5" />
                               </button>
 
+                              {/* Botón Historial Detallado (Timeline de Auditoría) */}
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalRental(rental)}
+                                title="Ver Historial Detallado (Timeline de Auditoría)"
+                                className="px-2.5 py-1.5 rounded-xl bg-neutral-900/90 hover:bg-[#1A1A1A] text-[#E6C875] hover:text-[#FFE7A8] border border-[#C8A45C]/40 hover:border-[#C8A45C] font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:shadow-[#C8A45C]/10"
+                              >
+                                <History className="w-3.5 h-3.5 text-[#C8A45C]" />
+                                <span>Historial</span>
+                              </button>
+
                               {/* Botón Anular (Para Recepcionista o Admin) */}
                               {!isFinalizado && !isAnulado && (
                                 <button
@@ -1992,6 +2006,13 @@ export const VestuarioManager: React.FC = () => {
           onClose={() => setTicketModalRental(null)}
         />
       )}
+
+      {/* 5.1 Modal Historial Detallado (Timeline de Auditoría) */}
+      <DressRentalHistoryModal
+        rental={historyModalRental}
+        isOpen={!!historyModalRental}
+        onClose={() => setHistoryModalRental(null)}
+      />
 
       {/* 6. Modal Anular Orden con Justificación Obligatoria */}
       {annulRentalTarget && (

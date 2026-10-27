@@ -589,6 +589,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             motivo_eliminacion: r.motivo_eliminacion || null,
             garantia_devuelta: r.garantia_devuelta != null ? Number(r.garantia_devuelta) : null,
             garantia_retenida: r.garantia_retenida != null ? Number(r.garantia_retenida) : null,
+            fecha_devolucion: r.fecha_devolucion || r.actual_return_date || null,
+            detalles_pago: r.detalles_pago || null,
             created_at: r.created_at,
             updated_at: r.updated_at,
           }))
