@@ -562,12 +562,19 @@ export const DressRentalHistoryModal: React.FC<DressRentalHistoryModalProps> = (
                             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                             Garantía en Custodia:
                           </span>
-                          <strong className="font-mono text-emerald-400 font-bold">
+                          <strong className="font-mono text-emerald-400 font-bold flex items-center gap-1.5">
                             {formatSoles(originalGuaranteeCents)}
+                            {rental.garantia_dni_fisico && (
+                              <span className="font-sans text-[10px] px-1.5 py-0.5 rounded bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40">
+                                + DNI FÍSICO
+                              </span>
+                            )}
                           </strong>
                         </div>
                         <p className="text-[11px] text-neutral-500">
-                          Monto en custodia preventiva retained para respaldo de las prendas.
+                          {rental.garantia_dni_fisico
+                            ? 'Monto en efectivo + DNI físico en custodia preventiva de respaldo.'
+                            : 'Monto en custodia preventiva retenido para respaldo de las prendas.'}
                         </p>
                       </div>
                     </div>

@@ -1564,7 +1564,14 @@ export const VestuarioManager: React.FC = () => {
                                 )}
                                 {isEntregado && (
                                   <div>
-                                    <span>Garantía: <strong className="text-emerald-300">{formatSoles(rental.guarantee_cents)}</strong></span>
+                                    <span className="flex items-center gap-1.5 flex-wrap">
+                                      <span>Garantía: <strong className="text-emerald-300">{formatSoles(rental.guarantee_cents)}</strong></span>
+                                      {rental.garantia_dni_fisico && (
+                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40">
+                                          + DNI FÍSICO
+                                        </span>
+                                      )}
+                                    </span>
                                     <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-400 font-semibold bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-800/40 w-fit">
                                       <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
                                       <span>

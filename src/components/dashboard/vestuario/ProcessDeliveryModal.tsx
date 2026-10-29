@@ -20,6 +20,7 @@ export const ProcessDeliveryModal: React.FC<ProcessDeliveryModalProps> = ({
 
   const [balanceSoles, setBalanceSoles] = useState<string>('0');
   const [guaranteeSoles, setGuaranteeSoles] = useState<string>('50');
+  const [garantiaDniFisico, setGarantiaDniFisico] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export const ProcessDeliveryModal: React.FC<ProcessDeliveryModalProps> = ({
     if (rental) {
       setBalanceSoles(((rental.pending_cents || 0) / 100).toFixed(0));
       setGuaranteeSoles(((rental.guarantee_cents || 5000) / 100).toFixed(0));
+      setGarantiaDniFisico(rental.garantia_dni_fisico === true);
       setErrorMsg(null);
     }
   }, [rental]);
@@ -38,15 +40,19 @@ export const ProcessDeliveryModal: React.FC<ProcessDeliveryModalProps> = ({
     setErrorMsg(null);
 
     const parsedBalance = parseFloat(balanceSoles);
-    const parsedGuarantee = parseFloat(guaranteeSoles);
+    const parsedGuarantee = guaranteeSoles === '' && garantiaDniFisico ? 0 : parseFloat(guaranteeSoles);
 
     if (isNaN(parsedBalance) || parsedBalance < 0) {
       setErrorMsg('Por favor ingresa un monto válido para el saldo pendiente.');
       return;
     }
 
-    if (isNaN(parsedGuarantee) || parsedGuarantee <= 0) {
-      setErrorMsg('El cobro de la garantía es obligatorio para entregar la prenda.');
+    if (isNaN(parsedGuarantee) || parsedGuarantee < 0 || (!garantiaDniFisico && parsedGuarantee <= 0)) {
+      setErrorMsg(
+        garantiaDniFisico
+          ? 'Por favor ingresa un monto válido de garantía (puede ser 0 si dejó DNI).'
+          : 'El cobro de la garantía es obligatorio para entregar la prenda (o marca Dejó DNI físico).'
+      );
       return;
     }
 
@@ -55,7 +61,8 @@ export const ProcessDeliveryModal: React.FC<ProcessDeliveryModalProps> = ({
       const ok = await confirmDressDelivery(
         rental.id,
         Math.round(parsedBalance * 100),
-        Math.round(parsedGuarantee * 100)
+        Math.round(parsedGuarantee * 100),
+        garantiaDniFisico
       );
 
       if (ok) {
@@ -142,21 +149,48 @@ export const ProcessDeliveryModal: React.FC<ProcessDeliveryModalProps> = ({
               <span>* COBRAR GARANTÍA (Obligatorio para entregar):</span>
               <span className="text-[10px] text-emerald-400 font-normal">Reembolsable al retorno</span>
             </label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">
-                S/
-              </span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                required
-                value={guaranteeSoles}
-                onChange={(e) => setGuaranteeSoles(e.target.value)}
-                placeholder="50"
-                className="w-full pl-9 pr-3.5 py-2.5 bg-[#1C1C1C] border border-neutral-700 focus:border-emerald-500 rounded-xl text-xs font-bold text-emerald-400 outline-none transition"
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-400">
+                  S/
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={guaranteeSoles}
+                  onChange={(e) => setGuaranteeSoles(e.target.value)}
+                  placeholder={garantiaDniFisico ? "40" : "50"}
+                  className="w-full pl-9 pr-3.5 py-2.5 bg-[#1C1C1C] border border-neutral-700 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-emerald-400 outline-none transition"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setGarantiaDniFisico(!garantiaDniFisico)}
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border transition-all cursor-pointer select-none text-xs font-semibold ${
+                  garantiaDniFisico
+                    ? 'bg-emerald-950/40 border-emerald-500/70 text-emerald-300 shadow-sm shadow-emerald-900/20'
+                    : 'bg-[#181818] border-[#C8A45C]/30 text-neutral-300 hover:border-[#C8A45C]/60 hover:text-white'
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                    garantiaDniFisico
+                      ? 'bg-emerald-500 border-emerald-400 text-black'
+                      : 'border-[#C8A45C]/50 bg-black/40'
+                  }`}
+                >
+                  {garantiaDniFisico && <Check className="w-3 h-3 stroke-[3]" />}
+                </div>
+                <span className="whitespace-nowrap">Dejó DNI físico en custodia</span>
+              </button>
             </div>
+            {garantiaDniFisico && (
+              <span className="text-[10px] text-emerald-400 block mt-1">
+                ✓ Garantía Híbrida activa: DNI físico en custodia + Efectivo (S/ {guaranteeSoles || '0'})
+              </span>
+            )}
           </div>
 
           <div className="pt-3 border-t border-neutral-800 flex items-center justify-end gap-2.5">

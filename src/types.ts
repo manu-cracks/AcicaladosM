@@ -133,6 +133,7 @@ export interface DressRental {
   motivo_eliminacion?: string | null;
   fecha_devolucion?: string | null;
   detalles_pago?: DressRentalPaymentDetails | null;
+  garantia_dni_fisico?: boolean | null;
   created_at: string;
   updated_at: string;
 }

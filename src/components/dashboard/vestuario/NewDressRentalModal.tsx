@@ -133,6 +133,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
   const [advanceSoles, setAdvanceSoles] = useState<string>('50');
   const [paidTotalSoles, setPaidTotalSoles] = useState<string>('120');
   const [guaranteeSoles, setGuaranteeSoles] = useState<string>('50');
+  const [garantiaDniFisico, setGarantiaDniFisico] = useState<boolean>(false);
 
   // Método de Pago y Desglose JSONB
   const [paymentMethod, setPaymentMethod] = useState<DressRentalPaymentMethod>('Efectivo');
@@ -286,9 +287,9 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
     if (isImmediateDelivery) {
       // Escenario 4.2: Entrega Inmediata
       const paidNum = parseFloat(paidTotalSoles);
-      const guarNum = parseFloat(guaranteeSoles);
+      const guarNum = guaranteeSoles === '' && garantiaDniFisico ? 0 : parseFloat(guaranteeSoles);
       if (isNaN(guarNum) || guarNum < 0) {
-        setValidationError('Por favor ingresa un monto válido de garantía recibida.');
+        setValidationError('Por favor ingresa un monto válido de garantía recibida (puede ser 0 si dejó DNI).');
         return;
       }
       finalAdvanceCents = Math.round((isNaN(paidNum) ? totalPriceSolesNum : paidNum) * 100);
@@ -353,6 +354,7 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
         advance_cents: finalAdvanceCents,
         pending_cents: finalPendingCents,
         guarantee_cents: finalGuaranteeCents,
+        garantia_dni_fisico: isImmediateDelivery ? Boolean(garantiaDniFisico) : false,
         is_immediate_delivery: isImmediateDelivery,
         delivery_date: isImmediateDelivery ? new Date().toISOString() : null,
         detalles_pago: detallesPago,
@@ -986,21 +988,49 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                       <label className="text-xs font-semibold text-neutral-300">
                         * GARANTÍA RECIBIDA (Manual, sin decimales):
                       </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
-                          S/
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          required
-                          value={guaranteeSoles}
-                          onChange={(e) => setGuaranteeSoles(e.target.value)}
-                          placeholder="50"
-                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
-                        />
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">
+                            S/
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            required
+                            value={guaranteeSoles}
+                            onChange={(e) => setGuaranteeSoles(e.target.value)}
+                            placeholder={garantiaDniFisico ? "40" : "50"}
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setGarantiaDniFisico(!garantiaDniFisico)}
+                          className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border transition-all cursor-pointer select-none text-xs font-semibold ${
+                            garantiaDniFisico
+                              ? 'bg-emerald-950/40 border-emerald-500/70 text-emerald-300 shadow-sm shadow-emerald-900/20'
+                              : 'bg-[#181818] border-[#C8A45C]/30 text-neutral-300 hover:border-[#C8A45C]/60 hover:text-white'
+                          }`}
+                        >
+                          <div
+                            className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                              garantiaDniFisico
+                                ? 'bg-emerald-500 border-emerald-400 text-black'
+                                : 'border-[#C8A45C]/50 bg-black/40'
+                            }`}
+                          >
+                            {garantiaDniFisico && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                          <span className="whitespace-nowrap">Dejó DNI físico en custodia</span>
+                        </button>
                       </div>
+                      {garantiaDniFisico && (
+                        <div className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 pt-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                          <span>Garantía Híbrida: Efectivo (S/ {guaranteeSoles || '0'}) + DNI físico en custodia</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -1071,23 +1101,51 @@ export const NewDressRentalModal: React.FC<NewDressRentalModalProps> = ({
                     )}
 
                     {/* Garantía en entrega inmediata */}
-                    <div className="pt-2 border-t border-neutral-800">
+                    <div className="pt-2 border-t border-neutral-800 space-y-1">
                       <label className="text-xs font-semibold text-neutral-300 block mb-1">
                         * GARANTÍA RECIBIDA EN CUSTODIA (S/):
                       </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">S/</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          required
-                          value={guaranteeSoles}
-                          onChange={(e) => setGuaranteeSoles(e.target.value)}
-                          placeholder="50"
-                          className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
-                        />
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[#E6C875]">S/</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            required
+                            value={guaranteeSoles}
+                            onChange={(e) => setGuaranteeSoles(e.target.value)}
+                            placeholder={garantiaDniFisico ? "40" : "50"}
+                            className="w-full pl-9 pr-3.5 py-2.5 bg-[#1F1F1F] border border-neutral-700/80 focus:border-[#C8A45C] rounded-xl text-xs font-bold text-[#E6C875] outline-none transition"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setGarantiaDniFisico(!garantiaDniFisico)}
+                          className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border transition-all cursor-pointer select-none text-xs font-semibold ${
+                            garantiaDniFisico
+                              ? 'bg-emerald-950/40 border-emerald-500/70 text-emerald-300 shadow-sm shadow-emerald-900/20'
+                              : 'bg-[#181818] border-[#C8A45C]/30 text-neutral-300 hover:border-[#C8A45C]/60 hover:text-white'
+                          }`}
+                        >
+                          <div
+                            className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                              garantiaDniFisico
+                                ? 'bg-emerald-500 border-emerald-400 text-black'
+                                : 'border-[#C8A45C]/50 bg-black/40'
+                            }`}
+                          >
+                            {garantiaDniFisico && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                          <span className="whitespace-nowrap">Dejó DNI físico en custodia</span>
+                        </button>
                       </div>
+                      {garantiaDniFisico && (
+                        <div className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 pt-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-400" />
+                          <span>Garantía Híbrida: Efectivo (S/ {guaranteeSoles || '0'}) + DNI físico en custodia</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

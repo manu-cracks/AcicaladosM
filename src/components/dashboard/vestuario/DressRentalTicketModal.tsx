@@ -346,7 +346,11 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
       msg += `*F. Reserva (${formatDateSlash(rental.created_at)}):* Adelanto ${formatSolesSafe(displayAdelantoCents)}\n`;
       msg += `*F. Recojo (${formatDateSlash(rental.fecha_entrega || rental.delivery_date)}):* Saldo Pagado ${formatSolesSafe(saldoPagadoCents)}\n`;
       msg += `*Saldo Pendiente:* S/ 0.00 (Cancelado)\n`;
-      msg += `*Garantía en Custodia:* ${formatSolesSafe(guaranteeCents)}\n`;
+      if (rental.garantia_dni_fisico) {
+        msg += `*GARANTÍA:* ${formatSolesSafe(guaranteeCents)} + DNI FÍSICO (EN CUSTODIA)\n`;
+      } else {
+        msg += `*Garantía en Custodia:* ${formatSolesSafe(guaranteeCents)}\n`;
+      }
       msg += `_(Garantía protegida por la tienda, reembolsable contra entrega de prenda intacta)_\n`;
     } else if (isFinalizado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
@@ -758,10 +762,21 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
               </div>
 
               {/* Fila extra para ENTREGADO en Local */}
-              {!isWebMode && isEntregado && (
+              {!isWebMode && (isEntregado || rental.garantia_dni_fisico) && (
                 <div className="flex justify-between items-baseline font-bold text-xs pt-0.5 text-black">
-                  <span>GARANTÍA EN CUSTODIA:</span>
-                  <span className="font-mono">{formatSolesSafe(guaranteeCents)}</span>
+                  {rental.garantia_dni_fisico ? (
+                    <>
+                      <span>GARANTÍA:</span>
+                      <span className="font-mono text-right">
+                        {formatSolesSafe(guaranteeCents)} + DNI FÍSICO (EN CUSTODIA)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>GARANTÍA EN CUSTODIA:</span>
+                      <span className="font-mono">{formatSolesSafe(guaranteeCents)}</span>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -769,8 +784,19 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
               {!isWebMode && isFinalizado && (
                 <div className="space-y-0.5 pt-0.5">
                   <div className="flex justify-between items-baseline font-semibold">
-                    <span>GARANTÍA INICIAL:</span>
-                    <span className="font-mono">{formatSolesSafe(guaranteeCents)}</span>
+                    {rental.garantia_dni_fisico ? (
+                      <>
+                        <span>GARANTÍA INICIAL:</span>
+                        <span className="font-mono text-right">
+                          {formatSolesSafe(guaranteeCents)} + DNI FÍSICO (EN CUSTODIA)
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>GARANTÍA INICIAL:</span>
+                        <span className="font-mono">{formatSolesSafe(guaranteeCents)}</span>
+                      </>
+                    )}
                   </div>
                   {penaltyCents > 0 && (
                     <div className="space-y-0.5 text-neutral-900">
@@ -818,8 +844,9 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                     </div>
                   ) : !isWebMode && isEntregado ? (
                     <div className="text-neutral-900 font-medium">
-                      ⚠️ GARANTÍA EN CUSTODIA: El monto está protegido por la tienda y se
-                      reembolsará contra entrega de la prenda intacta.
+                      ⚠️ {rental.garantia_dni_fisico
+                        ? `GARANTÍA: ${formatSolesSafe(guaranteeCents)} + DNI FÍSICO (EN CUSTODIA). El monto y documento físico están bajo custodia de la tienda y se devolverán contra entrega de la prenda intacta.`
+                        : 'GARANTÍA EN CUSTODIA: El monto está protegido por la tienda y se reembolsará contra entrega de la prenda intacta.'}
                     </div>
                   ) : !isWebMode && isFinalizado ? (
                     <div className="space-y-0.5 text-center text-neutral-900 font-semibold">

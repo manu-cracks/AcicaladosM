@@ -512,6 +512,7 @@ export type Database = {
           is_pack: boolean | null
           pack_item_ids: string[] | null
           detalles_pago: Json | null
+          garantia_dni_fisico: boolean | null
         }
         Insert: {
           actual_return_date?: string | null
@@ -554,6 +555,7 @@ export type Database = {
           is_pack?: boolean | null
           pack_item_ids?: string[] | null
           detalles_pago?: Json | null
+          garantia_dni_fisico?: boolean | null
         }
         Update: {
           actual_return_date?: string | null
@@ -596,6 +598,7 @@ export type Database = {
           is_pack?: boolean | null
           pack_item_ids?: string[] | null
           detalles_pago?: Json | null
+          garantia_dni_fisico?: boolean | null
         }
         Relationships: [
           {

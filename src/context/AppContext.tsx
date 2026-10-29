@@ -239,7 +239,7 @@ interface AppContextType {
   updateWardrobeStatus: (id: string, status: WardrobeStatus) => void;
   addDressRental: (data: Omit<DressRental, 'id' | 'ticket_code' | 'created_at' | 'updated_at'>) => Promise<DressRental | null>;
   validateYapeVoucher: (rentalId: string, approved: boolean, reason?: string) => Promise<boolean>;
-  confirmDressDelivery: (rentalId: string, balanceCollectedCents: number, guaranteeCollectedCents: number) => Promise<boolean>;
+  confirmDressDelivery: (rentalId: string, balanceCollectedCents: number, guaranteeCollectedCents: number, garantiaDniFisico?: boolean) => Promise<boolean>;
   processDressReturn: (rentalId: string, guaranteeReturnedCents: number, penaltyReason?: string) => Promise<boolean>;
   cancelDressRental: (rentalId: string, reason?: string) => Promise<boolean>;
   deleteDressRental: (rentalId: string) => Promise<boolean>;
@@ -591,6 +591,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             garantia_retenida: r.garantia_retenida != null ? Number(r.garantia_retenida) : null,
             fecha_devolucion: r.fecha_devolucion || r.actual_return_date || null,
             detalles_pago: r.detalles_pago || null,
+            garantia_dni_fisico: r.garantia_dni_fisico === true,
             created_at: r.created_at,
             updated_at: r.updated_at,
           }))
@@ -4492,6 +4493,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           rejection_reason: data.rejection_reason || null,
           notes: data.notes || null,
           detalles_pago: data.detalles_pago || null,
+          garantia_dni_fisico: Boolean(data.garantia_dni_fisico),
           asesor_name: (data.asesor_name && data.asesor_name.trim()) || currentUser?.name || 'Recepción',
         };
 
@@ -4545,6 +4547,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           rejection_reason: raw.rejection_reason,
           notes: raw.notes,
           detalles_pago: raw.detalles_pago || data.detalles_pago || null,
+          garantia_dni_fisico: raw.garantia_dni_fisico === true || Boolean(data.garantia_dni_fisico),
           numero_ticket: raw.numero_ticket,
           fecha_emision_ticket: raw.fecha_emision_ticket,
           asesor_name: raw.asesor_name || insertPayload.asesor_name,
@@ -4703,11 +4706,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     async (
       rentalId: string,
       balanceCollectedCents: number,
-      guaranteeCollectedCents: number
+      guaranteeCollectedCents: number,
+      garantiaDniFisico?: boolean
     ): Promise<boolean> => {
       try {
         const nowIso = new Date().toISOString();
-        const updatePayload = {
+        const updatePayload: any = {
           status: 'entregado' as DressRentalStatus,
           pending_cents: 0,
           guarantee_cents: guaranteeCollectedCents,
@@ -4715,6 +4719,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           fecha_entrega: nowIso,
           updated_at: nowIso,
         };
+        if (garantiaDniFisico !== undefined) {
+          updatePayload.garantia_dni_fisico = garantiaDniFisico;
+        }
 
         setDressRentals((prev) =>
           prev.map((r) =>
