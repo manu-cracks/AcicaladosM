@@ -355,7 +355,11 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
     } else if (isFinalizado) {
       msg += `*Total Alquiler:* ${formatSolesSafe(displayTotalAlquilerCents)}\n`;
       if (paymentMethodDisplay) msg += `*Método de Pago:* ${paymentMethodDisplay}\n`;
-      msg += `*Garantía Devuelta:* ${formatSolesSafe(guaranteeReturnedCents)}\n`;
+      if (rental.garantia_dni_fisico) {
+        msg += `*Garantía Devuelta:* ${formatSolesSafe(guaranteeReturnedCents)} + DNI DEVUELTO\n`;
+      } else {
+        msg += `*Garantía Devuelta:* ${formatSolesSafe(guaranteeReturnedCents)}\n`;
+      }
       if (penaltyCents > 0) {
         msg += `*Retención por Daños/Mora:* ${formatSolesSafe(penaltyCents)}\n`;
         if (rental.penalty_reason) msg += `*Motivo:* ${rental.penalty_reason}\n`;
@@ -761,8 +765,8 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                 </span>
               </div>
 
-              {/* Fila extra para ENTREGADO en Local */}
-              {!isWebMode && (isEntregado || rental.garantia_dni_fisico) && (
+              {/* Fila extra para ENTREGADO en Local (no mostrar en Finalizado) */}
+              {!isWebMode && isEntregado && !isFinalizado && (
                 <div className="flex justify-between items-baseline font-bold text-xs pt-0.5 text-black">
                   {rental.garantia_dni_fisico ? (
                     <>
@@ -784,25 +788,14 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
               {!isWebMode && isFinalizado && (
                 <div className="space-y-0.5 pt-0.5">
                   <div className="flex justify-between items-baseline font-semibold">
-                    {rental.garantia_dni_fisico ? (
-                      <>
-                        <span>GARANTÍA INICIAL:</span>
-                        <span className="font-mono text-right">
-                          {formatSolesSafe(guaranteeCents)} + DNI FÍSICO (EN CUSTODIA)
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>GARANTÍA INICIAL:</span>
-                        <span className="font-mono">{formatSolesSafe(guaranteeCents)}</span>
-                      </>
-                    )}
+                    <span>GARANTÍA INICIAL:</span>
+                    <span className="font-mono text-right">{formatSolesSafe(guaranteeCents)}</span>
                   </div>
                   {penaltyCents > 0 && (
                     <div className="space-y-0.5 text-neutral-900">
                       <div className="flex justify-between items-baseline font-bold">
                         <span>DESCUENTO POR DAÑOS / MORA:</span>
-                        <span className="font-mono">-{formatSolesSafe(penaltyCents)}</span>
+                        <span className="font-mono text-right">-{formatSolesSafe(penaltyCents)}</span>
                       </div>
                       {rental.penalty_reason && (
                         <div className="text-[10px] text-neutral-700 italic">
@@ -811,10 +804,12 @@ export const DressRentalTicketModal: React.FC<DressRentalTicketModalProps> = ({
                       )}
                     </div>
                   )}
-                  <div className="flex justify-between items-baseline font-bold text-black border-t border-neutral-300 pt-0.5">
-                    <span>GARANTÍA DEVUELTA AL CLIENTE:</span>
-                    <span className="font-mono">
-                      {formatSolesSafe(guaranteeReturnedCents)}
+                  <div className="flex justify-between items-baseline font-bold text-black border-t border-neutral-300 pt-0.5 gap-1">
+                    <span className="leading-tight">GARANTÍA DEVUELTA AL CLIENTE:</span>
+                    <span className="font-mono text-right leading-tight">
+                      {rental.garantia_dni_fisico
+                        ? `${formatSolesSafe(guaranteeReturnedCents)} + DNI DEVUELTO`
+                        : formatSolesSafe(guaranteeReturnedCents)}
                     </span>
                   </div>
                 </div>
