@@ -106,6 +106,20 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
           </button>
         </div>
 
+        {/* ALERTA CRÍTICA: DEVOLUCIÓN DE DNI FÍSICO */}
+        {rental.garantia_dni_fisico && (
+          <div className="bg-gradient-to-r from-red-950/90 via-amber-950/80 to-red-950/90 border-2 border-red-500 rounded-2xl p-4 text-center shadow-2xl shadow-red-950/70 animate-in fade-in duration-200">
+            <div className="flex items-center justify-center gap-2 text-red-200 font-black text-sm sm:text-base tracking-wide uppercase">
+              <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 shrink-0 animate-bounce" />
+              <span>⚠️ ATENCIÓN: DEVOLVER EL DNI FÍSICO AL CLIENTE</span>
+              <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 shrink-0 animate-bounce" />
+            </div>
+            <p className="text-xs text-amber-200/90 font-medium mt-1.5 leading-snug">
+              Esta orden fue registrada con <strong className="text-white">Garantía Híbrida (Efectivo + DNI Físico)</strong>. Es indispensable devolver el documento físico en custodia al cliente al completar la devolución.
+            </p>
+          </div>
+        )}
+
         {/* Resumen */}
         <div className="bg-[#1C1C1C] border border-neutral-800 rounded-2xl p-3.5 space-y-1.5 text-xs">
           <p className="text-neutral-400">
@@ -122,6 +136,11 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
             Garantía Original Recibida:{' '}
             <span className="text-emerald-400 font-bold">
               {formatSoles(rental.guarantee_cents)}
+              {rental.garantia_dni_fisico && (
+                <span className="text-[#FFE7A8] font-bold ml-1">
+                  + DNI físico
+                </span>
+              )}
             </span>
           </p>
         </div>
@@ -203,6 +222,15 @@ export const ProcessReturnModal: React.FC<ProcessReturnModalProps> = ({
             <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-950/20 border border-emerald-800/40 px-3.5 py-2.5 rounded-xl">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>Devolución completa de garantía (S/ {originalGuaranteeSoles.toFixed(2)}) sin retenciones.</span>
+            </div>
+          )}
+
+          {rental.garantia_dni_fisico && (
+            <div className="bg-red-950/30 border border-red-500/50 rounded-xl p-2.5 flex items-center gap-2 text-xs text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Recordatorio obligatorio:</strong> Entrega el DNI físico en mano al cliente antes de presionar finalizar.
+              </span>
             </div>
           )}
 

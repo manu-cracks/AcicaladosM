@@ -560,13 +560,13 @@ export const DressRentalHistoryModal: React.FC<DressRentalHistoryModalProps> = (
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-neutral-400 flex items-center gap-1">
                             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                            Garantía en Custodia:
+                            Garantía:
                           </span>
-                          <strong className="font-mono text-emerald-400 font-bold flex items-center gap-1.5">
+                          <strong className="font-mono text-emerald-400 font-bold">
                             {formatSoles(originalGuaranteeCents)}
                             {rental.garantia_dni_fisico && (
-                              <span className="font-sans text-[10px] px-1.5 py-0.5 rounded bg-[#C8A45C]/20 text-[#E6C875] border border-[#C8A45C]/40">
-                                + DNI FÍSICO
+                              <span className="font-sans font-semibold text-[#E6C875] ml-1">
+                                + DNI físico
                               </span>
                             )}
                           </strong>
