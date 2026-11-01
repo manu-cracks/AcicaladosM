@@ -1246,7 +1246,7 @@ export const ReservasManager: React.FC = () => {
                   return (
                     <React.Fragment key={b.id}>
                       <tr
-                        className={`transition group ${
+                        className={`transition group overflow-x-auto whitespace-nowrap scrollbar-thin scrollbar-thumb-gray-700/50 hover:scrollbar-thumb-gray-500 scrollbar-track-transparent ${
                           hasPendingDeletion
                             ? 'bg-red-950/25 hover:bg-red-900/35 border-l-4 border-orange-500'
                             : 'hover:bg-[#1A1813]/40'
@@ -1276,6 +1276,11 @@ export const ReservasManager: React.FC = () => {
                         <td className="py-3 px-4">
                           <span className="font-semibold text-white block">{b.client_name}</span>
                           <span className="text-[10px] text-neutral-500">{b.client_phone}</span>
+                          {b.client_dni && (
+                            <span className="text-xs text-gray-400 block mt-1">
+                              DNI: {b.client_dni}
+                            </span>
+                          )}
                         </td>
 
                         {/* Date & Time */}
