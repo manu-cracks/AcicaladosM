@@ -754,6 +754,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             advance_amount_cents: b.advance_amount_cents || 0,
             balance_cents: b.balance_cents != null ? b.balance_cents : Math.max(0, (b.total_price_cents || 0) - (b.advance_amount_cents || 0)),
             payment_status: b.payment_status as any,
+            payment_method: b.payment_method || b.metodo_pago || b.tipo_pago || undefined,
             created_at: b.created_at,
             numero_ticket: b.numero_ticket || undefined,
             fecha_emision_ticket: b.fecha_emision_ticket || undefined,
@@ -1489,6 +1490,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               advance_amount_cents: newAdvance,
               balance_cents: newBalance,
               payment_status: payStatus,
+              payment_method: method,
               confirmed_at: b.confirmed_at || (newAdvance > 0 ? `${today}T12:00:00Z` : undefined),
             };
           }
@@ -1530,6 +1532,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             advance_amount_cents: newAdvance,
             balance_cents: newBalance,
             payment_status: payStatus,
+            payment_method: method,
             confirmed_at: newAdvance > 0 ? (targetBooking?.confirmed_at || new Date().toISOString()) : null,
           }).eq('id', bookingId);
 

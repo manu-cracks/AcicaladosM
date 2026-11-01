@@ -91,6 +91,7 @@ export interface PreparedBookingTicket {
   advanceAmountCents: number;
   balanceCents: number;
   paymentStatus: string;
+  paymentMethod?: string;
 }
 
 /** Formateador para fecha de emisión de reserva: "23 oct. 2026 - 03:30 p. m." */
@@ -438,6 +439,7 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
         advanceAmountCents: advanceCentsSafe,
         balanceCents: balanceCentsSafe,
         paymentStatus: b.payment_status || 'total',
+        paymentMethod: b.payment_method || (b as any).metodo_pago || (b as any).tipo_pago || undefined,
       });
     } catch (err) {
       console.error('Error preparando ticket térmico en tiempo real:', err);
@@ -476,6 +478,7 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
         advanceAmountCents: advanceCentsSafe,
         balanceCents: balanceCentsSafe,
         paymentStatus: b.payment_status || 'total',
+        paymentMethod: b.payment_method || (b as any).metodo_pago || (b as any).tipo_pago || undefined,
       });
     } finally {
       setIsLoading(false);
@@ -697,6 +700,26 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
   const ventaFechaEmision = formatFechaEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
   const ventaHoraEmision = formatHoraEmisionDirecta(ventaData?.created_at || (ventaData as any)?.fecha);
 
+  // Formato limpio del método de pago de la reserva general (Efectivo, Yape, Mixto)
+  const formatMetodoPagoDisplay = (method?: string | null): string => {
+    if (!method) return 'Efectivo';
+    const clean = method.trim().toLowerCase();
+    if (clean === 'mixto') return 'Mixto';
+    if (clean === 'yape') return 'Yape';
+    if (clean === 'efectivo') return 'Efectivo';
+    if (clean === 'transferencia') return 'Transferencia';
+    return method.charAt(0).toUpperCase() + method.slice(1);
+  };
+
+  const rawBookingPaymentMethod =
+    preparedBooking?.paymentMethod ||
+    bookingData?.payment_method ||
+    (bookingData as any)?.metodo_pago ||
+    (bookingData as any)?.tipo_pago ||
+    'efectivo';
+
+  const bookingPaymentMethodDisplay = formatMetodoPagoDisplay(rawBookingPaymentMethod);
+
   return (
     <div
       id="thermal-ticket-modal-overlay"
@@ -883,6 +906,10 @@ const TicketTermicoModalInner: React.FC<TicketTermicoModalInnerProps> = ({ activ
                         </div>
                         <div className="text-[10px] text-neutral-900 font-bold">
                           <strong>Esp: {extractSpecialistFirstName(srv.specialist || (srv as any).especialista || (srv as any).trabajador_nombre, 'ESPECIALISTA')}</strong>
+                        </div>
+                        <div className="flex justify-between items-baseline text-[10px] text-neutral-900 pt-0.5">
+                          <strong>MÉTODO DE PAGO:</strong>
+                          <span className="font-semibold text-right">{bookingPaymentMethodDisplay}</span>
                         </div>
                       </div>
                     ))}
