@@ -579,14 +579,6 @@ export const ReservasManager: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Bloqueo estricto de fechas: Recepcionista solo tiene acceso a las citas de "Hoy"
-  useEffect(() => {
-    if (!isAdmin && (dateFilter !== 'hoy' || customDate !== '')) {
-      setDateFilter('hoy');
-      setCustomDate('');
-    }
-  }, [isAdmin, dateFilter, customDate]);
-
   // Expandable Row State
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
 
@@ -645,19 +637,39 @@ export const ReservasManager: React.FC = () => {
 
   const todayStr = getTodayDateString();
 
+  // Fecha efectiva seleccionada en el filtro normalizada a YYYY-MM-DD
+  const effectiveSelectedDate = useMemo(() => {
+    if (dateFilter === 'custom' && customDate) {
+      return customDate;
+    }
+    if (dateFilter === 'manana') {
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      return t.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    }
+    if (dateFilter === 'todas') {
+      return 'todas';
+    }
+    return todayStr;
+  }, [dateFilter, customDate, todayStr]);
+
+  // Visibilidad condicional de "Total Ingresos Cobrados":
+  // - Admin: siempre visible.
+  // - Recepcionista: visible solo si la fecha seleccionada es hoy. Oculto si es un día anterior o distinto a hoy.
+  const canShowIngresosCobrados = isAdmin || effectiveSelectedDate === todayStr;
+
   // Filter Bookings
   const filteredBookings = useMemo(() => {
-    const effectiveDateFilter = isAdmin ? dateFilter : 'hoy';
     return bookings.filter((b) => {
-      // Date filter (Recepcionista forzada estrictamente al día de "Hoy")
-      if (effectiveDateFilter === 'hoy' && b.date !== todayStr) return false;
-      if (isAdmin && effectiveDateFilter === 'manana') {
+      // Date filter
+      if (dateFilter === 'hoy' && b.date !== todayStr) return false;
+      if (isAdmin && dateFilter === 'manana') {
         const t = new Date();
         t.setDate(t.getDate() + 1);
         const mananaStr = t.toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
         if (b.date !== mananaStr) return false;
       }
-      if (isAdmin && effectiveDateFilter === 'custom' && customDate && b.date !== customDate) return false;
+      if (dateFilter === 'custom' && customDate && b.date !== customDate) return false;
 
       // Category filter (evaluación dinámica estricta)
       if (categoryFilter !== 'all') {
@@ -956,7 +968,11 @@ export const ReservasManager: React.FC = () => {
 
       {/* 4 Métricas Financieras y Operativas (Administrador y Recepcionista) */}
       {(isAdmin || isRecepcionista) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div
+          className={`grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 ${
+            canShowIngresosCobrados ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+          }`}
+        >
           {/* Cuadro 1: Citas Pendientes por Cobrar */}
           <div className="bg-[#141414] border border-amber-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-amber-500/50 transition-all">
             <div className="flex items-center justify-between">
@@ -993,23 +1009,25 @@ export const ReservasManager: React.FC = () => {
             </div>
           </div>
 
-          {/* Cuadro 3: Total Ingresos Cobrados */}
-          <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/60 transition-all">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-neutral-400">Total Ingresos Cobrados</span>
-              <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 text-[#C8A45C] flex items-center justify-center">
-                <DollarSign className="w-4 h-4" />
+          {/* Cuadro 3: Total Ingresos Cobrados (Solo Admin o Recepcionista en el día de Hoy) */}
+          {canShowIngresosCobrados && (
+            <div className="bg-[#141414] border border-[#C8A45C]/35 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-[#C8A45C]/60 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-neutral-400">Total Ingresos Cobrados</span>
+                <div className="w-8 h-8 rounded-lg bg-[#C8A45C]/15 text-[#C8A45C] flex items-center justify-center">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] tracking-tight block">
+                  {formatSoles(adminKPIs.totalIngresosCobradosCents)}
+                </span>
+                <span className="text-[11px] text-neutral-500 mt-0.5 block">
+                  {isRecepcionista ? 'Cobrado hoy (Adelanto + Total)' : 'Monto ya pagado (Adelanto + Total)'}
+                </span>
               </div>
             </div>
-            <div>
-              <span className="font-serif-luxury text-2xl sm:text-3xl font-bold text-[#E6C875] tracking-tight block">
-                {formatSoles(adminKPIs.totalIngresosCobradosCents)}
-              </span>
-              <span className="text-[11px] text-neutral-500 mt-0.5 block">
-                {isRecepcionista ? 'Cobrado hoy (Adelanto + Total)' : 'Monto ya pagado (Adelanto + Total)'}
-              </span>
-            </div>
-          </div>
+          )}
 
           {/* Cuadro 4: Total por Cobrar en Local */}
           <div className="bg-[#141414] border border-emerald-900/40 rounded-2xl p-5 space-y-3 shadow-xl relative overflow-hidden group hover:border-emerald-500/50 transition-all">
@@ -1070,24 +1088,24 @@ export const ReservasManager: React.FC = () => {
                     {d === 'todas' ? 'Todas' : 'Mañana'}
                   </button>
                 ))}
-
-                <input
-                  type="date"
-                  value={customDate}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setCustomDate(val);
-                    if (val) {
-                      setDateFilter('custom');
-                    } else {
-                      setDateFilter('hoy');
-                    }
-                  }}
-                  className="bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] text-xs text-white px-2.5 py-1.5 rounded-lg outline-none transition"
-                  title="Seleccionar fecha específica"
-                />
               </>
             )}
+
+            <input
+              type="date"
+              value={customDate}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCustomDate(val);
+                if (val) {
+                  setDateFilter('custom');
+                } else {
+                  setDateFilter('hoy');
+                }
+              }}
+              className="bg-[#1A1A1A] border border-neutral-800 focus:border-[#C8A45C] text-xs text-white px-2.5 py-1.5 rounded-lg outline-none transition"
+              title="Seleccionar fecha específica"
+            />
           </div>
 
           {/* Category Dropdown */}
